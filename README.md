@@ -51,7 +51,7 @@ More examples can be found at [Samples](samples/) and [TileGym](https://github.c
 System Requirements
 -------------------
 cuTile Python generates kernels based on [Tile IR](https://docs.nvidia.com/cuda/tile-ir/)
-which requries NVIDIA Driver r580 or later to run.
+which requires NVIDIA Driver r580 or later to run.
 Furthermore, the `tileiras` compiler (version 13.2) only supports Blackwell GPU and Ampere/Ada
 GPU. Hopper GPU will be supported in the coming versions.
 Checkout the [prerequisites](https://docs.nvidia.com/cuda/cutile-python/quickstart.html#prerequisites)
