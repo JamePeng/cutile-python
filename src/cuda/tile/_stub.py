@@ -1232,6 +1232,55 @@ def bitcast(x, /, dtype) -> Tile:
     """
 
 
+@function
+def pack_to_bytes(x, /) -> Tile:
+    """Flattens a tile and reinterprets its raw bytes as uint8 elements.
+
+    The total number of bits of the input tile must be divisible by 8.
+
+    Args:
+        x (Tile): input tile.
+
+    Returns:
+        Tile: a 1D uint8 tile with ``total_elements * bit width // 8`` elements.
+
+    Examples:
+
+        >>> tx = ct.full((2, 4), 0, dtype=ct.int32)
+        >>> ty = ct.pack_to_bytes(tx)
+        >>> ty.dtype
+        uint8
+        >>> ty.shape
+        (32,)
+    """
+
+
+@function
+def unpack_from_bytes(x, /, dtype) -> Tile:
+    """Reinterprets a 1D uint8 byte tile as a 1D tile of the target data type.
+
+    The inverse of :py:func:`pack_to_bytes`. The input must be a 1D tile of
+    dtype uint8, and the total number of bits must be divisible by the
+    target data type bit width.
+
+    Args:
+        x (Tile): a 1D tile of dtype uint8.
+        dtype (DType): target data type.
+
+    Returns:
+        Tile: a 1D tile of ``dtype`` with ``num_bytes * 8 // bit width`` elements.
+
+    Examples:
+
+        >>> tx = ct.full((16,), 0, dtype=ct.uint8)
+        >>> ty = ct.unpack_from_bytes(tx, ct.float32)
+        >>> ty.dtype
+        float32
+        >>> ty.shape
+        (4,)
+    """
+
+
 def _math_op_extra_block(f, indent):
     base = inspect.unwrap(f)
     sig = inspect.signature(base)

@@ -95,17 +95,24 @@ def test_cast_tf32(dtype):
     (torch.int32, torch.int64),
     (torch.int64, torch.float32),
     (torch.float16, torch.int32),
+    # failing pairs with bool
+    (torch.bool, torch.int8),
+    (torch.uint8, torch.bool),
+    (torch.bool, torch.bool),
 ])
 def test_array_bitcast(shape, tile, dtype_x, dtype_y):
     # avoid inputs that could produce nans of infs to not break assert
-    if dtype_x in (torch.int32, torch.int64):
+    if dtype_x == torch.bool:
+        x = torch.randint(0, 2, shape, dtype=dtype_x, device='cuda')
+    elif dtype_x in (torch.int32, torch.int64, torch.int8, torch.uint8):
         x = torch.randint(0, 100, shape, dtype=dtype_x, device='cuda')
     else:
         x = torch.randn(shape, dtype=dtype_x, device='cuda')
     ref = x.view(dtype=dtype_y)
     y = torch.zeros_like(ref)
     grid = (ceil(shape[0] / tile), 1, 1)
-    if dtype_x.itemsize != dtype_y.itemsize:
+    if (dtype_x == torch.bool or dtype_y == torch.bool
+            or dtype_x.itemsize != dtype_y.itemsize):
         with pytest.raises(TileTypeError):
             ct.launch(torch.cuda.current_stream(), grid, array_bitcast, (x, y, tile))
 

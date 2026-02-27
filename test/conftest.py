@@ -106,7 +106,7 @@ def shape_size_id(shape):
 float_dtypes = [torch.float16, torch.bfloat16, torch.float32]
 int_dtypes = [torch.int32, torch.int64, torch.int16, torch.int8]
 bool_dtypes = [torch.bool]
-uint_dtypes = [torch.uint32, torch.uint64]
+uint_dtypes = [torch.uint8, torch.uint32, torch.uint64]
 arithmetic_dtypes = int_dtypes + uint_dtypes + float_dtypes + bool_dtypes
 
 

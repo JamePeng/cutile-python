@@ -3642,9 +3642,17 @@ class TileBitCast(Operation, opcode="tile_bitcast"):
 def bitcast(x: Var, dtype: DType) -> Var:
     tile_ty = require_tile_type(x)
     x_dtype = tile_ty.dtype
+    if x_dtype == datatype.bool_ or dtype == datatype.bool_:
+        raise TileTypeError(f"Cannot bitcast from {x_dtype} to {dtype}: "
+                            f"bitcast to or from bool is not supported")
+
     if x_dtype.bitwidth != dtype.bitwidth:
         raise TileTypeError(f"Cannot bitcast from {x_dtype} to {dtype}: "
-                            f"bit width is different ({x_dtype.bitwidth} vs. {dtype.bitwidth}")
+                            f"bit width is different ({x_dtype.bitwidth} vs. {dtype.bitwidth})")
+
+    if x_dtype == dtype:
+        return x
+
     res_ty = make_tile_ty(dtype, tile_ty.shape_value)
     return add_operation(TileBitCast, res_ty, x=x)
 
@@ -3653,6 +3661,90 @@ def bitcast(x: Var, dtype: DType) -> Var:
 def bitcast_impl(x: Var, dtype: Var) -> Var:
     dtype_val = require_dtype_spec(dtype)
     return bitcast(x, dtype_val)
+
+
+@dataclass(eq=False)
+class TilePack(Operation, opcode="tile_pack"):
+    x: Var = operand()
+
+    @override
+    def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
+        res_type_id = ctx.typeid_of(self.result_var)
+        x_value = ctx.get_value(self.x)
+        return bc.encode_PackOp(ctx.builder, res_type_id, x_value)
+
+
+def pack(x: Var) -> Var:
+    tile_ty = require_tile_type(x)
+    assert tile_ty.ndim == 1
+    assert tile_ty.dtype.bitwidth != 8
+    old_dim = tile_ty.shape_value[0]
+    new_dim, rem = divmod(old_dim * tile_ty.dtype.bitwidth, 8)
+    if rem != 0:
+        raise TileTypeError(f"Cannot pack tile {tile_ty}: "
+                            f"total bits ({old_dim} * {tile_ty.dtype.bitwidth}) "
+                            f"not divisible by 8")
+    res_ty = make_tile_ty(datatype.uint8, (new_dim,))
+    return add_operation(TilePack, res_ty, x=x)
+
+
+@impl(ct.pack_to_bytes, min_version=BytecodeVersion.V_13_3)
+def pack_to_bytes_impl(x: Var):
+    tile_ty = require_tile_type(x)
+    x_dtype = tile_ty.dtype
+    x = reshape(x, (-1,))
+    if x_dtype == datatype.bool_:
+        raise TileTypeError(f"pack_to_bytes from a {x_dtype} tile is not supported")
+
+    if x_dtype.bitwidth == 8:
+        return bitcast(x, datatype.uint8)
+    return pack(x)
+
+
+@dataclass(eq=False)
+class TileUnpack(Operation, opcode="tile_unpack"):
+    x: Var = operand()
+
+    @override
+    def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
+        res_type_id = ctx.typeid_of(self.result_var)
+        x_value = ctx.get_value(self.x)
+        return bc.encode_UnpackOp(ctx.builder, res_type_id, x_value)
+
+
+def unpack(x: Var, dtype: DType) -> Var:
+    tile_ty = require_tile_type(x)
+    assert tile_ty.ndim == 1
+    assert tile_ty.dtype == datatype.uint8
+    assert dtype.bitwidth != 8
+    old_dim = tile_ty.shape_value[0]
+    new_dim, rem = divmod(old_dim * 8, dtype.bitwidth)
+    if rem != 0:
+        raise TileTypeError(
+            f"Cannot unpack tile {tile_ty} to {dtype}: "
+            f"total bits ({old_dim} * 8) not divisible by {dtype.bitwidth}")
+    res_ty = make_tile_ty(dtype, (new_dim,))
+    return add_operation(TileUnpack, res_ty, x=x)
+
+
+@impl(ct.unpack_from_bytes, min_version=BytecodeVersion.V_13_3)
+def unpack_from_bytes_impl(x: Var, dtype: Var):
+    tile_ty = require_tile_type(x)
+    x_dtype = tile_ty.dtype
+    dtype = require_dtype_spec(dtype)
+    if tile_ty.ndim != 1:
+        raise TileTypeError(
+            f"unpack_from_bytes requires a 1D tile, "
+            f"got {tile_ty.ndim}D tile with shape {tile_ty.shape_value}")
+    if x_dtype != datatype.uint8:
+        raise TileTypeError(
+            f"unpack_from_bytes requires uint8 tile, got {x_dtype} tile")
+    if dtype == datatype.bool_:
+        raise TileTypeError(f"unpack_from_bytes to a {dtype} tile is not supported")
+
+    if dtype.bitwidth == 8:
+        return bitcast(x, dtype)
+    return unpack(x, dtype)
 
 
 @dataclass(eq=False)

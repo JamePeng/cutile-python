@@ -53,6 +53,7 @@ Shape & DType
    permute
    transpose
    astype
+   bitcast
 
 
 Reduction
