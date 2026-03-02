@@ -42,6 +42,7 @@ from cuda.tile._passes.eliminate_assign_ops import eliminate_assign_ops
 from cuda.tile._passes.hir2ir import hir2ir
 from cuda.tile._passes.loop_split import split_loops
 from cuda.tile._passes.rewrite_patterns import rewrite_patterns
+from cuda.tile._cext import dev_features_enabled
 from cuda.tile._debug import (
     CUDA_TILE_TESTING_DISABLE_TOKEN_ORDER,
     CUDA_TILE_DUMP_BYTECODE,
@@ -205,7 +206,8 @@ def compile_tile(pyfunc,
                  args,
                  compiler_options: CompilerOptions,
                  context: TileContext = default_tile_context) -> TileLibrary:
-    bytecode_version = _get_max_supported_bytecode_version(context.config.temp_dir)
+    bytecode_version = _get_max_supported_bytecode_version(context.config.temp_dir,
+                                                           allow_dev=dev_features_enabled())
 
     param_names = tuple(inspect.signature(pyfunc).parameters.keys())
     ir_args = _bind_kernel_arguments(param_names, args, get_constant_annotations(pyfunc))
@@ -448,11 +450,18 @@ def _find_compiler_bin() -> _CompilerBinary:
                             " installation.")
 
 
+_SUPPORTED_VERSIONS = [
+    BytecodeVersion.V_13_1,
+    BytecodeVersion.V_13_2,
+]
+
+
 @cache
-def _get_max_supported_bytecode_version(temp_dir: str) -> BytecodeVersion:
+def _get_max_supported_bytecode_version(temp_dir: str, allow_dev: bool = False) -> BytecodeVersion:
     binary = _find_compiler_bin()
     flags = ["--gpu-name", "sm_120"]
-    for version in reversed(BytecodeVersion):
+    to_probe = BytecodeVersion if allow_dev else _SUPPORTED_VERSIONS
+    for version in reversed(to_probe):
         probe = bytearray()
         with bc.write_bytecode(num_functions=0, buf=probe, version=version):
             pass

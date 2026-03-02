@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Sequence
 
 from .basic import encode_varint, encode_int_list, Table
+from .version import BytecodeVersion
 
 
 @dataclass(frozen=True)
@@ -55,19 +56,20 @@ class _CompositeType(enum.Enum):
 
 
 class PaddingValue(enum.Enum):
-    Missing = b"\x00"
-    Zero = b"\x01\x00"
-    NegZero = b"\x01\x01"
-    Nan = b"\x01\x02"
-    PosInf = b"\x01\x03"
-    NegInf = b"\x01\x04"
+    Missing = b""
+    Zero = b"\x00"
+    NegZero = b"\x01"
+    Nan = b"\x02"
+    PosInf = b"\x03"
+    NegInf = b"\x04"
 
 
 class TypeTable(Table[bytes, TypeId]):
     _wrapper_type = TypeId
 
-    def __init__(self):
+    def __init__(self, version: BytecodeVersion):
         super().__init__()
+        self.version = version
         self._predefine(SimpleType.I1._value_, I1_TYPE_ID)
         self._predefine(SimpleType.I32._value_, I32_TYPE_ID)
 
@@ -121,10 +123,21 @@ class TypeTable(Table[bytes, TypeId]):
                        dim_map: Sequence[int],
                        padding_value: PaddingValue) -> TypeId:
         buf = bytearray(_CompositeType.PartitionView._value_)
+        if self.version >= BytecodeVersion.V_13_3:
+            # Unified bitfield: encode optional flags before parameters
+            optional_flags = 0
+            if padding_value != PaddingValue.Missing:
+                optional_flags |= (1 << 0)
+            encode_varint(optional_flags, buf)
+
         encode_int_list(tile_shape, 4, buf)
         encode_varint(tensor_view.type_id, buf)
         encode_int_list(dim_map, 4, buf)
-        buf.extend(padding_value._value_)
+        if self.version >= BytecodeVersion.V_13_3:
+            buf.extend(padding_value._value_)
+        else:
+            encode_varint(int(padding_value != PaddingValue.Missing), buf)
+            buf.extend(padding_value._value_)
         return self[bytes(buf)]
 
     def function(self, parameter_types: Sequence[TypeId], result_types: Sequence[TypeId]) -> TypeId:

@@ -78,6 +78,11 @@ class Signedness(enum.Enum):
     Signed = b"\x01"
 
 
+class SymbolVisibility(enum.Enum):
+    Public = b"\x00"
+    Private = b"\x01"
+
+
 def encode_AbsFOp(
     code_builder: CodeBuilder,
     result_type: TypeId,
@@ -148,6 +153,26 @@ def encode_AddIOp(
     # Operands
     encode_operand(lhs, _buf)
     encode_operand(rhs, _buf)
+    return code_builder.new_op()
+
+
+def encode_AllocaOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    num_elem: int,  # since 13.3
+    alignment: int,  # since 13.3
+    global_: bool,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(113, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Flags
+    encode_varint(bool(global_), _buf)
+    # Attributes
+    code_builder.encode_opattr_int(num_elem)
+    code_builder.encode_opattr_int(alignment)
     return code_builder.new_op()
 
 
@@ -282,6 +307,37 @@ def encode_AtomicRMWTkoOp(
     encode_optional_operand(mask, _buf)
     encode_optional_operand(token, _buf)
     return code_builder.new_op(2)
+
+
+def encode_AtomicRedViewTkoOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_token_type: TypeId,  # since 13.3
+    view: Value,  # since 13.3
+    value: Value,  # since 13.3
+    mask: Optional[Value],  # since 13.3
+    token: Optional[Value],  # since 13.3
+    memory_ordering_semantics: MemoryOrderingSemantics,  # since 13.3
+    memory_scope: MemoryScope,  # since 13.3
+    mode: AtomicRMWMode,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(117, _buf)
+    # Result types
+    encode_typeid(result_token_type, _buf)
+    # Flags
+    encode_varint((mask is not None)
+                  | ((token is not None) << 1), _buf)
+    # Attributes
+    code_builder.encode_opattr_enum(MemoryOrderingSemantics, memory_ordering_semantics)
+    code_builder.encode_opattr_enum(MemoryScope, memory_scope)
+    code_builder.encode_opattr_enum(AtomicRMWMode, mode)
+    # Operands
+    encode_operand(view, _buf)
+    encode_operand(value, _buf)
+    encode_optional_operand(mask, _buf)
+    encode_optional_operand(token, _buf)
+    return code_builder.new_op()
 
 
 def encode_BitcastOp(
@@ -562,12 +618,18 @@ def encode_ExpOp(
     code_builder: CodeBuilder,
     result_type: TypeId,
     source: Value,
+    rounding_mode: RoundingMode,  # since 13.3
 ) -> Value:
     _buf = code_builder.buf
     # Opcode
     encode_varint(23, _buf)
     # Result types
     encode_typeid(result_type, _buf)
+    # Attributes
+    if code_builder.version >= BytecodeVersion.V_13_3:
+        code_builder.encode_opattr_enum(RoundingMode, rounding_mode)
+    else:
+        assert rounding_mode == RoundingMode.FULL
     # Operands
     encode_operand(source, _buf)
     return code_builder.new_op()
@@ -797,14 +859,25 @@ def encode_GlobalOp(
     sym_name: str,
     value: bytes,
     alignment: int,
+    constant: bool,  # since 13.3
+    symbol_visibility: SymbolVisibility,  # since 13.3
 ) -> None:
     _buf = code_builder.buf
     # Opcode
     encode_varint(49, _buf)
+    # Flags
+    _flag_bits = bool(constant)
+    assert _flag_bits < 1 or code_builder.version >= BytecodeVersion.V_13_3
+    if code_builder.version >= BytecodeVersion.V_13_3:
+        encode_varint(_flag_bits, _buf)
     # Attributes
     code_builder.encode_opattr_str(sym_name)
     code_builder.encode_opattr_dense_int_or_fp_elements(value)
     code_builder.encode_opattr_int(alignment)
+    if code_builder.version >= BytecodeVersion.V_13_3:
+        code_builder.encode_opattr_enum(SymbolVisibility, symbol_visibility)
+    else:
+        assert symbol_visibility == SymbolVisibility.Public
     return code_builder.new_op(0)
 
 
@@ -1003,6 +1076,21 @@ def encode_LoopOp(
     return code_builder.new_op_with_nested_blocks(len(result_types), 1)
 
 
+def encode_MakeGatherScatterViewOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    tensor_view: Value,
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(115, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Operands
+    encode_operand(tensor_view, _buf)
+    return code_builder.new_op()
+
+
 def encode_MakePartitionViewOp(
     code_builder: CodeBuilder,
     result_type: TypeId,
@@ -1011,6 +1099,21 @@ def encode_MakePartitionViewOp(
     _buf = code_builder.buf
     # Opcode
     encode_varint(66, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Operands
+    encode_operand(tensor_view, _buf)
+    return code_builder.new_op()
+
+
+def encode_MakeStridedViewOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    tensor_view: Value,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(116, _buf)
     # Result types
     encode_typeid(result_type, _buf)
     # Operands
@@ -1152,6 +1255,29 @@ def encode_MmaFOp(
     return code_builder.new_op()
 
 
+def encode_MmaFScaledOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    lhs: Value,  # since 13.3
+    rhs: Value,  # since 13.3
+    acc: Value,  # since 13.3
+    lhs_scale: Value,  # since 13.3
+    rhs_scale: Value,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(114, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Operands
+    encode_operand(lhs, _buf)
+    encode_operand(rhs, _buf)
+    encode_operand(acc, _buf)
+    encode_operand(lhs_scale, _buf)
+    encode_operand(rhs_scale, _buf)
+    return code_builder.new_op()
+
+
 def encode_MmaIOp(
     code_builder: CodeBuilder,
     result_type: TypeId,
@@ -1179,12 +1305,20 @@ def encode_MmaIOp(
 def encode_ModuleOp(
     code_builder: CodeBuilder,
     sym_name: str,
+    producer: Optional[str],  # since 13.3
 ) -> NestedBlockBuilder:
     _buf = code_builder.buf
     # Opcode
     encode_varint(75, _buf)
+    # Flags
+    _flag_bits = (producer is not None)
+    assert _flag_bits < 1 or code_builder.version >= BytecodeVersion.V_13_3
+    if code_builder.version >= BytecodeVersion.V_13_3:
+        encode_varint(_flag_bits, _buf)
     # Attributes
     code_builder.encode_opattr_str(sym_name)
+    if producer is not None:
+        code_builder.encode_opattr_str(producer)
     return code_builder.new_op_with_nested_blocks(0, 1)
 
 
@@ -1315,6 +1449,21 @@ def encode_OrIOp(
     # Operands
     encode_operand(lhs, _buf)
     encode_operand(rhs, _buf)
+    return code_builder.new_op()
+
+
+def encode_PackOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    source: Value,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(111, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Operands
+    encode_operand(source, _buf)
     return code_builder.new_op()
 
 
@@ -1821,6 +1970,21 @@ def encode_TruncIOp(
     return code_builder.new_op()
 
 
+def encode_UnpackOp(  # since 13.3
+    code_builder: CodeBuilder,
+    result_type: TypeId,  # since 13.3
+    source: Value,  # since 13.3
+) -> Value:
+    _buf = code_builder.buf
+    # Opcode
+    encode_varint(112, _buf)
+    # Result types
+    encode_typeid(result_type, _buf)
+    # Operands
+    encode_operand(source, _buf)
+    return code_builder.new_op()
+
+
 def encode_XOrIOp(
     code_builder: CodeBuilder,
     result_type: TypeId,
@@ -1862,16 +2026,19 @@ __all__ = [
     'MemoryScope',
     'RoundingMode',
     'Signedness',
+    'SymbolVisibility',
     'encode_AbsFOp',
     'encode_AbsIOp',
     'encode_AddFOp',
     'encode_AddIOp',
+    'encode_AllocaOp',
     'encode_AndIOp',
     'encode_AssertOp',
     'encode_AssumeOp',
     'encode_Atan2Op',
     'encode_AtomicCASTkoOp',
     'encode_AtomicRMWTkoOp',
+    'encode_AtomicRedViewTkoOp',
     'encode_BitcastOp',
     'encode_BreakOp',
     'encode_BroadcastOp',
@@ -1911,7 +2078,9 @@ __all__ = [
     'encode_Log2Op',
     'encode_LogOp',
     'encode_LoopOp',
+    'encode_MakeGatherScatterViewOp',
     'encode_MakePartitionViewOp',
+    'encode_MakeStridedViewOp',
     'encode_MakeTensorViewOp',
     'encode_MakeTokenOp',
     'encode_MaxFOp',
@@ -1919,6 +2088,7 @@ __all__ = [
     'encode_MinFOp',
     'encode_MinIOp',
     'encode_MmaFOp',
+    'encode_MmaFScaledOp',
     'encode_MmaIOp',
     'encode_ModuleOp',
     'encode_MulFOp',
@@ -1928,6 +2098,7 @@ __all__ = [
     'encode_NegIOp',
     'encode_OffsetOp',
     'encode_OrIOp',
+    'encode_PackOp',
     'encode_PermuteOp',
     'encode_PowOp',
     'encode_PrintTkoOp',
@@ -1953,6 +2124,7 @@ __all__ = [
     'encode_TanHOp',
     'encode_TanOp',
     'encode_TruncIOp',
+    'encode_UnpackOp',
     'encode_XOrIOp',
     'encode_YieldOp',
 ]

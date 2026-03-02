@@ -39,7 +39,8 @@ def pytest_configure(config):
 
 @cache
 def get_tileiras_version():
-    return _get_max_supported_bytecode_version(tempfile.gettempdir())
+    return _get_max_supported_bytecode_version(tempfile.gettempdir(),
+                                               allow_dev=True)
 
 
 def requires_tileiras(version: BytecodeVersion):

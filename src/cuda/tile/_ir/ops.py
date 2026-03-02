@@ -1337,7 +1337,9 @@ class Unary(Operation, opcode="unaryop"):
             case "neg", True: return bc.encode_NegFOp(ctx.builder, res_type_id, x)
             case "neg", False: return bc.encode_NegIOp(ctx.builder, res_type_id, x,
                                                        bc.IntegerOverflow.NONE)
-            case "exp", True: return bc.encode_ExpOp(ctx.builder, res_type_id, x)
+            case "exp", True: return bc.encode_ExpOp(ctx.builder, res_type_id, x,
+                                                     # TODO: expose rounding mode in ct.exp
+                                                     rounding_mode=bc.RoundingMode.FULL)
             case "exp2", True: return bc.encode_Exp2Op(ctx.builder, res_type_id, x,
                                                        flush_to_zero=flush_to_zero)
             case "sin", True: return bc.encode_SinOp(ctx.builder, res_type_id, x)

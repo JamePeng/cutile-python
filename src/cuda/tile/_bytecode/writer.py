@@ -11,6 +11,7 @@ from .basic import encode_varint, StringTable, Table
 from .code_builder import CodeBuilder, Value
 from .constant import ConstantTable
 from .debug_info import DebugAttrId, DebugAttrTable
+from .encodings import SymbolVisibility
 from .type import TypeTable, TypeId, encode_typeid
 from .version import BytecodeVersion
 
@@ -21,13 +22,17 @@ class FunctionBuilder(NamedTuple):
 
 
 class GlobalSection:
-    def __init__(self, string_table: StringTable, constant_table: ConstantTable):
+    def __init__(self, string_table: StringTable, constant_table: ConstantTable,
+                 version: BytecodeVersion):
         self._string_table = string_table
         self._constant_table = constant_table
+        self._version = version
         self._defined_names = set()
         self._contents = bytearray()
 
-    def define_global(self, name: str, type: TypeId, data: bytes, alignment: int = 0):
+    def define_global(self, name: str, type: TypeId, data: bytes, alignment: int = 0,
+                      constant: bool = False,
+                      symbol_visibility: SymbolVisibility = SymbolVisibility.Public):
         if name in self._defined_names:
             raise ValueError(f"Global `{name}` has already been defined")
         name_id = self._string_table[name.encode()]
@@ -35,6 +40,9 @@ class GlobalSection:
         encode_typeid(type, self._contents)
         encode_varint(self._constant_table.dense_constant(data).constant_id, self._contents)
         encode_varint(alignment, self._contents)
+        if self._version >= BytecodeVersion.V_13_3:
+            self._contents.extend(symbol_visibility._value_)
+            encode_varint(int(constant), self._contents)
         self._defined_names.add(name)
 
     def is_defined(self, global_name: str):
@@ -49,8 +57,8 @@ class BytecodeWriter:
         self._string_table = StringTable()
         self._debug_attr_table = DebugAttrTable(self._string_table)
         self._constant_table = ConstantTable()
-        self._type_table = TypeTable()
-        self._global_section = GlobalSection(self._string_table, self._constant_table)
+        self._type_table = TypeTable(version)
+        self._global_section = GlobalSection(self._string_table, self._constant_table, version)
         self.version = version
 
     @property
