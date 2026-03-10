@@ -52,8 +52,8 @@ System Requirements
 -------------------
 cuTile Python generates kernels based on [Tile IR](https://docs.nvidia.com/cuda/tile-ir/)
 which requries NVIDIA Driver r580 or later to run.
-Furthermore, the `tileiras` compiler only supports Blackwell GPU with 13.1 release, but the
-restriction will be removed in the coming versions.
+Furthermore, the `tileiras` compiler (version 13.2) only supports Blackwell GPU and Ampere/Ada
+GPU. Hopper GPU will be supported in the coming versions.
 Checkout the [prerequisites](https://docs.nvidia.com/cuda/cutile-python/quickstart.html#prerequisites)
 for full list of requirements.
 
@@ -63,12 +63,21 @@ Installing from PyPI
 cuTile Python is published on [PyPI](https://pypi.org/) under the
 [cuda-tile](https://pypi.org/project/cuda-tile/) package name and can be installed with `pip`:
 ```
+pip install cuda-tile[tileiras]
+```
+The optional `tileiras` dependency installs the `tileiras` compiler directly into your python
+environment.
+
+
+If you do not want to have `tileiras` inside the python environment, run
+```
 pip install cuda-tile
 ```
-Currently, the [CUDA Toolkit 13.1+](https://developer.nvidia.com/cuda-downloads) is required
-and needs to be installed separately. On a Debian-based system, use `apt-get install
-cuda-tileiras-13.1 cuda-compiler-13.1` instead of `apt-get install cuda-toolkit-13.1`
-if you wish to avoid installing the full CUDA Toolkit.
+and install [CUDA Toolkit 13.1+](https://developer.nvidia.com/cuda-downloads) seperately.
+
+On a Debian-based system, use `apt-get install cuda-tileiras-13.2
+cuda-compiler-13.2` instead of `apt-get install cuda-toolkit-13.2` if you wish
+to avoid installing the full CUDA Toolkit.
 
 
 Building from Source

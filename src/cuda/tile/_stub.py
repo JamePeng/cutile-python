@@ -970,7 +970,7 @@ def mma(x, y, /, acc) -> Tile:
     Supported datatypes:
 
     +----------+---------------+
-    | Input    |  Acc/Ouput    |
+    | Input    |  Acc/Output   |
     +==========+===============+
     | f16      |  f16 or f32   |
     +----------+---------------+
