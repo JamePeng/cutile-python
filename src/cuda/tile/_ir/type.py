@@ -318,19 +318,10 @@ class ArrayTy(Type):
                  dtype,
                  /,
                  shape: Tuple[Optional[int], ...],
-                 strides: Tuple[Optional[int], ...],
-                 elements_disjoint: bool,
-                 base_ptr_div_by: Optional[int],
-                 stride_div_by: Tuple[Optional[int], ...],
-                 shape_div_by: Tuple[Optional[int], ...]):
+                 strides: Tuple[Optional[int], ...]):
         self.dtype = dtype
         self.shape = shape
         self.strides = strides
-
-        self.elements_disjoint = elements_disjoint
-        self.base_ptr_div_by = base_ptr_div_by
-        self.stride_div_by = stride_div_by
-        self.shape_div_by = shape_div_by
 
     def is_aggregate(self) -> bool:
         # Even though arrays are actually represented with TensorViews, they can't be
@@ -357,14 +348,10 @@ class ArrayTy(Type):
         return (isinstance(other, ArrayTy)
                 and self.dtype == other.dtype
                 and self.shape == other.shape
-                and self.strides == other.strides
-                and self.base_ptr_div_by == self.base_ptr_div_by
-                and self.stride_div_by == self.stride_div_by
-                and self.shape_div_by == self.shape_div_by)
+                and self.strides == other.strides)
 
     def __hash__(self):
-        return hash(("ArrayTy", self.dtype, self.shape, self.strides,
-                     self.base_ptr_div_by, self.stride_div_by, self.shape_div_by))
+        return hash(("ArrayTy", self.dtype, self.shape, self.strides))
 
     def __str__(self):
         shape_str = ('?' if x is None else str(x) for x in self.shape)
@@ -383,6 +370,15 @@ class PartitionViewTy(Type):
     tile_shape: tuple[int, ...]
     order: tuple[int, ...]
     padding_mode: PaddingMode
+
+    def is_aggregate(self) -> bool:
+        return True
+
+    def aggregate_item_types(self) -> tuple["Type", ...]:
+        return self.array_ty.aggregate_item_types()
+
+    def make_aggregate_value(self, items: tuple["Var", ...]) -> "AggregateValue":
+        return self.array_ty.make_aggregate_value(items)
 
     @property
     def dtype(self):

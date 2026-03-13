@@ -11,7 +11,7 @@ from typing import Tuple, Dict, Set, Optional
 from cuda.tile._ir.type import TokenTy
 from cuda.tile._memory_model import MemoryOrder
 from cuda.tile._exception import Loc, TileInternalError
-from cuda.tile._ir.ir import Block, IRContext, Var, Operation, MemoryEffect
+from cuda.tile._ir.ir import Block, IRContext, Var, Operation, MemoryEffect, ArrayValue
 from cuda.tile._ir.ops import (
     Break, Continue, EndBranch, IfElse,
     JoinTokens, Loop, MakeToken,
@@ -112,7 +112,9 @@ def token_order_pass(root_block: Block, dataflow_result: DataflowResult):
 
 def _get_input_var(op: Operation):
     if "view" in op.operands:
-        return op.view
+        array_value = op.view.get_aggregate()
+        assert isinstance(array_value, ArrayValue)
+        return array_value.base_ptr
     elif "pointer" in op.operands:
         return op.pointer
     else:
@@ -476,7 +478,7 @@ def _get_parallel_stores(
         tile_store_candidates.add(mem_ops[0])
 
     # Filter in stores that have non-overlapping indices
-    res = _filter_by_store_index(loop_op, tile_store_candidates)
+    res = _filter_by_store_index(loop_op, tile_store_candidates, context.dataflow_result)
     return res
 
 
@@ -492,15 +494,20 @@ def _get_nested_mem_effects(
 
 
 def _filter_by_store_index(loop_op: Loop,
-                           tile_store_candidates: Set[Operation]) -> Set[Operation]:
+                           tile_store_candidates: Set[Operation],
+                           dataflow_result: DataflowResult) -> Set[Operation]:
 
     def is_idx_injective(idx_var: Var) -> bool:
         # TODO: allow more complex injective check: j = i * 2 + 3
         return loop_op.is_for_loop and idx_var.name == loop_op.induction_var.name
 
-    return set(store_op for store_op in tile_store_candidates
-               if _get_input_var(store_op).get_type().array_ty.elements_disjoint
-               and any(is_idx_injective(idx_var) for idx_var in store_op.index))
+    ret = set()
+    for store_op in tile_store_candidates:
+        ptr = _get_input_var(store_op)
+        if not dataflow_result[ptr.name].may_alias_internally \
+                and any(is_idx_injective(idx_var) for idx_var in store_op.index):
+            ret.add(store_op)
+    return ret
 
 
 def _try_loop_parallel_store(

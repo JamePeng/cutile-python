@@ -1,14 +1,20 @@
 # SPDX-FileCopyrightText: Copyright (c) <2025> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import dataclasses
 import itertools
 from dataclasses import dataclass
+from math import gcd
 from typing import Dict, Sequence, TypeVar, Generic, Any
 
-from cuda.tile._ir.ir import Var, Block
+from cuda.tile._ir.ops_utils import get_dtype
+from cuda.tile._ir.type import PointerTy
+from cuda.tile._datatype import is_integral
+from cuda.tile._ir.ir import Var, Block, ListValue
 from cuda.tile._ir.ops import Assign, GetArrayListItem, \
-    Loop, IfElse, Continue, Break, EndBranch, MakePartitionView, PointerOffset, \
-    TileBroadcast, TileReshape, MakeTensorView, MakeListView, AssumeDivBy, TileReduce, TileScan
+    Loop, IfElse, Continue, Break, EndBranch, PointerOffset, \
+    TileBroadcast, TileReshape, AssumeDivBy, TileReduce, TileScan, \
+    AssumeBounded, TileAsType, TypedConst, RawBinaryArithmeticOperation, Unary
 from cuda.tile.compilation._signature import ParameterConstraint, \
     ArrayConstraint, ListConstraint, ScalarConstraint
 
@@ -21,9 +27,18 @@ AliasSet = int
 @dataclass(frozen=True)
 class DataPredicate:
     alias_set: AliasSet
+    div_by: int
+    may_alias_internally: bool
 
     def unify(self, other: "DataPredicate") -> "DataPredicate":
-        return DataPredicate(alias_set=self.alias_set | other.alias_set)
+        return DataPredicate(
+                alias_set=self.alias_set | other.alias_set,
+                div_by=gcd(self.div_by, other.div_by),
+                may_alias_internally=self.may_alias_internally | other.may_alias_internally
+                )
+
+    def replace(self, **key_value_pairs) -> "DataPredicate":
+        return dataclasses.replace(self, **key_value_pairs)
 
 
 @dataclass
@@ -41,19 +56,22 @@ def dataflow_analysis(root_block: Block,
     alias_set_mapper = _AliasSetMapper()
     for flat_params, constraint in parameter_constraints:
         if isinstance(constraint, ArrayConstraint):
-            base_ptr = flat_params[0]
-            state.tracker.update(base_ptr,
-                                 DataPredicate(alias_set=alias_set_mapper(constraint.alias_groups)))
-            state.list_array_tracker.update(base_ptr, ALWAYS_TRUE_AGG_PREDICATE)
+            predicates = _get_array_predicates(constraint, alias_set_mapper)
+            for var, pred in zip(flat_params, predicates, strict=True):
+                state.tracker.update(var, pred)
+                state.list_array_tracker.update(var, ALWAYS_TRUE_AGG_PREDICATE)
         elif isinstance(constraint, ListConstraint):
             assert isinstance(constraint.element, ArrayConstraint)
-            base_ptr = flat_params[0]
+            assert len(flat_params) == 2
+            base_ptr, size_var = flat_params
             state.tracker.update(base_ptr,
-                                 DataPredicate(alias_set=alias_set_mapper(constraint.alias_groups)))
-            element_alias_set = alias_set_mapper(constraint.element.alias_groups)
-            state.list_array_tracker.update(
-                    base_ptr,
-                    _AggregatePredicate({BASE_PTR: DataPredicate(alias_set=element_alias_set)}))
+                                 DataPredicate(alias_set=alias_set_mapper(constraint.alias_groups),
+                                               div_by=1,
+                                               may_alias_internally=constraint.elements_may_alias))
+            elt_predicates = _get_array_predicates(constraint.element, alias_set_mapper)
+            agg_pred = _AggregatePredicate(dict(enumerate(elt_predicates)))
+            state.list_array_tracker.update(base_ptr, agg_pred)
+            state.set_always_true(size_var)
         elif isinstance(constraint, ScalarConstraint):
             [only_param] = flat_params
             state.set_always_true(only_param)
@@ -67,6 +85,27 @@ def dataflow_analysis(root_block: Block,
         _analyze_aliases_in_block(root_block, state, None, None)
 
     return DataflowResult(state.tracker.finalize())
+
+
+def _get_array_predicates(constraint: ArrayConstraint, alias_set_mapper: "_AliasSetMapper"):
+    # Base pointer predicate
+    ret = [DataPredicate(alias_set=alias_set_mapper(constraint.alias_groups),
+                         div_by=constraint.base_addr_divisible_by,
+                         may_alias_internally=constraint.may_alias_internally)]
+
+    # Shape predicates
+    for div_by in constraint.shape_divisible_by:
+        ret.append(DataPredicate(alias_set=ALIAS_UNIVERSE, div_by=div_by,
+                                 may_alias_internally=True))
+
+    # Stride predicates
+    for static, div_by in zip(constraint.stride_constant,
+                              constraint.stride_divisible_by, strict=True):
+        if static is not None:
+            div_by = static
+        ret.append(DataPredicate(alias_set=ALIAS_UNIVERSE, div_by=div_by,
+                                 may_alias_internally=True))
+    return ret
 
 
 class _AliasSetMapper:
@@ -90,7 +129,9 @@ class _AliasSetMapper:
             return ret
 
 
-ALWAYS_TRUE_PREDICATE = DataPredicate(alias_set=ALIAS_UNIVERSE)
+ALWAYS_TRUE_PREDICATE = DataPredicate(alias_set=ALIAS_UNIVERSE,
+                                      div_by=1,
+                                      may_alias_internally=True)
 
 
 class _AggregatePredicate:
@@ -111,9 +152,6 @@ class _AggregatePredicate:
 
 
 ALWAYS_TRUE_AGG_PREDICATE = _AggregatePredicate({})
-
-
-BASE_PTR = "base_ptr"
 
 
 P = TypeVar("P")
@@ -138,6 +176,9 @@ class _Tracker(Generic[P]):
         self.dirty = True
         self._predicates[var.name] = new_pred
 
+    def propagate(self, src: Var, dst: Var):
+        self.update(dst, self[src])
+
     def finalize(self) -> dict[str, P]:
         return self._predicates
 
@@ -148,8 +189,8 @@ class _State:
     list_array_tracker: _Tracker[_AggregatePredicate]
 
     def propagate(self, src: Var, dst: Var):
-        self.tracker.update(dst, self.tracker[src])
-        self.list_array_tracker.update(dst, self.list_array_tracker[src])
+        self.tracker.propagate(src, dst)
+        self.list_array_tracker.propagate(src, dst)
 
     def set_always_true(self, var: Var):
         self.tracker.update(var, ALWAYS_TRUE_PREDICATE)
@@ -164,6 +205,28 @@ class _State:
         self.list_array_tracker.dirty = False
 
 
+def _get_divisibility_for_binary_op(op: RawBinaryArithmeticOperation,
+                                    tracker: _Tracker) -> int:
+    result_dtype = get_dtype(op.result_var.get_type())
+    if is_integral(result_dtype):
+        x_div = tracker[op.lhs].div_by
+        y_div = tracker[op.rhs].div_by
+        if op.fn in ('add', 'sub'):
+            return gcd(x_div, y_div)
+        elif op.fn == 'mul':
+            return x_div * y_div
+    return 1
+
+
+def _get_divisibility_for_unary_op(op: Unary, tracker: _Tracker) -> int:
+    result_dtype = get_dtype(op.result_var.get_type())
+    if is_integral(result_dtype):
+        x_div = tracker[op.operand].div_by
+        if op.fn in ('abs', 'neg'):
+            return x_div
+    return 1
+
+
 def _analyze_aliases_in_block(block: Block,
                               state: _State,
                               innermost_loop: Loop | None,
@@ -172,25 +235,72 @@ def _analyze_aliases_in_block(block: Block,
         if isinstance(op, Assign):
             state.propagate(op.value, op.result_var)
         elif isinstance(op, AssumeDivBy):
-            state.propagate(op.x, op.result_var)
+            new_pred = state.tracker[op.x].replace(div_by=op.divisor)
+            state.tracker.update(op.result_var, new_pred)
+            state.list_array_tracker.propagate(op.x, op.result_var)
         elif isinstance(op, GetArrayListItem):
             # TODO: more granular array list get item alias analysis
             # Propagate to the base pointer of the array
-            state.tracker.update(op.result_vars[0], state.list_array_tracker[op.x][BASE_PTR])
-            state.list_array_tracker.update(op.result_vars[0], ALWAYS_TRUE_AGG_PREDICATE)
-            for v in op.result_vars[1:]:
-                state.set_always_true(v)
-        elif isinstance(op, MakeTensorView):
-            state.propagate(op.base_ptr, op.result_var)
-        elif isinstance(op, MakePartitionView):
-            state.propagate(op.array, op.result_var)
-        elif isinstance(op, MakeListView):
-            state.propagate(op.base_ptr, op.result_var)
+            list_val = op.x.get_aggregate()
+            assert isinstance(list_val, ListValue)
+            arr_predicates = state.list_array_tracker[list_val.base_ptr]
+            for i, var in enumerate(op.result_vars):
+                state.tracker.update(var, arr_predicates[i])
+                state.list_array_tracker.update(var, ALWAYS_TRUE_AGG_PREDICATE)
         elif isinstance(op, PointerOffset):
-            state.propagate(op.pointer, op.result_var)
-        elif isinstance(op, TileBroadcast | TileReshape):
+            # Update divby on pointer We only update divby on a pointer of 0d,
+            # (Array.slice) Divby of a block of pointers (like ptr + arange for
+            # ct.gather) are handled by tileiras.
+            ptr_ty = op.pointer.get_type()
+            assert isinstance(ptr_ty.dtype, PointerTy)
+            if all(x == 1 for x in ptr_ty.shape):
+                bitwidth = ptr_ty.dtype.pointee_type.bitwidth
+                BYTE_BITWIDTH = 8
+                if bitwidth % BYTE_BITWIDTH == 0:
+                    offset_divby = state.tracker[op.offset].div_by * (bitwidth // BYTE_BITWIDTH)
+                else:
+                    offset_divby = 1
+                ptr_divby = state.tracker[op.pointer].div_by
+                new_divby = gcd(ptr_divby, offset_divby)
+            else:
+                new_divby = 1
+            pred = state.tracker[op.pointer].replace(div_by=new_divby)
+            state.tracker.update(op.result_var, pred)
+            state.list_array_tracker.update(op.result_var, ALWAYS_TRUE_AGG_PREDICATE)
+        elif isinstance(op, TileBroadcast | TileReshape | AssumeBounded):
             # Needed for tiles of pointers produced by gather/scatter
             state.propagate(op.x, op.result_var)
+        elif isinstance(op, TileAsType):
+            orig_dtype = get_dtype(op.x.get_type())
+            result_dtype = get_dtype(op.result_var.get_type())
+            div_by = state.tracker[op.x].div_by
+            if is_integral(orig_dtype) and is_integral(result_dtype):
+                # Truncate to int dtype is the same as mod 2^bitwidth
+                div_by = gcd(div_by, 1 << result_dtype.bitwidth)
+            else:
+                div_by = 1
+            pred = state.tracker[op.x].replace(div_by=div_by)
+            state.tracker.update(op.result_var, pred)
+            state.list_array_tracker.update(op.result_var, ALWAYS_TRUE_AGG_PREDICATE)
+        elif isinstance(op, TypedConst):
+            if isinstance(op.value, int):
+                div_by = abs(op.value)
+                state.tracker.update(op.result_var, DataPredicate(alias_set=ALIAS_UNIVERSE,
+                                                                  div_by=div_by,
+                                                                  may_alias_internally=True))
+                state.list_array_tracker.update(op.result_var, ALWAYS_TRUE_AGG_PREDICATE)
+            else:
+                state.set_always_true(op.result_var)
+        elif isinstance(op, RawBinaryArithmeticOperation):
+            new_div_by = _get_divisibility_for_binary_op(op, state.tracker)
+            pred = ALWAYS_TRUE_PREDICATE.replace(div_by=new_div_by)
+            state.tracker.update(op.result_var, pred)
+            state.list_array_tracker.update(op.result_var, ALWAYS_TRUE_AGG_PREDICATE)
+        elif isinstance(op, Unary):
+            new_div_by = _get_divisibility_for_unary_op(op, state.tracker)
+            pred = ALWAYS_TRUE_PREDICATE.replace(div_by=new_div_by)
+            state.tracker.update(op.result_var, pred)
+            state.list_array_tracker.update(op.result_var, ALWAYS_TRUE_AGG_PREDICATE)
         elif isinstance(op, Loop):
             if op.is_for_loop:
                 state.set_always_true(op.induction_var)
@@ -206,7 +316,6 @@ def _analyze_aliases_in_block(block: Block,
                     state.propagate(init, result)
 
             _analyze_aliases_in_block(op.body, state, op, None)
-
         elif isinstance(op, Continue):
             for next, body, result in zip(op.values, innermost_loop.body_vars,
                                           innermost_loop.result_vars, strict=True):

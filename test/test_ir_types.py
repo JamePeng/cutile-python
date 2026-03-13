@@ -86,13 +86,8 @@ def test_tile_type():
 def test_array_type():
     # array with dynamic shape
     arr = ArrayTy(bfloat16, shape=(None, None),
-                  strides=(None, None),
-                  elements_disjoint=True,
-                  base_ptr_div_by=None,
-                  stride_div_by=(None, None),
-                  shape_div_by=(None, None))
+                  strides=(None, None))
     assert arr.dtype == bfloat16
-    assert arr.elements_disjoint
     assert len(arr.shape) == 2
     assert len(arr.strides) == 2
     assert arr.shape[0] is None

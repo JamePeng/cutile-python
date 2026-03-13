@@ -44,6 +44,7 @@ from cuda.tile._passes.loop_split import split_loops
 from cuda.tile._passes.rewrite_patterns import rewrite_patterns
 from cuda.tile._cext import dev_features_enabled
 from cuda.tile._debug import (
+    CUDA_TILE_TESTING_DISABLE_DIV,
     CUDA_TILE_TESTING_DISABLE_TOKEN_ORDER,
     CUDA_TILE_DUMP_BYTECODE,
     CUDA_TILE_DUMP_TILEIR,
@@ -52,6 +53,7 @@ from cuda.tile._debug import (
 from cuda.tile._passes.dataflow_analysis import dataflow_analysis
 from cuda.tile._passes.check_dtype_support import check_dtype_support
 from cuda.tile._passes.dce import dead_code_elimination_pass
+from cuda.tile._passes.propagate_divby import add_divby_pass
 from cuda.tile._passes.token_order import token_order_pass
 from cuda.tile._cache import cache_key, cache_lookup, cache_store, evict_lru
 from cuda.tile._ir2bytecode import generate_bytecode_for_kernel
@@ -89,6 +91,9 @@ def _transform_ir(func_body: ir.Block,
     eliminate_assign_ops(func_body)
     dead_code_elimination_pass(func_body)
     dataflow_result = dataflow_analysis(func_body, param_constraints)
+
+    if not CUDA_TILE_TESTING_DISABLE_DIV:
+        add_divby_pass(func_body, dataflow_result)
 
     if not CUDA_TILE_TESTING_DISABLE_TOKEN_ORDER:
         token_order_pass(func_body, dataflow_result)
@@ -161,11 +166,7 @@ def _get_array_ty(param: ArrayConstraint):
 
     return ArrayTy(param.dtype,
                    shape=(None,) * param.ndim,
-                   strides=param.stride_constant,
-                   elements_disjoint=not param.may_alias_internally,
-                   base_ptr_div_by=param.base_addr_divisible_by,
-                   stride_div_by=param.stride_divisible_by,
-                   shape_div_by=param.shape_divisible_by)
+                   strides=param.stride_constant)
 
 
 def _log_mlir(bytecode_buf):
