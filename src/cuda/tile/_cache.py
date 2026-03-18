@@ -20,11 +20,6 @@ CREATE TABLE IF NOT EXISTS cache (
 )
 """
 
-_CREATE_ATIME_INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_cache_atime ON cache(atime)
-"""
-
-
 _CACHE_FILENAME = "cache.db"
 
 
@@ -39,7 +34,9 @@ def _close(conn):
 def _open_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=5.0)
     conn.execute(_CREATE_TABLE_SQL)
-    conn.execute(_CREATE_ATIME_INDEX_SQL)
+    conn.execute("DROP INDEX IF EXISTS idx_cache_atime")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_atime_key on cache(atime, key)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_blob_size on cache(blob_size)")
     return conn
 
 
