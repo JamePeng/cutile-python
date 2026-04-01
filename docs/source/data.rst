@@ -23,6 +23,8 @@ An array-based model was chosen because:
 Within |tile code|, only the types described in this section are supported.
 
 
+.. _data-global-arrays:
+
 Global Arrays
 -------------
 

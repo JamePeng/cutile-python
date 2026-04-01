@@ -188,3 +188,78 @@ table.compact-table td {
     transform: rotate(90deg);
     color: var(--pst-color-primary);
 }
+
+/* Snippet tab labels and output label */
+.testoutput-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--pst-color-primary);
+    padding: 0.4rem 0.75rem;
+    margin-top: -0.5rem;
+    margin-bottom: 0;
+}
+
+.testoutput-label + .highlight-none {
+    margin-top: 0.25rem;
+    margin-bottom: 2.5rem;
+}
+
+/* CSS-only snippet tabs */
+.snippet-tabs {
+    margin-bottom: 0.25rem;
+}
+
+.snippet-tabs > input[type="radio"] {
+    display: none;
+}
+
+.snippet-tabs > label {
+    display: inline-block;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--pst-color-text-muted);
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+}
+
+.snippet-tabs > input[type="radio"]:checked + label {
+    color: var(--pst-color-primary);
+    border-bottom-color: var(--pst-color-primary);
+    font-weight: 600;
+}
+
+.snippet-tabs > label:hover {
+    color: var(--pst-color-text-base);
+}
+
+.snippet-tabs > .snippet-tab-panel {
+    display: none;
+}
+
+.snippet-tabs > input:nth-of-type(1):checked ~ .snippet-tab-panel:nth-of-type(1),
+.snippet-tabs > input:nth-of-type(2):checked ~ .snippet-tab-panel:nth-of-type(2) {
+    display: block;
+}
+
+.snippet-tab-copyable {
+    position: relative;
+}
+
+.snippet-copy-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    background: var(--pst-color-surface);
+    border: 1px solid var(--pst-color-border);
+    border-radius: 0.25rem;
+    color: var(--pst-color-text-muted);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    cursor: pointer;
+    z-index: 1;
+}
+
+.snippet-copy-btn:hover {
+    color: var(--pst-color-primary);
+    border-color: var(--pst-color-primary);
+}

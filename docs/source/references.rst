@@ -54,14 +54,14 @@
 .. |data model| replace:: :ref:`data model <data-data-model>`
 .. |Data model| replace:: :ref:`Data model <data-data-model>`
 
-.. |global array| replace:: :ref:`global array <data-array-cuda-tile-array>`
-.. |Global array| replace:: :ref:`Global array <data-array-cuda-tile-array>`
-.. |global arrays| replace:: :ref:`global arrays <data-array-cuda-tile-array>`
-.. |Global arrays| replace:: :ref:`Global arrays <data-array-cuda-tile-array>`
-.. |array| replace:: :ref:`array <data-array-cuda-tile-array>`
-.. |Array| replace:: :ref:`Array <data-array-cuda-tile-array>`
-.. |arrays| replace:: :ref:`arrays <data-array-cuda-tile-array>`
-.. |Arrays| replace:: :ref:`Arrays <data-array-cuda-tile-array>`
+.. |global array| replace:: :ref:`global array <data-global-arrays>`
+.. |Global array| replace:: :ref:`Global array <data-global-arrays>`
+.. |global arrays| replace:: :ref:`global arrays <data-global-arrays>`
+.. |Global arrays| replace:: :ref:`Global arrays <data-global-arrays>`
+.. |array| replace:: :ref:`array <data-global-arrays>`
+.. |Array| replace:: :ref:`Array <data-global-arrays>`
+.. |arrays| replace:: :ref:`arrays <data-global-arrays>`
+.. |Arrays| replace:: :ref:`Arrays <data-global-arrays>`
 
 .. |tile| replace:: :ref:`tile <data-tiles-and-scalars>`
 .. |Tile| replace:: :ref:`Tile <data-tiles-and-scalars>`

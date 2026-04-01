@@ -39,6 +39,7 @@ Factory
    ones
    zeros
 
+.. _operations-shape-dtype:
 
 Shape & DType
 -------------
@@ -56,6 +57,8 @@ Shape & DType
    bitcast
 
 
+.. _operations-reduction:
+
 Reduction
 ---------
 .. autosummary::
@@ -71,6 +74,8 @@ Reduction
    reduce
 
 
+.. _operations-scan:
+
 Scan
 ---------
 .. autosummary::
@@ -82,6 +87,8 @@ Scan
    scan
 
 
+.. _operations-matmul:
+
 Matmul
 ------
 .. autosummary::
@@ -91,6 +98,7 @@ Matmul
    mma
    matmul
 
+.. _operations-selection:
 
 Selection
 ---------
@@ -101,6 +109,8 @@ Selection
    where
    extract
 
+
+.. _operations-math:
 
 Math
 ----
@@ -138,6 +148,8 @@ Math
    ceil
 
 
+.. _operations-bitwise:
+
 Bitwise
 -------
 .. autosummary::
@@ -152,6 +164,8 @@ Bitwise
    bitwise_not
 
 
+.. _operations-comparison:
+
 Comparison
 ----------
 .. autosummary::
@@ -165,6 +179,7 @@ Comparison
    equal
    not_equal
 
+.. _operations-atomic:
 
 Atomic
 ------
@@ -181,6 +196,7 @@ Atomic
    atomic_or
    atomic_xor
 
+.. _operations-utility:
 
 Utility
 -------
@@ -193,6 +209,8 @@ Utility
    assert_
 
 
+.. _operations-metaprogramming:
+
 Metaprogramming Support
 -----------------------
 .. autosummary::
@@ -202,3 +220,31 @@ Metaprogramming Support
    static_assert
    static_eval
    static_iter
+
+
+.. _operations-classes:
+
+Classes
+-------
+.. autosummary::
+   :nosignatures:
+
+   Array
+   TiledView
+
+.. toctree::
+   :hidden:
+
+   data/array
+   data/tiled_view
+
+
+.. _operations-enums:
+
+Enums
+-----
+.. autosummary::
+   :nosignatures:
+
+   RoundingMode
+   PaddingMode

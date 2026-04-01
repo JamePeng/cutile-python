@@ -4,4 +4,6 @@
 
 [flake8]
 max-line-length = 100
-exclude = .git,__pycache__,build,env,dist,docs/build,docs/source/generated,docs/source/stubs,docs/venv
+exclude = .git,__pycache__,build,env,dist,docs/build,docs/source/generated,docs/source/stubs,docs/venv,docs/source/_templates
+per-file-ignores =
+    src/cuda/tile/_stub.py: W291

@@ -8,5 +8,6 @@ Steps to build documentation
 
 1. Install sphinx `pip install -r requirements.txt`
 2. In the root of this repo run `pip install -e .`
-3. In  `docs/` run `make html`
+3. Run `make html`
 4. Open `build/html/index.html`
+4. To run doctest, ``make doctest`

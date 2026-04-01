@@ -135,7 +135,7 @@ Order = Union[tuple[int, ...], Literal['C'], Literal['F']]
 
 
 class Array:
-    """Type stub for |array| objects."""
+    """Class for |global array| objects."""
 
     @property
     @function
@@ -187,21 +187,48 @@ class Array:
         They must satisfy ``0 <= start < N`` and ``start <= stop <= N``, where ``N``
         is the size of `array` along the sliced axis.
 
-        For example, consider a 2-dimensional array A of shape ``(M, N)``.
-        Slicing along axis 0 from `start` to `stop`:
+        For example, consider a 2-dimensional array ``A`` of shape ``(M, N)``.
+        Slicing along axis 0 from `start` to `stop` produces an array of
+        shape ``(stop - start, N)``:
 
-            >>> sub = A.slice(axis=0, start=start, stop=stop)
+        .. testcode::
+            :template: setup_only.py
 
-        The result `sub` will be an array of shape ``(stop - start, N)``.
+            @ct.kernel
+            def kernel(x):
+                sub = x.slice(axis=0, start=1, stop=3)
+                print(ct.load(sub, (0, 0), shape=(2, 4)))
+
+            x = torch.arange(16, device='cuda').reshape(4, 4)
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            [[4, 5, 6, 7], [8, 9, 10, 11]]
+
         Using NumPy slice notation for illustration, this is equivalent to::
 
             sub = A[start:stop, :]  # NumPy notation for reference only
 
         The slice bounds can be dynamic (runtime values):
 
-            >>> # Process variable-length segments
-            >>> segment = A.slice(axis=1, start=offset, stop=offset + length)
-            >>> tile = ct.load(segment, (0, 0), shape=(TILE_M, TILE_N))
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x, offset, length):
+                sub = x.slice(axis=0, start=offset, stop=offset+length)
+                print(ct.load(sub, (0,), shape=(4,)))
+                print(ct.load(sub, (1,), shape=(4,)))
+
+            x = torch.arange(16, device='cuda')
+            ct.launch(stream, (1,), kernel, (x, 8, 8))
+
+        .. testoutput::
+
+            [8, 9, 10, 11]
+            [12, 13, 14, 15]
+
         """
         return _m_array_slice(self, axis, start, stop)
 
@@ -224,8 +251,22 @@ class Array:
 
         Examples:
 
-            >>> tv = array1d.tiled_view(128)
-            >>> tv = array2d.tiled_view((64, 64))
+            .. testcode::
+                :template: setup_only.py
+
+                @ct.kernel
+                def kernel(x):
+                    tv = x.tiled_view((2, 4))
+                    print(tv.load((0, 0)))
+                    print(tv.load((1, 0)))
+
+                x = torch.arange(16, device='cuda').reshape(4, 4)
+                ct.launch(stream, (1,), kernel, (x,))
+
+            .. testoutput::
+
+                [[0, 1, 2, 3], [4, 5, 6, 7]]
+                [[8, 9, 10, 11], [12, 13, 14, 15]]
 
         .. seealso::
             :ref:`Tiled Views <data-tiled-views>`
@@ -292,7 +333,7 @@ class RawArrayMemory:
 
 
 class Tile:
-    """Type stub for a |tile|."""
+    """Class for |tile| objects."""
 
     @property
     @function
@@ -329,9 +370,21 @@ class Tile:
 
         Examples:
 
-            >>> tx = ct.full((1,), 0, dtype=ct.int32)
-            >>> x = tx.item()
-            >>> ty = ct.load(array, (0, x), shape=(4, 4))
+            .. testcode::
+                :template: setup_only.py
+
+                @ct.kernel
+                def kernel(x):
+                    idx = ct.full((1,), 2, dtype=ct.int32).item()
+                    tile = ct.load(x, (idx,), shape=(4,))
+                    print(tile)
+
+                x = torch.arange(16, device='cuda')
+                ct.launch(stream, (1,), kernel, (x,))
+
+            .. testoutput::
+
+                [8, 9, 10, 11]
         """
         return _m_tile_item(self)
 
@@ -458,7 +511,7 @@ TileOrScalar = Union[Tile, Scalar]
 
 
 class TiledView:
-    """Type stub for a |tiled view|."""
+    """Class for |tiled view| objects."""
 
     @property
     @function
@@ -511,11 +564,21 @@ class TiledView:
 
         Examples:
 
-            >>> tv = array2d.tiled_view((64, 64))
-            >>> tile = tv.load((i, j))  # `tile` has shape (64, 64)
+            .. testcode::
+                :template: setup_only.py
 
-            >>> tv = array1d.tiled_view(128)
-            >>> tile = tv.load(i)  # `tile` has shape (128,)
+                @ct.kernel
+                def kernel(x):
+                    tv = x.tiled_view(4)
+                    tile = tv.load(0)
+                    print(tile)
+
+                x = torch.arange(8, device='cuda')
+                ct.launch(stream, (1,), kernel, (x,))
+
+            .. testoutput::
+
+                [0, 1, 2, 3]
         """
         return _m_tiled_view_load(self, index, latency=latency, allow_tma=allow_tma)
 
@@ -542,12 +605,22 @@ class TiledView:
 
         Examples:
 
-            >>> tv = array2d.tiled_view((64, 64))
-            >>> tv.store((i, j), tile)
+            .. testcode::
+                :template: setup_only.py
 
-            >>> # Broadcasting
-            >>> tv = array1d.tiled_view(128)
-            >>> tv.store(i, ct.full((), 0.0, ct.float32))
+                @ct.kernel
+                def kernel(x):
+                    tv = x.tiled_view(4)
+                    tile = ct.full((4,), 99, dtype=ct.int32)
+                    tv.store(0, tile)
+
+                x = torch.zeros(8, dtype=torch.int32, device='cuda')
+                ct.launch(stream, (1,), kernel, (x,))
+                print(x.tolist())
+
+            .. testoutput::
+
+                [99, 99, 99, 99, 0, 0, 0, 0]
         """
         _m_tiled_view_store(self, index, tile, latency=latency, allow_tma=allow_tma)
 
@@ -592,9 +665,17 @@ def bid(axis) -> int:
 
     Examples:
 
-        >>> bid_x = ct.bid(0)
-        >>> bid_y = ct.bid(1)
-        >>> bid_z = ct.bid(2)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            bidx = ct.bid(0)
+            bidy = ct.bid(1)
+            bidz = ct.bid(2)
+            print(f"Hello from block ({bidx}, {bidy}, {bidz})")
+
+        .. testoutput::
+
+            Hello from block (0, 0, 0)
     """
 
 
@@ -610,9 +691,26 @@ def num_blocks(axis) -> int:
 
     Examples:
 
-        >>> num_blocks_x = ct.num_blocks(0)
-        >>> num_blocks_y = ct.num_blocks(1)
-        >>> num_blocks_z = ct.num_blocks(2)
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel():
+                bidx = ct.bid(0)
+                bidy = ct.bid(1)
+                bidz = ct.bid(2)
+                nx = ct.num_blocks(0)
+                ny = ct.num_blocks(1)
+                nz = ct.num_blocks(2)
+                master_block = (bidx == 0 and bidy == 0 and bidz == 0)
+                if master_block:
+                    print(f"Number of tile blocks: {(nx, ny, nz)}")
+
+            ct.launch(stream, (2, 3, 4), kernel, ())
+
+        .. testoutput::
+
+            Number of tile blocks: (2, 3, 4)
     """
 
 
@@ -634,13 +732,22 @@ def num_tiles(array: Array, /,
 
     Examples:
 
-        Suppose array size is (32, 16), tile shape (4, 8),
-        the partition space will be (cdiv(32, 4), cdiv(16, 8)) == (8, 2)
+        .. testcode::
+            :template: setup_only.py
 
-        >>> ct.num_tiles(array, 0, shape=(4, 8))
-        8
-        >>> ct.num_tiles(array, 1, shape=(4, 8))
-        2
+            @ct.kernel
+            def kernel(x):
+                tile_shape = (4, 8)
+                num_tiles_row = ct.num_tiles(x, 0, shape=tile_shape)
+                num_tiles_col = ct.num_tiles(x, 1, shape=tile_shape)
+                print(f"The tile space has {num_tiles_row} rows and {num_tiles_col} columns.")
+
+            x = torch.empty(42, 64, device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            The tile space has 11 rows and 8 columns.
     """
 
 
@@ -659,9 +766,9 @@ def load(array: Array, /,
 
     For example, partitoning a 2D `array` of shape ``(M, N)`` using tile shape
     ``(tm, tn)`` results in a 2D tile space of size ``(cdiv(M, tm), cdiv(N, tn))``.
-    An index into this tile space using index ``(i, j)`` produces a tile of size ``(tm, tn)``:
+    An index into this tile space using index ``(i, j)`` produces a tile of size ``(tm, tn)``::
 
-        >>> t = ct.load(array, (i, j), (tm, tn))  # `t` has shape (tm, tn)
+        t = ct.load(array, (i, j), (tm, tn))  # `t` has shape (tm, tn)
 
     The result tile `t` will be computed according to ::
 
@@ -672,9 +779,9 @@ def load(array: Array, /,
     If the tile lies entirely outside the array, the behavior is undefined.
 
     `order` is used to map the tile axis to the array axis. The transposed example of the above call
-    to `load` would be:
+    to `load` would be::
 
-        >>> ct.load(array, (j, i), shape=(tn, tm), order=(1, 0))
+        ct.load(array, (j, i), shape=(tn, tm), order=(1, 0))
 
     The result tile `t` will be computed according to ::
 
@@ -704,14 +811,86 @@ def load(array: Array, /,
 
     Examples:
 
-        >>> # Regular load.
-        >>> tile = ct.load(array2d, (0, 0), shape=(2, 4))
-        >>> # Load with a transpose.
-        >>> tile = ct.load(array2d, (0, 0), shape=(4, 2), order='F')
-        >>> # Load transposing the last two axes.
-        >>> tile = ct.load(array3d, (0, 0, 0), shape=(8, 4, 2), order=(0, 2, 1))
-        >>> # Load a single element as 0d tile
-        >>> tile = ct.load(array3d, (0, 0, 0), shape=())
+        Load from an 1D array.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                zero_pad = ct.PaddingMode.ZERO
+                print(ct.load(x, (0,), shape=4))
+                print(ct.load(x, (1,), shape=4))
+                print(ct.load(x, (2,), shape=4, padding_mode=zero_pad))
+
+            x = torch.arange(10, device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            [0, 1, 2, 3]
+            [4, 5, 6, 7]
+            [8, 9, 0, 0]
+
+        Load from a 2D array in transposed order.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                print(ct.load(x, (0, 0), shape=(1, 4), order='F'))
+                print(ct.load(x, (1, 0), shape=(1, 4), order='F'))
+                print(ct.load(x, (2, 0), shape=(1, 4), order='F'))
+                print(ct.load(x, (3, 0), shape=(1, 4), order='F'))
+
+            x = torch.arange(16, device='cuda').reshape(4, 4)
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            [[0, 4, 8, 12]]
+            [[1, 5, 9, 13]]
+            [[2, 6, 10, 14]]
+            [[3, 7, 11, 15]]
+
+        Load from a 3D array with last 2 axes transposed.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                print(ct.load(x, (0, 0, 0), shape=(1, 2, 2), order=(0, 2, 1)))
+                print(ct.load(x, (1, 0, 0), shape=(1, 2, 2), order=(0, 2, 1)))
+
+            x = torch.arange(8, device='cuda').reshape(2, 2, 2)
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            [[[0, 2], [1, 3]]]
+            [[[4, 6], [5, 7]]]
+
+        Load a single scalar.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                for i in range(10):
+                    tile = ct.load(x, (i,), shape=())
+                    print(tile, end=" ")
+                print()
+
+            x = torch.arange(10, device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+            :options: +NORMALIZE_WHITESPACE
+
+            0 1 2 3 4 5 6 7 8 9 
 
     .. seealso::
         - :py:func:`store`
@@ -732,10 +911,10 @@ def store(array: Array, /,
     The |tile space| is the result of partitioning the `array` into a grid of tiles
     with equal size defined by the shape of the `tile`.
 
-    For example, given a tile `t` of shape ``(tm, tn)`` and array of shape ``(M, N)``:
+    For example, given a tile `t` of shape ``(tm, tn)`` and array of shape ``(M, N)``::
 
-        >>> # tile `t` has shape (tm, tn)
-        >>> ct.store(array, (i, j), t)
+        # tile `t` has shape (tm, tn)
+        ct.store(array, (i, j), t)
 
     The above call to `store` will store elements according to::
 
@@ -754,15 +933,49 @@ def store(array: Array, /,
         order ("C" or "F", or tuple[const int,...]): Order of axis mapping. See :py:func:`load`.
         latency (int, optional): A hint indicating how heavy DRAM traffic will be. It shall be an
             integer between 1 (low) and 10 (high). By default, the compiler will infer the latency.
-        allow_tma (bool, optional): If False, the load will not use TMA. By default, TMA is allowed.
+        allow_tma (bool, optional): If False, the store will not use TMA.
+            By default, TMA is allowed.
 
     Examples:
 
-        >>> tile = ct.load(array_in, bid_x, shape=4)
-        >>> tile = tile * 2
-        >>> ct.store(array_out, (bid_x,), tile=tile)
-        # store a scalar
-        >>> ct.store(array_out, (0,), tile=0)
+        Store into 1D array, partial out of bound store is ignored.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                tile = ct.ones((4,), dtype=x.dtype)
+                ct.store(x, (0,), tile)
+                ct.store(x, (1,), tile * 2)
+
+            x = torch.zeros(6, dtype=torch.int32, device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+            print(x.tolist())
+
+        .. testoutput::
+
+            [1, 1, 1, 1, 2, 2]
+
+        When storing with a scalar (0d tile), it is broadcasted to the rank of the array.
+
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                ct.store(x, (0, 0), tile=0)
+                ct.store(x, (0, 1), tile=1)
+                ct.store(x, (1, 0), tile=2)
+                ct.store(x, (1, 1), tile=3)
+
+            x = torch.zeros(4, dtype=torch.int32, device='cuda').reshape(2, 2)
+            ct.launch(stream, (1,), kernel, (x,))
+            print(x.tolist())
+
+        .. testoutput::
+
+            [[0, 1], [2, 3]]
 
     .. seealso::
         - :py:func:`load`
@@ -786,18 +999,18 @@ def gather(array, indices, /, *, mask=None, padding_value=0, check_bounds=True,
     For example, consider a 2-dimensional array. In this case, indices must be a tuple
     of length 2. Suppose that ``ind0`` and ``ind1`` are integer tiles
     of shapes ``(M, N, 1)`` and ``(M, 1, K)``.
-    Then the result tile will have the broadcasted shape ``(M, N, K)``:
+    Then the result tile will have the broadcasted shape ``(M, N, K)``::
 
-        >>> t = ct.gather(array, (ind0, ind1))   # `t` has shape (M, N, K)
+        t = ct.gather(array, (ind0, ind1))   # `t` has shape (M, N, K)
 
     The result tile `t` will be computed according to ::
 
         t[i, j, k] = array[ind0[i, j, 0], ind1[i, 0, k]]   (for all 0<=i<M, 0<=j<N, 0<=k<K)
 
     If the array is 1-dimensional, `indices` can be passed as a tile rather than a tuple.
-    This is a convenience notation that is strictly equivalent to passing a tuple of length 1:
+    This is a convenience notation that is strictly equivalent to passing a tuple of length 1::
 
-        >>> ct.gather(array, ind0)   # equivalent to ct.gather(array, (ind0,))
+        ct.gather(array, ind0)   # equivalent to ct.gather(array, (ind0,))
 
     A custom boolean `mask` can be provided to control which elements are loaded.
     The mask must be a scalar or a tile whose shape is broadcastable to the common shape
@@ -835,19 +1048,19 @@ def scatter(array, indices, value, /, *, mask=None, check_bounds=True, latency=N
 
     For example, consider a 2-dimensional array. In this case, indices must be a tuple
     of length 2. Suppose that ``ind0`` and ``ind1`` are integer tiles
-    of shapes ``(M, N, 1)`` and ``(M, 1, K)``, and ``value`` is a tile of shape of ``(N, K)``:
+    of shapes ``(M, N, 1)`` and ``(M, 1, K)``, and ``value`` is a tile of shape of ``(N, K)``::
 
-        >>> # ind0: (M, N, 1),  ind1: (M, 1, K),  value: (N, K)
-        >>> ct.scatter(array, (ind0, ind1), value)
+        # ind0: (M, N, 1),  ind1: (M, 1, K),  value: (N, K)
+        ct.scatter(array, (ind0, ind1), value)
 
     The above call to `scatter` will store elements according to ::
 
         array[ind0[i, j, 0], ind1[i, 0, k]] = value[j, k]
 
     If the array is 1-dimensional, `indices` can be passed as a tile rather than a tuple.
-    This is a convenience notation that is strictly equivalent to passing a tuple of length 1:
+    This is a convenience notation that is strictly equivalent to passing a tuple of length 1::
 
-        >>> ct.scatter(array, ind0, value)   # equivalent to ct.scatter(array, (ind0,), value)
+        ct.scatter(array, ind0, value)   # equivalent to ct.scatter(array, (ind0,), value)
 
     A custom boolean `mask` can be provided to control which elements are stored.
     The mask must be a scalar or a tile whose shape is broadcastable to the common shape
@@ -901,10 +1114,10 @@ def atomic_cas(array, indices, expected, desired, /, *,
     As an example, consider a 2-dimensional array. In this case, indices must be a tuple
     of length 2. Suppose that ``ind0`` and ``ind1`` are integer tiles
     of shapes ``(M, N, 1)`` and ``(M, 1, K)``, and both ``expected`` and ``desrired``
-    are tiles of shape of ``(N, K)``:
+    are tiles of shape of ``(N, K)``::
 
-        >>> # ind0: (M, N, 1),  ind1: (M, 1, K),  expected: (N, K),  desired: (N, K)
-        >>> ct.atomic_cas(array, (ind0, ind1), expected, desired)
+        # ind0: (M, N, 1),  ind1: (M, 1, K),  expected: (N, K),  desired: (N, K)
+        ct.atomic_cas(array, (ind0, ind1), expected, desired)
 
     The above call to `atomic_cas` will behave similarly to the following pseudocode::
 
@@ -921,10 +1134,25 @@ def atomic_cas(array, indices, expected, desired, /, *,
 
     Examples:
 
-        >>> indices = ct.arange(32, dtype=ct.int32)
-        >>> expected = ct.full((32,), 1, dtype=ct.int32)
-        >>> desired = ct.arange(32, dtype=ct.int32)
-        >>> old_value = ct.atomic_cas(array, indices, expected, desired)
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                indices = ct.arange(4, dtype=ct.int32)
+                expected = ct.full((4,), 0, dtype=ct.int32)
+                desired = ct.full((4,), 42, dtype=ct.int32)
+                old = ct.atomic_cas(x, indices, expected, desired)
+                print(old)
+
+            x = torch.tensor([0, 1, 0, 1], device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+            print(x.tolist())
+
+        .. testoutput::
+
+            [0, 1, 0, 1]
+            [42, 1, 42, 1]
     """
 
 
@@ -953,9 +1181,22 @@ def _doc_atomic_rmw_op(f):
 
     Examples:
 
-        >>> indices = ct.arange(32, dtype=ct.int32)
-        >>> update = ct.arange(32, dtype=ct.int32)
-        >>> old_value = ct.{op_name}(array, indices, update)
+        .. testcode::
+            :template: setup_only.py
+
+            @ct.kernel
+            def kernel(x):
+                indices = ct.arange(4, dtype=ct.int32)
+                update = ct.full((4,), 10, dtype=ct.int32)
+                old = ct.{op_name}(x, indices, update)
+                print(old)
+
+            x = torch.ones(4, dtype=torch.int32, device='cuda')
+            ct.launch(stream, (1,), kernel, (x,))
+
+        .. testoutput::
+
+            [1, 1, 1, 1]
     """
 
     return f
@@ -1080,7 +1321,15 @@ def arange(size, /, *, dtype) -> Tile:
 
     Examples:
 
-        >>> tile = ct.arange(16, dtype=ct.int32)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.arange(4, dtype=ct.int32)
+            print(tile)
+
+        .. testoutput::
+
+            [0, 1, 2, 3]
     """
 
 
@@ -1098,7 +1347,15 @@ def full(shape: Shape, fill_value: Scalar, dtype: DType) -> Tile:
 
     Examples:
 
-        >>> tile = ct.full((4, 4), 3.14, dtype=ct.float32)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.full((2, 2), 3, dtype=ct.int32)
+            print(tile)
+
+        .. testoutput::
+
+            [[3, 3], [3, 3]]
     """
 
 
@@ -1115,7 +1372,15 @@ def ones(shape, dtype) -> Tile:
 
     Examples:
 
-        >>> tile = ct.ones((4, 4), dtype=ct.float32)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.ones((2, 2), dtype=ct.int32)
+            print(tile)
+
+        .. testoutput::
+
+            [[1, 1], [1, 1]]
     """
 
 
@@ -1132,7 +1397,15 @@ def zeros(shape, dtype) -> Tile:
 
     Examples:
 
-        >>> tile = ct.zeros((4, 4), dtype=ct.float32)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.zeros((2, 2), dtype=ct.int32)
+            print(tile)
+
+        .. testoutput::
+
+            [[0, 0], [0, 0]]
     """
 
 # =========== Matmul ============
@@ -1179,13 +1452,36 @@ def mma(x, y, /, acc) -> Tile:
     Returns:
         Tile:
 
-    Example:
+    Examples:
 
-        >>> tx = ct.full((2, 4), 3, dtype=ct.float32)
-        >>> ty = ct.full((4, 8), 4, dtype=ct.float32)
-        >>> acc = ct.full((2, 8), 0, dtype=ct.float32)
-        # default
-        >>> tz = ct.mma(tx, ty, acc)
+        2D x 2D with accumulation.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            x = ct.ones((2, 4), dtype=ct.float32)
+            y = ct.ones((4, 2), dtype=ct.float32)
+            acc = ct.full((2, 2), 10.0, dtype=ct.float32)
+            # (x @ y) + acc: each element = 1*4 + 10 = 14
+            print(f"{ct.mma(x, y, acc):.1f}")
+
+        .. testoutput::
+
+            [[14.0, 14.0], [14.0, 14.0]]
+
+        Batched: 3D x 2D with broadcast.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            x = ct.ones((2, 2, 4), dtype=ct.float32)
+            y = ct.ones((4, 2), dtype=ct.float32)
+            acc = ct.zeros((2, 2, 2), dtype=ct.float32)
+            print(f"{ct.mma(x, y, acc):.1f}")
+
+        .. testoutput::
+
+            [[[4.0, 4.0], [4.0, 4.0]], [[4.0, 4.0], [4.0, 4.0]]]
     """
 
 
@@ -1234,13 +1530,15 @@ def mma_scaled(x, x_scale, y, y_scale, /, acc) -> Tile:
 
     Example:
 
-        >>> # B = K // K_s = 64 // 2 = 32
-        >>> tx = ct.ones((16, 64), ct.float8_e4m3fn)
-        >>> sx = ct.ones((16, 2), ct.float8_e8m0fnu)
-        >>> ty = ct.ones((64, 16), ct.float8_e4m3fn)
-        >>> sy = ct.ones((2, 16), ct.float8_e8m0fnu)
-        >>> acc = ct.zeros((16, 16), ct.float32)
-        >>> tz = ct.mma_scaled(tx, sx, ty, sy, acc)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.ones((16, 64), ct.float8_e4m3fn)
+            sx = ct.ones((16, 2), ct.float8_e8m0fnu)
+            ty = ct.ones((64, 16), ct.float8_e4m3fn)
+            sy = ct.ones((2, 16), ct.float8_e8m0fnu)
+            acc = ct.zeros((16, 16), ct.float32)
+            tz = ct.mma_scaled(tx, sx, ty, sy, acc)
     """
 
 
@@ -1261,14 +1559,46 @@ def matmul(x, y, /) -> Tile:
     Returns:
         Tile:
 
-    Example:
+    Examples:
 
-        >>> tx = ct.full((2, 4), 3, dtype=ct.float32)
-        >>> ty = ct.full((4, 8), 4, dtype=ct.float32)
-        # default
-        >>> tz = ct.matmul(tx, ty)
-        # use builtin `@`
-        >>> tz = tx @ ty
+        2D x 2D.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            x = ct.ones((2, 4), dtype=ct.float32)
+            y = ct.ones((4, 2), dtype=ct.float32)
+            print(f"{x @ y:.1f}")
+
+        .. testoutput::
+
+            [[4.0, 4.0], [4.0, 4.0]]
+
+        1D x 1D (dot product).
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            x = ct.ones(4, dtype=ct.float32)
+            y = ct.ones(4, dtype=ct.float32)
+            print(f"{x @ y:.1f}")
+
+        .. testoutput::
+
+            4.0
+
+        Batched: 3D x 2D with broadcast.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            x = ct.ones((2, 2, 4), dtype=ct.float32)
+            y = ct.ones((4, 2), dtype=ct.float32)
+            print(f"{x @ y:.1f}")
+
+        .. testoutput::
+
+            [[[4.0, 4.0], [4.0, 4.0]], [[4.0, 4.0], [4.0, 4.0]]]
     """
 
 
@@ -1288,15 +1618,17 @@ def expand_dims(x, /, axis) -> Tile:
 
     Examples:
 
-        >>> tx = ct.arange(16, dtype=ct.float32)
-        >>> tx.shape
-        (16,)
-        >>> ty = ct.expand_dims(x, 1)
-        >>> ty.shape
-        (16,1)
-        >>> ty = x[None, ..., None, None]
-        >>> ty.shape
-        (1, 16, 1, 1)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(ct.expand_dims(tx, 0))
+            print(tx[:, None])
+
+        .. testoutput::
+
+            [[0, 1, 2, 3]]
+            [[0], [1], [2], [3]]
     """
 
 
@@ -1317,14 +1649,18 @@ def cat(tiles, /, axis) -> Tile:
 
     Examples:
 
-        >>> tx = ct.full((2, 4), 3., dtype=ct.float32)
-        >>> ty = ct.full((2, 4), 4., dtype=ct.float32)
-        >>> tz = ct.cat((tx, ty), 0)
-        >>> tz.shape
-        (4,4)
-        >>> tz = ct.cat((tx, ty), 1)
-        >>> tz.shape
-        (2,8)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((2, 2), 3, dtype=ct.int32)
+            ty = ct.full((2, 2), 7, dtype=ct.int32)
+            print(ct.cat((tx, ty), 0))
+            print(ct.cat((tx, ty), 1))
+
+        .. testoutput::
+
+            [[3, 3], [3, 3], [7, 7], [7, 7]]
+            [[3, 3, 7, 7], [3, 3, 7, 7]]
     """
 
 
@@ -1342,12 +1678,16 @@ def broadcast_to(x, /, shape) -> Tile:
 
     Examples:
 
-        >>> tx = ct.arange(4, dtype=ct.float32)
-        >>> tx.shape
-        (4,)
-        >>> ty = ct.broadcast_to(tx, (2, 4))
-        >>> ty.shape
-        (2, 4)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = ct.broadcast_to(tx, (2, 4))
+            print(ty)
+
+        .. testoutput::
+
+            [[0, 1, 2, 3], [0, 1, 2, 3]]
     """
 
 
@@ -1371,15 +1711,16 @@ def reshape(x, /, shape) -> Tile:
 
     Examples:
 
-        >>> tx = ct.arange(8, dtype=ct.float32)
-        >>> tx.shape
-        (8,)
-        >>> ty = ct.reshape(tx, (2, 4))
-        >>> ty.shape
-        (2, 4)
-        >>> tz = ct.reshape(tx, (2, -1))
-        >>> tz.shape
-        (2, 4)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32)
+            ty = ct.reshape(tx, (2, 4))
+            print(ty)
+
+        .. testoutput::
+
+            [[0, 1, 2, 3], [4, 5, 6, 7]]
     """
 
 
@@ -1396,10 +1737,16 @@ def permute(x, /, axes) -> Tile:
 
     Examples:
 
-        >>> tx = ct.full((2, 4, 8), 0., dtype=ct.float32)
-        >>> ty = ct.permute(tx, (0, 2, 1))
-        >>> ty.shape
-        (2, 8, 4)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 2, 2))
+            ty = ct.permute(tx, (2, 0, 1))
+            print(ty)
+
+        .. testoutput::
+
+            [[[0, 2], [4, 6]], [[1, 3], [5, 7]]]
     """
 
 
@@ -1420,14 +1767,17 @@ def transpose(x, /, axis0=None, axis1=None) -> Tile:
 
     Examples:
 
-        >>> tx = ct.full((2, 4, 8), 0., dtype=ct.float32)
-        >>> ty = ct.transpose(tx, axis0=0, axis1=1)
-        >>> ty.shape
-        (4, 2, 8)
-        >>> tx = ct.full((2, 4), 0., dtype=ct.float32)
-        >>> ty = ct.transpose(tx)
-        >>> ty.shape
-        (4, 2)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32)
+            tx = ct.reshape(tx, (2, 4))
+            ty = ct.transpose(tx)
+            print(ty)
+
+        .. testoutput::
+
+            [[0, 4], [1, 5], [2, 6], [3, 7]]
     """
 
 
@@ -1444,10 +1794,16 @@ def astype(x, dtype, /) -> Tile:
 
     Examples:
 
-        >>> tx = ct.arange(8, dtype=ct.float32)
-        >>> ty = ct.astype(tx, ct.float16)
-        >>> ty.dtype
-        float16
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = ct.astype(tx, ct.float32)
+            print(f"{ty:.1f}")
+
+        .. testoutput::
+
+            [0.0, 1.0, 2.0, 3.0]
     """
 
 
@@ -1464,10 +1820,15 @@ def bitcast(x, /, dtype) -> Tile:
 
     Examples:
 
-        >>> tx = ct.arange(8, dtype=ct.float32)
-        >>> ty = ct.bitcast(tx, ct.int32)
-        >>> ty.dtype
-        int32
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            ty = ct.bitcast(1.0, ct.uint32)
+            print(f"{ty:#x}")
+
+        .. testoutput::
+
+            0x3f800000
     """
 
 
@@ -1485,12 +1846,16 @@ def pack_to_bytes(x, /) -> Tile:
 
     Examples:
 
-        >>> tx = ct.full((2, 4), 0, dtype=ct.int32)
-        >>> ty = ct.pack_to_bytes(tx)
-        >>> ty.dtype
-        uint8
-        >>> ty.shape
-        (32,)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full(1, 0x04030201, dtype=ct.int32)
+            ty = ct.pack_to_bytes(tx)
+            print(ty)
+
+        .. testoutput::
+
+            [1, 2, 3, 4]
     """
 
 
@@ -1511,12 +1876,16 @@ def unpack_from_bytes(x, /, dtype) -> Tile:
 
     Examples:
 
-        >>> tx = ct.full((16,), 0, dtype=ct.uint8)
-        >>> ty = ct.unpack_from_bytes(tx, ct.float32)
-        >>> ty.dtype
-        float32
-        >>> ty.shape
-        (4,)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.uint8) + 1
+            ty = ct.unpack_from_bytes(tx, ct.int32)
+            print(f"{ty:#x}")
+
+        .. testoutput::
+
+            [0x4030201]
     """
 
 
@@ -1546,6 +1915,7 @@ def _doc_reduce_op(f):
         return f(*args, **kwargs)
 
     op_name = f.__name__
+    orig_doc = f.__doc__ or ""
     extra_block = _math_op_extra_block(f, indent="        ")
 
     wrapped.__doc__ = f"""Performs {op_name} reduction on tile along the `axis`.
@@ -1554,22 +1924,14 @@ def _doc_reduce_op(f):
         x (Tile): input tile.
         axis (None | const int | tuple[const int,...]): the axis for reduction.
             The default, `axis=None`, will reduce all of the elements.
-        keep_dims (const bool): If true, preserves the number of dimension
+            For `argmin` and `argmax`, tuple of axis is not supported.
+        keepdims (const bool): If true, preserves the number of dimension
             from the input tile.{extra_block}
 
     Returns:
         Tile:
 
-    Examples:
-
-        >>> tx = ct.full((2, 4), 3, dtype=ct.float32)
-        >>> ty = ct.{op_name}(tx, 1)
-        >>> ty.shape
-        (2,)
-        >>> ty = ct.{op_name}(tx, 1, keepdims=True)
-        >>> ty.shape
-        (2, 1)
-    """
+    """ + orig_doc
 
     return wrapped
 
@@ -1578,18 +1940,154 @@ def _doc_reduce_op(f):
 @function
 def sum(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> Tile:
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.sum(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 28
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.sum(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[6], [22]]
+
+        Reduce axes (1, 2).
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 2, 2))
+            print("input:", tx)
+            print("reduced:", ct.sum(tx, (1, 2)))
+
+        .. testoutput::
+
+            input: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]]
+            reduced: [6, 22]
+    """
     pass
 
 
 @_doc_reduce_op
 @function
 def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.max(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 7
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.max(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[3], [7]]
+
+        Reduce axes (1, 2).
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 2, 2))
+            print("input:", tx)
+            print("reduced:", ct.max(tx, (1, 2)))
+
+        .. testoutput::
+
+            input: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]]
+            reduced: [3, 7]
+
+    """
     pass
 
 
 @_doc_reduce_op
 @function
 def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.min(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 0
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.min(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[0], [4]]
+
+        Reduce axes (1, 2).
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 2, 2))
+            print("input:", tx)
+            print("reduced:", ct.min(tx, (1, 2)))
+
+        .. testoutput::
+
+            input: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]]
+            reduced: [0, 4]
+    """
     pass
 
 
@@ -1597,18 +2095,144 @@ def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile
 @function
 def prod(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode] = None,
          flush_to_zero: bool = False) -> Tile:
-    pass
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.prod(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 0
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.prod(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[0], [840]]
+    """
 
 
 @_doc_reduce_op
 @function
 def argmax(x, /, axis=None, *, keepdims=False) -> Tile:
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.argmax(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 7
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.argmax(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[3], [3]]
+
+        If there are ties, the smallest index is returned.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.zeros(4, dtype=ct.int32)
+            tx = ct.cat((tx, tx + 1), axis=0)
+            print("input:", tx)
+            print("reduced:", ct.argmax(tx, 0))
+
+        .. testoutput::
+
+            input: [0, 0, 0, 0, 1, 1, 1, 1]
+            reduced: 4
+
+        Reduce over tuple of axes is not supported for argmax.
+    """
     pass
 
 
 @_doc_reduce_op
 @function
 def argmin(x, /, axis=None, *, keepdims=False) -> Tile:
+    """
+    Examples:
+
+        Reduce all axes.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.argmin(tx, None))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: 0
+
+        Reduce axis 1 and keepdims.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reduced:", ct.argmin(tx, 1, keepdims=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reduced: [[0], [0]]
+
+        If there are ties, the smallest index is returned.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.zeros(4, dtype=ct.int32)
+            tx = ct.cat((tx + 1, tx), axis=0)
+            print("input:", tx)
+            print("reduced:", ct.argmin(tx, 0))
+
+        .. testoutput::
+
+            input: [1, 1, 1, 1, 0, 0, 0, 0]
+            reduced: 4
+
+        Reduce over tuple of axes is not supported for argmin.
+    """
     pass
 
 
@@ -1645,6 +2269,7 @@ def _doc_scan_op(f):
         return f(*args, **kwargs)
 
     op_name = f.__name__
+    orig_doc = f.__doc__ or ""
     extra_block = _math_op_extra_block(f, indent="        ")
 
     wrapped.__doc__ = f"""Performs {op_name} on tile along the `axis`.
@@ -1657,16 +2282,7 @@ def _doc_scan_op(f):
     Returns:
         Tile:
 
-    Examples:
-
-        >>> tx = ct.full((2, 4), 3, dtype=ct.float32)
-        >>> ty = ct.{op_name}(tx, 1)
-        >>> ty.shape
-        (2, 4)
-        >>> ty = ct.{op_name}(tx, 1, reverse=True)
-        >>> ty.shape
-        (2, 4)
-    """
+    """ + orig_doc
 
     return wrapped
 
@@ -1675,6 +2291,37 @@ def _doc_scan_op(f):
 @function
 def cumsum(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode] = None,
            flush_to_zero: bool = False) -> Tile:
+    """
+    Examples:
+
+        Scan along axis 1.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("cumsum:", ct.cumsum(tx, 1))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            cumsum: [[0, 1, 3, 6], [4, 9, 15, 22]]
+
+        Reverse scan.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(8, dtype=ct.int32).reshape((2, 4))
+            print("input:", tx)
+            print("reverse:", ct.cumsum(tx, 1, reverse=True))
+
+        .. testoutput::
+
+            input: [[0, 1, 2, 3], [4, 5, 6, 7]]
+            reverse: [[6, 6, 5, 3], [22, 18, 13, 7]]
+    """
     pass
 
 
@@ -1682,6 +2329,21 @@ def cumsum(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode]
 @function
 def cumprod(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode] = None,
             flush_to_zero: bool = False) -> Tile:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((2, 4), 2, dtype=ct.int32)
+            print("input:", tx)
+            print("cumprod:", ct.cumprod(tx, 1))
+
+        .. testoutput::
+
+            input: [[2, 2, 2, 2], [2, 2, 2, 2]]
+            cumprod: [[2, 4, 8, 16], [2, 4, 8, 16]]
+    """
     pass
 
 
@@ -1726,48 +2388,24 @@ def _doc_binary_op(builtin_op):
         else:
             builtin_example = f"{{}} {builtin_op} {{}}"
 
-        wrapped.__doc__ = f"""Elementwise {op_name} on two tiles.
+        orig_doc = textwrap.dedent(f.__doc__ or "")
 
-        Can also use builtin operation `{builtin_example.format('x', 'y')}`.
+        wrapped.__doc__ = f"""\
+Elementwise {op_name} on two tiles.
 
-        Args:
-            x (Tile): LHS tile.
-            y (Tile): RHS tile.{extra_block}
+Can also use builtin operation `{builtin_example.format('x', 'y')}`.
 
-        The `shape` of `x` and `y` will be broadcasted and
-        `dtype` promoted to common dtype.
+Args:
+    x (Tile): LHS tile.
+    y (Tile): RHS tile.{extra_block}
 
-        Returns:
-            Tile:
+The `shape` of `x` and `y` will be broadcasted and
+`dtype` promoted to common dtype.
 
-        Examples:
+Returns:
+    Tile:
 
-            >>> # tile and tile
-            >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-            >>> ty = ct.full((2, 4), 3, dtype=ct.int32)
-            >>> tz = ct.{op_name}(tx, ty)
-
-            >>> # Can also use the builtin op
-            >>> tz = {builtin_example.format('tx', 'ty')}
-
-            >>> # shape broadcast
-            >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-            >>> ty = ct.full((2,), 3, dtype=ct.int32)
-            >>> tz = {builtin_example.format('tx', 'ty')}
-
-            >>> # dtype cast
-            >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-            >>> ty = ct.full((2, 4), 3, dtype=ct.int64)
-            >>> tz = {builtin_example.format('tx', 'ty')}
-
-            >>> # tile and scalar
-            >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-            >>> y = 2
-            >>> tz = {builtin_example.format('tx', 'y')}
-
-            >>> # scalar and scalar
-            >>> z = {builtin_example.format(7, 2)}
-        """
+""" + orig_doc
         return wrapped
     return decorator
 
@@ -1776,6 +2414,19 @@ def _doc_binary_op(builtin_op):
 @function
 def add(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx + 10)
+
+        .. testoutput::
+
+            [10, 11, 12, 13]
+    """
     pass
 
 
@@ -1783,6 +2434,19 @@ def add(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 @function
 def sub(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx - 1)
+
+        .. testoutput::
+
+            [-1, 0, 1, 2]
+    """
     pass
 
 
@@ -1790,6 +2454,19 @@ def sub(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 @function
 def mul(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx * 3)
+
+        .. testoutput::
+
+            [0, 3, 6, 9]
+    """
     pass
 
 
@@ -1797,6 +2474,20 @@ def mul(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 @function
 def truediv(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
             flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = ct.full((4,), 2, dtype=ct.int32)
+            print(f"{tx / ty:.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.5, 1.0, 1.5]
+    """
     pass
 
 
@@ -1821,26 +2512,17 @@ def floordiv(x, y, /) -> TileOrScalar:
 
     Examples:
 
-        >>> # integer tile and tile
-        >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-        >>> ty = ct.full((2, 4), 3, dtype=ct.int32)
-        >>> tz = ct.floordiv(tx, ty)
+        .. testcode::
+            :template: kernel_wrapper.py
 
-        >>> # Can also use the builtin op
-        >>> tz = tx // ty
+            tx = ct.full((4,), 7, dtype=ct.int32)
+            ty = ct.full((4,), 3, dtype=ct.int32)
+            tz = tx // ty
+            print(tz)
 
-        >>> # float tile and tile
-        >>> tx = ct.full((2, 4), 5.5, dtype=ct.float32)
-        >>> ty = ct.full((2, 4), 2.2, dtype=ct.float32)
-        >>> tz = tx // ty  # result is ct.float32 with value 2.0
+        .. testoutput::
 
-        >>> # tile and scalar
-        >>> tx = ct.full((2, 4), 7, dtype=ct.int32)
-        >>> y = 2
-        >>> tz = tx // y
-
-        >>> # scalar and scalar
-        >>> z = 7 // 2
+            [2, 2, 2, 2]
     """
     pass
 
@@ -1848,6 +2530,20 @@ def floordiv(x, y, /) -> TileOrScalar:
 @_doc_binary_op('**')
 @function
 def pow(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 2.0, dtype=ct.float32)
+            ty = ct.arange(4, dtype=ct.float32)
+            print(f"{tx ** ty:.1f}")
+
+        .. testoutput::
+
+            [1.0, 2.0, 4.0, 8.0]
+    """
     pass
 
 
@@ -1869,45 +2565,134 @@ def atan2(x1, x2, /) -> TileOrScalar:
 
     Examples:
 
-        >>> tx = ct.full((2, 4), 1.0, dtype=ct.float32)
-        >>> ty = ct.full((2, 4), 1.0, dtype=ct.float32)
-        >>> tz = ct.atan2(ty, tx)  # Result is pi/4
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            y = ct.full((4,), 1.0, dtype=ct.float32)
+            x = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.atan2(y, x):.4f}")
+
+        .. testoutput::
+
+            [1.5708, 1.5708, 1.5708, 1.5708]
     """
 
 
 @_doc_binary_op('%')
 @function
 def mod(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx % 3)
+
+        .. testoutput::
+
+            [0, 1, 2, 0]
+    """
     pass
 
 
 @_doc_binary_op('&')
 @function
 def bitwise_and(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 7, dtype=ct.int32)
+            ty = ct.full((4,), 3, dtype=ct.int32)
+            print(tx & ty)
+
+        .. testoutput::
+
+            [3, 3, 3, 3]
+    """
     pass
 
 
 @_doc_binary_op('|')
 @function
 def bitwise_or(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 5, dtype=ct.int32)
+            ty = ct.full((4,), 3, dtype=ct.int32)
+            print(tx | ty)
+
+        .. testoutput::
+
+            [7, 7, 7, 7]
+    """
     pass
 
 
 @_doc_binary_op('^')
 @function
 def bitwise_xor(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 7, dtype=ct.int32)
+            ty = ct.full((4,), 3, dtype=ct.int32)
+            print(tx ^ ty)
+
+        .. testoutput::
+
+            [4, 4, 4, 4]
+    """
     pass
 
 
 @_doc_binary_op('<<')
 @function
 def bitwise_lshift(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx << 2)
+
+        .. testoutput::
+
+            [0, 4, 8, 12]
+    """
     pass
 
 
 @_doc_binary_op('>>')
 @function
 def bitwise_rshift(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 8, dtype=ct.int32)
+            ty = ct.arange(4, dtype=ct.int32)
+            print(tx >> ty)
+
+        .. testoutput::
+
+            [8, 4, 2, 1]
+    """
     pass
 
 
@@ -1925,9 +2710,16 @@ def bitwise_not(x, /) -> TileOrScalar:
 
     Examples:
 
-        >>> tx = ct.full((4, 4), 0, dtype=ct.int32)
-        >>> ty = ct.bitwise_not(x)
-        >>> ty = ~tx
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0, dtype=ct.int32)
+            ty = ~tx
+            print(ty)
+
+        .. testoutput::
+
+            [-1, -1, -1, -1]
     """
 
 # TODO:  Do we support logical and, or, not?
@@ -1936,12 +2728,40 @@ def bitwise_not(x, /) -> TileOrScalar:
 @_doc_binary_op('min')
 @function
 def minimum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = ct.full((4,), 2, dtype=ct.int32)
+            print(min(tx, ty))
+
+        .. testoutput::
+
+            [0, 1, 2, 2]
+    """
     pass
 
 
 @_doc_binary_op('max')
 @function
 def maximum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = ct.full((4,), 2, dtype=ct.int32)
+            print(max(tx, ty))
+
+        .. testoutput::
+
+            [2, 2, 2, 3]
+    """
     pass
 
 
@@ -1958,12 +2778,16 @@ def cdiv(x, y, /) -> TileOrScalar:
 
     Examples:
 
-        >>> tile = ct.full((2, 2), 7, dtype=ct.int32)
-        >>> ct.cdiv(tile, 4)
-        Tile((2,2), dtype=int32)
+        .. testcode::
+            :template: setup_only.py
 
-        >>> ct.cdiv(7, 4)
-        2
+            print(ct.cdiv(9, 4))
+            print(ct.cdiv(8, 4))
+
+        .. testoutput::
+
+            3
+            2
     """
     return (x - 1) // y + 1
 
@@ -1976,49 +2800,24 @@ def _doc_cmp_op(builtin_op):
         def wrapped(*args, **kwargs):
             return f(*args, **kwargs)
 
-        op_name = f.__name__
+        orig_doc = textwrap.dedent(f.__doc__ or "")
 
-        wrapped.__doc__ = f"""Compare two tiles elementwise with `{builtin_op}`.
+        wrapped.__doc__ = f"""\
+Compare two tiles elementwise with `{builtin_op}`.
 
-        Can also use builtin operation `x {builtin_op} y`.
+Can also use builtin operation `x {builtin_op} y`.
 
-        Args:
-            x (Tile): LHS tile.
-            y (Tile): RHS tile.
+Args:
+    x (Tile): LHS tile.
+    y (Tile): RHS tile.
 
-        The `shape` of `x` and `y` will be broadcasted and
-        `dtype` promoted to common dtype.
+The `shape` of `x` and `y` will be broadcasted and
+`dtype` promoted to common dtype.
 
-        Returns:
-            Tile:
+Returns:
+    Tile:
 
-        Examples:
-
-            >>> # tile and tile
-            >>> tx = ct.arange(8, dtype=ct.int32) - 4
-            >>> ty = ct.arange(8, dtype=ct.int32)
-            >>> tz = ct.{op_name}(tx, ty)
-
-            >>> # Can also use the builtin op
-            >>> tz = tx {builtin_op} ty
-
-            >>> # shape broadcast
-            >>> tx = ct.arange(8, dtype=ct.int32)
-            >>> ty = ct.full((1,), 0, dtype=ct.int32)
-            >>> tz = tx {builtin_op} ty
-
-            >>> # dtype broadcast
-            >>> tx = ct.arange(8, dtype=ct.int32) - 4
-            >>> ty = ct.arange(8, dtype=ct.int64)
-            >>> tz = tx {builtin_op} ty
-
-            >>> # tile and scalar
-            >>> tx = ct.arange(8, dtype=ct.int32) - 4
-            >>> tz = tx {builtin_op} 0
-
-            >>> # scalar and scala
-            >>> z = 5 {builtin_op} 3
-        """
+""" + orig_doc
         return wrapped
     return decorator
 
@@ -2026,36 +2825,114 @@ def _doc_cmp_op(builtin_op):
 @_doc_cmp_op('>')
 @function
 def greater(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx > 2)
+
+        .. testoutput::
+
+            [0, 0, 0, 1]
+    """
     pass
 
 
 @_doc_cmp_op('>=')
 @function
 def greater_equal(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx >= 2)
+
+        .. testoutput::
+
+            [0, 0, 1, 1]
+    """
     pass
 
 
 @_doc_cmp_op('<')
 @function
 def less(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx < 2)
+
+        .. testoutput::
+
+            [1, 1, 0, 0]
+    """
     pass
 
 
 @_doc_cmp_op('<=')
 @function
 def less_equal(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx <= 2)
+
+        .. testoutput::
+
+            [1, 1, 1, 0]
+    """
     pass
 
 
 @_doc_cmp_op('==')
 @function
 def equal(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx == 2)
+
+        .. testoutput::
+
+            [0, 0, 1, 0]
+    """
     pass
 
 
 @_doc_cmp_op('!=')
 @function
 def not_equal(x, y, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32)
+            print(tx != 2)
+
+        .. testoutput::
+
+            [1, 1, 0, 1]
+    """
     pass
 
 
@@ -2067,6 +2944,7 @@ def _doc_unary_op(f):
         return f(*args, **kwargs)
 
     op_name = f.__name__
+    orig_doc = f.__doc__ or ""
     extra_block = _math_op_extra_block(f, indent="        ")
 
     wrapped.__doc__ = f"""
@@ -2078,35 +2956,83 @@ def _doc_unary_op(f):
     Returns:
         Tile:
 
-    Examples:
-
-        >>> tx = ct.full((32, 32), 3.0, dtype=ct.float32)
-        >>> tx = ct.{op_name}(tx)
-    """
+    """ + orig_doc
     return wrapped
 
 
 @_doc_unary_op
 @function
 def exp(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.exp(tx):.1f}")
+
+        .. testoutput::
+
+            [1.0, 1.0, 1.0, 1.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def exp2(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 3.0, dtype=ct.float32)
+            print(f"{ct.exp2(tx):.1f}")
+
+        .. testoutput::
+
+            [8.0, 8.0, 8.0, 8.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def log(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 1.0, dtype=ct.float32)
+            print(f"{ct.log(tx):.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.0, 0.0, 0.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def log2(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 8.0, dtype=ct.float32)
+            print(f"{ct.log2(tx):.1f}")
+
+        .. testoutput::
+
+            [3.0, 3.0, 3.0, 3.0]
+    """
     pass
 
 
@@ -2114,42 +3040,133 @@ def log2(x, /) -> TileOrScalar:
 @function
 def sqrt(x, /, *, rounding_mode: Optional[RoundingMode] = None,
          flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 4.0, dtype=ct.float32)
+            print(f"{ct.sqrt(tx):.1f}")
+
+        .. testoutput::
+
+            [2.0, 2.0, 2.0, 2.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def rsqrt(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 4.0, dtype=ct.float32)
+            print(f"{ct.rsqrt(tx):.1f}")
+
+        .. testoutput::
+
+            [0.5, 0.5, 0.5, 0.5]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def sin(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.sin(tx):.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.0, 0.0, 0.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def cos(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.cos(tx):.1f}")
+
+        .. testoutput::
+
+            [1.0, 1.0, 1.0, 1.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def tan(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.tan(tx):.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.0, 0.0, 0.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def sinh(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.sinh(tx):.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.0, 0.0, 0.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def cosh(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.cosh(tx):.1f}")
+
+        .. testoutput::
+
+            [1.0, 1.0, 1.0, 1.0]
+    """
     pass
 
 
@@ -2170,27 +3187,74 @@ def tanh(x, /, *, rounding_mode: Optional[RoundingMode] = None) -> TileOrScalar:
 
     Examples:
 
-        >>> tx = ct.full((32, 32), 3.0, dtype=ct.float32)
-        >>> tx = ct.tanh(tx)
-        >>> tx = ct.tanh(tx, rounding_mode=RoundingMode.APPROX)  # Faster approximation
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 0.0, dtype=ct.float32)
+            print(f"{ct.tanh(tx):.1f}")
+
+        .. testoutput::
+
+            [0.0, 0.0, 0.0, 0.0]
     """
 
 
 @_doc_unary_op
 @function
 def floor(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 3.7, dtype=ct.float32)
+            print(f"{ct.floor(tx):.1f}")
+
+        .. testoutput::
+
+            [3.0, 3.0, 3.0, 3.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def ceil(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 3.2, dtype=ct.float32)
+            print(f"{ct.ceil(tx):.1f}")
+
+        .. testoutput::
+
+            [4.0, 4.0, 4.0, 4.0]
+    """
     pass
 
 
 @_doc_unary_op
 @function
 def abs(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.arange(4, dtype=ct.int32) - 2
+            print("input:", tx)
+            print("abs:", ct.abs(tx))
+
+        .. testoutput::
+
+            input: [-2, -1, 0, 1]
+            abs: [2, 1, 0, 1]
+    """
     pass
 
 
@@ -2206,20 +3270,35 @@ def negative(x, /) -> TileOrScalar:
 
     Examples:
 
-        >>> Negate a tile
-        >>> tx = ct.arange(8, dtype=ct.int32)
-        >>> ty = ct.negative(tx)
-        >>> ty = -tx
+        .. testcode::
+            :template: kernel_wrapper.py
 
-        >>> Negate a scalar
-        >>> x = 3
-        >>> y = -x
+            tx = ct.arange(4, dtype=ct.int32)
+            ty = -tx
+            print(ty)
+
+        .. testoutput::
+
+            [0, -1, -2, -3]
     """
 
 
 @_doc_unary_op
 @function
 def isnan(x, /) -> TileOrScalar:
+    """
+    Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tx = ct.full((4,), 1.0, dtype=ct.float32)
+            print(ct.isnan(tx))
+
+        .. testoutput::
+
+            [0, 0, 0, 0]
+    """
     pass
 
 
@@ -2239,16 +3318,18 @@ def where(cond, x, y, /) -> Tile:
 
     Examples:
 
-        >>> cond = ct.arange(4, dtype=ct.int32)
-        >>> cond = cond > 2
-        >>> x_true = ct.full((4,), 1.0, dtype=ct.float32)
-        >>> x_false = ct.full((4,), -1.0, dtype=ct.float32)
-        >>> y = ct.where(cond, x_true, x_false)
-        >>> y
-        [1., 1., -1., -1.]
-        >>> z = ct.where(cond, 1.0, -1.0)
-        >>> z
-        [1., 1., -1., -1.]
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            cond = ct.arange(4, dtype=ct.int32) >= 2
+            x_true = ct.full((4,), 1, dtype=ct.int32)
+            x_false = ct.full((4,), -1, dtype=ct.int32)
+            y = ct.where(cond, x_true, x_false)
+            print(y)
+
+        .. testoutput::
+
+            [-1, -1, 1, 1]
     """
 
 
@@ -2270,10 +3351,37 @@ def extract(x, /, index, shape) -> Tile:
 
     Examples:
 
-        >>> tile = ct.full((8, 8), 3.14, dtype=ct.float32)
-        >>> sub_tile = ct.extract(x, (0, 0), shape=(4, 4))
-        >>> sub_tile.shape
-        (4, 4)
+        1D tile.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.arange(8, dtype=ct.int32)
+            sub = ct.extract(tile, (0,), shape=(4,))
+            print(f'(0,): {sub}')
+            sub = ct.extract(tile, (1,), shape=(4,))
+            print(f'(1,): {sub}')
+
+        .. testoutput::
+
+            (0,): [0, 1, 2, 3]
+            (1,): [4, 5, 6, 7]
+
+        2D tile.
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.arange(16, dtype=ct.int32).reshape((4, 4))
+            sub = ct.extract(tile, (0, 0), shape=(2, 2))
+            print(f'(0, 0): {sub}')
+            sub = ct.extract(tile, (0, 1), shape=(2, 2))
+            print(f'(0, 1): {sub}')
+
+        .. testoutput::
+
+            (0, 0): [[0, 1], [4, 5]]
+            (0, 1): [[2, 3], [6, 7]]
     """
 
 
@@ -2294,9 +3402,15 @@ def printf(format, *args) -> None:
 
     Examples:
 
-        >>> tile = ct.arange(4, dtype=ct.int32)
-        >>> ct.printf("one tile: %d", tile)
-        >>> ct.printf("two tiles: %d, %f", tile, tile * 2.0)
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.full((), 42, dtype=ct.int32)
+            ct.printf("value: %d\\n", tile)
+
+        .. testoutput::
+
+            value: 42
 
     Notes:
         This operation has significant overhead, and should only be used
@@ -2320,10 +3434,17 @@ def print(*args, sep: str = ' ', end: str = '\n') -> None:
 
     Examples:
 
-        >>> tile = ct.arange(4, dtype=ct.int32)
-        >>> ct.print(f"tile={tile}")
-        >>> ct.print(f"x={tile:.5f}", end='')
-        >>> ct.print("tile:", tile, sep='=')
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.full((), 42, dtype=ct.int32)
+            ct.print(f"value={tile}")
+            print(f"value={tile}")
+
+        .. testoutput::
+
+            value=42
+            value=42
 
     Notes:
         This operation has significant overhead, and should only be used
@@ -2349,9 +3470,16 @@ def assert_(cond, /, message=None) -> None:
 
     Examples:
 
-        >>> tile = ct.arange(4, dtype=ct.int32)
-        >>> ct.assert_(tile > 2)
-        >>> ct.assert_(tile > 2, "Not all elements in tile are greater than 2")
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            tile = ct.full((4,), 5, dtype=ct.int32)
+            ct.assert_(tile > 0)
+            print("assertion passed")
+
+        .. testoutput::
+
+            assertion passed
     """
 
 
@@ -2411,18 +3539,36 @@ def static_assert(condition, message=None, /):
     Because `message` is evaluated using the :py:func:`static_eval` semantics,
     it can include useful debug information about local variables, for example:
 
-        >>> x = ct.ones((4,), dtype=ct.int32)
-        >>> y = ct.ones((4,), dtype=ct.float32)
-        >>> ct.static_assert(x.dtype == y.dtype,
-        >>>                  f"Expected {x} and {y} to have same dtype.")
-        Static assertion failed: Expected <tile[int32, (4,)]> and <tile[float32, (4,)]>
-         to have same dtype.
+    .. testcode::
+        :template: kernel_wrapper.py
+
+        x = ct.ones((4,), dtype=ct.int32)
+        y = ct.ones((4,), dtype=ct.float32)
+        ct.static_assert(x.dtype == y.dtype,
+                         f"Expected {x} and {y} to have same dtype.")
+
+    .. testoutput::
+        :options: +ELLIPSIS, +IGNORE_EXCEPTION_DETAIL
+
+        Traceback (most recent call last):
+            ...
+        TileStaticAssertionError: ...Expected ... and ... to have same dtype.
 
     Since the message is automatically converted to a string, one can use any object
     in its place, for example:
 
-        >>> ct.static_assert(x.dtype == ct.float32, x)
-        Static assertion failed: <tile[int32, (4,)]>
+    .. testcode::
+        :template: kernel_wrapper.py
+
+        x = ct.ones((4,), dtype=ct.int32)
+        ct.static_assert(x.dtype == ct.float32, x)
+
+    .. testoutput::
+        :options: +ELLIPSIS, +IGNORE_EXCEPTION_DETAIL
+
+        Traceback (most recent call last):
+            ...
+        TileStaticAssertionError: Static assertion failed: <tile[int32, (4,)]>
 
     Despite being declared as a function, `static_assert()` is treated like a keyword:
     it skips the translation of the surrounded expressions according to the Tile semantics.
@@ -2454,6 +3600,27 @@ def static_iter(iterable):
     Finally, for each item of the iterable, the loop body is inlined, with the induction variable(s)
     bound to the item. The `break`, `continue`, and `return` statements are not allowed
     inside a `static_iter` loop.
+
+    .. testcode::
+        :template: kernel_wrapper.py
+
+        tile = ct.zeros(4, dtype=ct.int32)
+        size = 4
+
+        states = ()
+        for i in ct.static_iter(range(size)):
+            states += (tile + i,)
+        print(states)
+
+        new_states = ()
+        for i in ct.static_iter(range(size)):
+            new_states += (states[(i + 1) % size] + states[i], )
+        print(new_states)
+
+    .. testoutput::
+
+        ([0, 0, 0, 0], [1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3])
+        ([1, 1, 1, 1], [3, 3, 3, 3], [5, 5, 5, 5], [3, 3, 3, 3])
     """
 
 

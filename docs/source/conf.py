@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import sys
 import shutil
 import cuda.tile
 import cuda.tile._datatype
@@ -20,10 +21,12 @@ author = 'NVIDIA Corporation'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+sys.path.insert(0, os.path.abspath('_ext'))
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.napoleon',  # for google style support
+    'doctest_ext',
     'myst_parser',  # for markdown support
 ]
 
@@ -53,6 +56,9 @@ html_theme_options = {
 html_sidebars = {
     '**': ['globaltoc.html', 'searchbox.html'],
 }
+
+# Doc testing
+doctest_test_doctest_blocks = ""
 
 # -- Generated content --------------------------------------------------------
 # Make sure the generated includes directory exists
