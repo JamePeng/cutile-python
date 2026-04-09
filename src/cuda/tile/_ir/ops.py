@@ -1155,6 +1155,23 @@ def slice_impl(start: Var, stop: Var, step: Var) -> Var:
         slice(start.get_constant(), stop.get_constant(), step.get_constant()))
 
 
+@overload_dispatcher(operator.getitem)
+def getitem_overload_dispatcher(object: Var, key: Var):
+    object_ty = object.get_type()
+    key_ty = key.get_type()
+    try:
+        yield type(object_ty), type(key_ty)
+    except OverloadNotFoundError as e:
+        if e.found_overload_matching_first_param:
+            raise TileTypeError(f"Object of type {object_ty} is not subscriptable with {key_ty}")
+        else:
+            raise TileTypeError(f"Object of type {object_ty} is not subscriptable")
+
+
+# ===========================================================================================
+# Tuple getitem
+# ===========================================================================================
+
 def tuple_item(tup: TupleValue, index: int) -> Var:
     assert isinstance(tup, TupleValue)
     try:
@@ -1164,21 +1181,41 @@ def tuple_item(tup: TupleValue, index: int) -> Var:
                 f"Index {index} is out of range for a tuple of length {len(tup.items)}")
 
 
-def tuple_slice(tup: TupleValue, slc: slice) -> Var:
-    assert isinstance(tup, TupleValue)
-    items = tup.items[slc]
+@impl(operator.getitem, overload=(TupleTy, TileTy))
+def getitem_tuple_item_impl(object: Var, key: Var) -> Var:
+    tuple_val = object.get_aggregate()
+    assert isinstance(tuple_val, TupleValue)
+
+    key_ty = key.get_type()
+    if key_ty.ndim != 0 or not is_integral(key_ty.dtype):
+        raise TileTypeError(f"Tuple indices must be integers or slices, not {key_ty}")
+
+    if not key.is_constant():
+        raise TileTypeError("Tuple indices must be constant")
+
+    idx = key.get_constant()
+    return tuple_item(tuple_val, idx)
+
+
+@impl(operator.getitem, overload=(TupleTy, SliceType))
+def getitem_tuple_slice_impl(object: Var, key: Var) -> Var:
+    tuple_val = object.get_aggregate()
+    assert isinstance(tuple_val, TupleValue)
+
+    slc = require_constant_slice(key)
+    items = tuple_val.items[slc]
     return build_tuple(items)
 
 
-def tuple_getitem(x: Var, key: Var) -> Var:
-    tuple_val = x.get_aggregate()
+@impl(operator.getitem, overload=(TupleTy, WILDCARD))
+def getitem_tuple_fallback_impl(object: Var, key: Var) -> Var:
     key_ty = key.get_type()
-    if isinstance(key_ty, SliceType):
-        slc = require_constant_slice(key)
-        return tuple_slice(tuple_val, slc)
-    idx = require_constant_int(key)
-    return tuple_item(tuple_val, idx)
+    raise TileTypeError(f"Tuple indices must be integers or slices, not {key_ty}")
 
+
+# ===========================================================================================
+# Tile getitem
+# ===========================================================================================
 
 def tile_expand_dims(x: Var, index: Tuple[Any, ...]) -> Var:
     x_type = x.get_type()
@@ -1211,17 +1248,27 @@ def tile_expand_dims(x: Var, index: Tuple[Any, ...]) -> Var:
     return reshape(x, tuple(new_shape))
 
 
-def tile_getitem(x: Var, key: Var) -> Var:
-    key_ty = key.get_type()
-    if isinstance(key_ty, NoneType):
-        return tile_expand_dims(x, (None,))
-    elif isinstance(key_ty, TupleTy):
-        if not key.is_constant():
-            raise TileTypeError("Tile subscript must be a constant tuple")
-        return tile_expand_dims(x, key.get_constant())
-    else:
-        raise TileTypeError("Directly indexing a tile is not supported; "
-                            "use `extract()` or `item()` instead.")
+@impl(operator.getitem, overload=(TileTy, NoneType))
+def getitem_tile_none_impl(object: Var, key: Var) -> Var:
+    return tile_expand_dims(object, (None,))
+
+
+@impl(operator.getitem, overload=(TileTy, TupleTy))
+def getitem_tile_tuple_impl(object: Var, key: Var) -> Var:
+    if not key.is_constant():
+        raise TileTypeError("Tile subscript must be a constant tuple")
+    return tile_expand_dims(object, key.get_constant())
+
+
+@impl(operator.getitem, overload=(TileTy, WILDCARD))
+def getitem_tile_fallback_impl(object: Var, key: Var) -> Var:
+    raise TileTypeError("Directly indexing a tile is not supported; "
+                        "use `extract()` or `item()` instead.")
+
+
+# ===========================================================================================
+# List getitem
+# ===========================================================================================
 
 
 @dataclass(eq=False)
@@ -1288,31 +1335,34 @@ class GetArrayListItem(Operation, opcode="get_array_list_item"):
         )
 
 
-def list_item(x: Var, index: Var) -> Var:
-    list_ty = require_list_type(x)
-    index_ty = require_0d_tile_type(index)
+@impl(operator.getitem, overload=(ListTy, WILDCARD))
+def getitem_list_impl(object: Var, key: Var) -> Var:
+    list_ty = require_list_type(object)
+    index_ty = require_0d_tile_type(key)
     index_dtype = get_dtype(index_ty)
     if not (isinstance(index_dtype, DType) and is_integral(index_dtype)):
-        raise TypeError(f"Index must be an integer scalar or 0D Tile, got {index_ty}")
+        raise TileTypeError(f"Index must be an integer scalar or 0D Tile, got {index_ty}")
     item_ty = list_ty.item_type
 
     if not isinstance(item_ty, ArrayTy):
         raise TileTypeError(f"Indexing a list of {list_ty.item_type} is not implemented")
 
     flat_types = tuple(item_ty.flatten_aggregate())
-    flat_results = add_operation(GetArrayListItem, flat_types, x=x, index=index)
+    flat_results = add_operation(GetArrayListItem, flat_types, x=object, index=key)
     [ret] = unflatten_aggregates(flat_results, (item_ty,), (item_ty,))
     return ret
 
 
-@impl(operator.getitem)
-def getitem(object: Var, key: Var) -> Var:
-    object_ty = object.get_type()
-    match object_ty:
-        case TupleTy(): return tuple_getitem(object, key)
-        case TileTy(): return tile_getitem(object, key)
-        case ListTy(): return list_item(object, key)
-    raise TileTypeError(f'Indexing an object of type {object_ty} is not supported')
+# ===========================================================================================
+# Array getitem
+# ===========================================================================================
+
+@impl(operator.getitem, overload=(ArrayTy, WILDCARD))
+def getitem_array_impl(object: Var, key: Var) -> Var:
+    raise TileTypeError("Arrays are not directly subscriptable. Use load() or gather() instead.")
+
+
+# ===========================================================================================
 
 
 @impl(len)

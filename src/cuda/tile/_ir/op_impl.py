@@ -50,7 +50,8 @@ WILDCARD = WildcardClass()
 
 
 class OverloadNotFoundError(Exception):
-    pass
+    def __init__(self, found_overload_matching_first_param: bool):
+        self.found_overload_matching_first_param = found_overload_matching_first_param
 
 
 class ImplRegistry:
@@ -76,7 +77,8 @@ class ImplRegistry:
     def clone(self) -> "ImplRegistry":
         ret = ImplRegistry()
         ret.op_implementations.update(self.op_implementations)
-        ret._overloaded_implementations.update(self._overloaded_implementations)
+        for stub, overloads in self._overloaded_implementations.items():
+            ret._overloaded_implementations[stub] = dict(overloads)
         return ret
 
     def overload_dispatcher(self, stub):
@@ -96,7 +98,8 @@ class ImplRegistry:
                 key = next(generator)
                 overload_impl = ImplRegistry.get_current()._find_overload(stub, key)
                 if overload_impl is None:
-                    generator.throw(OverloadNotFoundError())
+                    generator.throw(OverloadNotFoundError(
+                            self._have_overload_matching_first_param(stub, key[0])))
                     raise RuntimeError("Expected the overload key provider to re-throw a TileError")
 
                 try:
@@ -120,15 +123,30 @@ class ImplRegistry:
 
     def _find_overload(self, stub: Callable, overload: tuple[Any, ...]) -> Callable | None:
         candidates = self._overloaded_implementations[stub]
-        match = None
-        for parameters, impl in candidates.items():
-            is_matching = all(p == WILDCARD or p == arg
-                              for p, arg in zip(parameters, overload, strict=True))
-            if is_matching:
-                if match is not None:
-                    raise ValueError(f"Multiple matching overloads found for {stub}, {overload}")
-                match = impl
-        return match
+        best_matches = []
+        best_priority = -1
+
+        for parameters, (priority, impl) in candidates.items():
+            if priority < best_priority:
+                continue
+
+            if not all(p == WILDCARD or p == arg
+                       for p, arg in zip(parameters, overload, strict=True)):
+                continue
+
+            if priority > best_priority:
+                best_matches.clear()
+                best_priority = priority
+
+            best_matches.append(impl)
+
+        match best_matches:
+            case []:
+                return None
+            case [x]:
+                return x
+            case _:
+                raise ValueError(f"Multiple matching overloads found for {stub}, {overload}")
 
     def impl(self, stub, *, fixed_args: Sequence[Any] = (),
              min_version: Optional[BytecodeVersion] = None,
@@ -182,11 +200,17 @@ class ImplRegistry:
             if len(overload) == 0:
                 self.op_implementations[stub] = wrapper
             else:
-                self._overloaded_implementations[stub][overload] = wrapper
+                self._overloaded_implementations[stub][overload] = \
+                        (sum(p != WILDCARD for p in overload), wrapper)
 
             return orig_func
 
         return decorate
+
+    def _have_overload_matching_first_param(self, stub: Callable, first_param: Any) -> bool:
+        candidates = self._overloaded_implementations[stub]
+        return any(parameters[0] == first_param
+                   for parameters in candidates.keys())
 
 
 class _CurrentRegistry(threading.local):

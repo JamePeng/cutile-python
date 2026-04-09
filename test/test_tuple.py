@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import pytest
+
 import cuda.tile as ct
 import torch
 
+from cuda.tile import TileTypeError
 from util import assert_equal
 
 
@@ -25,3 +28,44 @@ def test_tuple_concatenation():
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, z))
     assert_equal(y, x)
     assert z.item() == 3
+
+
+def test_tuple_getitem_noninteger():
+    @ct.kernel
+    def kernel():
+        t = (1, 2, 3)
+        t[1.0]
+
+    with pytest.raises(TileTypeError, match="Tuple indices must be integers or slices"):
+        ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
+
+
+def test_tuple_getitem_nonscalar():
+    @ct.kernel
+    def kernel():
+        t = (1, 2, 3)
+        i = ct.ones((2,), dtype=ct.int32)
+        t[i]
+
+    with pytest.raises(TileTypeError, match="Tuple indices must be integers or slices"):
+        ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
+
+
+def test_tuple_getitem_nonconstant():
+    @ct.kernel
+    def kernel():
+        t = (1, 2, 3)
+        t[ct.bid(0)]
+
+    with pytest.raises(TileTypeError, match="Tuple indices must be constant"):
+        ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
+
+
+def test_tuple_getitem_nontile():
+    @ct.kernel
+    def kernel():
+        t = (1, 2, 3)
+        t[(4, 5)]
+
+    with pytest.raises(TileTypeError, match="Tuple indices must be integers or slices"):
+        ct.launch(torch.cuda.current_stream(), (1,), kernel, ())

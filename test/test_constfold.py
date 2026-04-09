@@ -47,27 +47,6 @@ def test_tuple_static_getitem_slice():
     compile(kernel, ())
 
 
-def test_tuple_getitem_non_static():
-
-    def kernel(i: int):
-        t = (1, 1, 2, 2)
-        s1 = t[i]
-        ct.arange(s1, dtype=ct.int32)
-
-    with pytest.raises(TileTypeError, match=r"Expected an integer constant"):
-        compile(kernel, (0,))
-
-
-def test_tuple_getitem_unsupported_key():
-
-    def kernel():
-        t = (1, 2, 3, 4)
-        t[(0, 1)]
-
-    with pytest.raises(TileTypeError, match=r"Expected an integer constant"):
-        compile(kernel, ())
-
-
 def test_tile_attr():
 
     def kernel():

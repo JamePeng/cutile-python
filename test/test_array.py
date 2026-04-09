@@ -1,9 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) <2025> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import pytest
 
 import cuda.tile as ct
 import torch
+
+from cuda.tile import TileTypeError
 
 
 @ct.kernel
@@ -31,3 +34,13 @@ def test_array_attr():
               array_attr_kernel, (x, out))
     assert list(out[0:3]) == list(x.shape)
     assert list(out[3:6]) == list(x.stride())
+
+
+def test_array_getitem():
+    @ct.kernel
+    def kernel(x):
+        x[0]
+
+    x = torch.zeros((10,), device='cuda')
+    with pytest.raises(TileTypeError, match="Arrays are not directly subscriptable"):
+        ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
