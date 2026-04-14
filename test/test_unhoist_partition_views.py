@@ -20,7 +20,7 @@ def test_partition_view_grouped_with_consumer(version):
             v = ct.load(x, i, shape=(1,))
             ct.store(x, i, v + n)
 
-    x_constraint = ArrayConstraint(dtype=ct.float32, ndim=1,
+    x_constraint = ArrayConstraint(dtype=ct.float32, ndim=1, index_dtype=ct.int32,
                                    stride_lower_bound_incl=0, alias_groups=(),
                                    may_alias_internally=False)
     sig = KernelSignature([x_constraint], CallingConvention.cutile_python_v1())

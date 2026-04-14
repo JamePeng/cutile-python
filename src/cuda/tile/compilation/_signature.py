@@ -10,7 +10,7 @@ from typing import Sequence, Iterator, TypeAlias, Any
 
 from cuda.tile._execution import kernel
 from cuda.tile._cext import CallingConvention, get_parameter_constraints_from_pyargs
-from cuda.tile._datatype import DType
+from cuda.tile._datatype import DType, int32, int64, uint32
 
 
 @dataclass(frozen=True, init=False)
@@ -39,6 +39,9 @@ class ArrayConstraint:
             Data type of the array.
         ndim (int):
             Number of dimensions of the array, also known as rank.
+        index_dtype (DType):
+            Data type used to represent array's shape, strides and indices.
+            Currently, only :py:data:`ct.int32 <cuda.tile.int32>` is supported.
         stride_lower_bound_incl (Sequence[int | None] | int | None):
             For each dimension of the array, an optional inclusive lower bound for its stride.
             If all dimensions have the same lower bound, a single number can be passed
@@ -81,6 +84,7 @@ class ArrayConstraint:
     """
     dtype: DType
     ndim: int
+    index_dtype: DType
     stride_lower_bound_incl: tuple[int | None, ...]
     alias_groups: tuple[str, ...]
     may_alias_internally: bool
@@ -93,6 +97,7 @@ class ArrayConstraint:
                  dtype: DType,
                  ndim: int,
                  *,
+                 index_dtype: DType,
                  stride_lower_bound_incl: Sequence[int | None] | int | None,
                  alias_groups: Sequence[str],
                  may_alias_internally: bool,
@@ -109,6 +114,10 @@ class ArrayConstraint:
             raise TypeError(f"Expected an integer for `ndim`, got '{ndim}'")
         if ndim < 0:
             raise ValueError("`ndim` cannot be negative")
+
+        # index_dtype
+        if index_dtype not in (int32, uint32, int64):
+            raise ValueError(f"`index_dtype` must be int32 or int64, got {index_dtype}")
 
         # stride_constant
         stride_constant = _parse_assumption_tuple(

@@ -18,7 +18,7 @@ def _get_defining_op(var, root_block: ir.Block):
 
 
 def get_ir(func) -> ir.Block:
-    x = ArrayConstraint(dtype=ct.int32, ndim=1, stride_lower_bound_incl=0,
+    x = ArrayConstraint(dtype=ct.int32, ndim=1, index_dtype=ct.int32, stride_lower_bound_incl=0,
                         alias_groups=(), may_alias_internally=False)
     sig = KernelSignature([x], CallingConvention.cutile_python_v1(), symbol="kernel")
     [body] = compile_tile(func, [sig], return_final_ir=True, return_cubin=False).final_ir

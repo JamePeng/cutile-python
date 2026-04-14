@@ -12,7 +12,7 @@ from cuda.tile._datatype import (bool_, uint8, uint16, uint32, uint64, int8, int
                                  float8_e4m3fn, float8_e5m2, float8_e8m0fnu)
 
 
-_SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
+_SIMPLE_2D = ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=0,
                              alias_groups=(), may_alias_internally=False)
 
 
@@ -47,11 +47,28 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
         id="array_simple",
     ),
 
+    # 1D array with uint32 index type
+    pytest.param(
+        [ArrayConstraint(float32, 1, index_dtype=uint32, stride_lower_bound_incl=0,
+                         alias_groups=(), may_alias_internally=False)],
+        "_A1f32_1l0_u",
+        id="array_simple",
+    ),
+
+    # 1D array with int64 index type
+    pytest.param(
+        [ArrayConstraint(float32, 1, index_dtype=int64, stride_lower_bound_incl=0,
+                         alias_groups=(), may_alias_internally=False)],
+        "_A1f32_1l0_w",
+        id="array_simple",
+    ),
+
     # 3D array with stride_constant, stride_divisible_by, shape_divisible_by
     # (dims 0 and 1 share shape_divisible_by=16), stride_lower_bound_incl,
     # and base_addr_divisible_by
     pytest.param(
         [ArrayConstraint(float32, 3,
+                         index_dtype=int32,
                          stride_lower_bound_incl=0,
                          alias_groups=(),
                          may_alias_internally=False,
@@ -65,9 +82,9 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
 
     # Two arrays sharing an alias group, one with may_alias_internally
     pytest.param(
-        [ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+        [ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                          alias_groups=("x",), may_alias_internally=True),
-         ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+         ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                          alias_groups=("x",), may_alias_internally=False)],
         "_A2f32_g0i_A2f32_g0",
         id="array_alias_may_alias_internally",
@@ -76,11 +93,11 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
     # Three arrays with overlapping alias groups: first two share one group,
     # last two share another
     pytest.param(
-        [ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+        [ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                          alias_groups=("ab",), may_alias_internally=False),
-         ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+         ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                          alias_groups=("ab", "bc"), may_alias_internally=False),
-         ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+         ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                          alias_groups=("bc",), may_alias_internally=False)],
         "_A2f32_g0_A2f32_g0g1_A2f32_g1",
         id="array_overlapping_alias_groups",
@@ -90,6 +107,16 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
     pytest.param(
         [ListConstraint(_SIMPLE_2D, alias_groups=(), elements_may_alias=False)],
         "_LA2f32_3l0",
+        id="list_simple",
+    ),
+
+    # List of 2D arrays with int64 index type
+    pytest.param(
+        [ListConstraint(
+            ArrayConstraint(float32, 2, index_dtype=int64, stride_lower_bound_incl=0,
+                            alias_groups=(), may_alias_internally=False),
+            alias_groups=(), elements_may_alias=False)],
+        "_LA2f32_3l0_w",
         id="list_simple",
     ),
 
@@ -111,11 +138,11 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
     # Two lists where each has list-level alias group "x" and element alias group "y"
     pytest.param(
         [ListConstraint(
-            ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+            ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                             alias_groups=("y",), may_alias_internally=False),
             alias_groups=("x",), elements_may_alias=False),
          ListConstraint(
-            ArrayConstraint(float32, 2, stride_lower_bound_incl=None,
+            ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=None,
                             alias_groups=("y",), may_alias_internally=False),
             alias_groups=("x",), elements_may_alias=False)],
         "_Lg0A2f32_g1_Lg0A2f32_g1",
@@ -125,17 +152,17 @@ _SIMPLE_2D = ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
     # Mixed: all constraint types in a single signature
     pytest.param(
         [42,
-         ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
+         ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=0,
                          alias_groups=("a",), may_alias_internally=False),
          True,
          ScalarConstraint(bfloat16),
          ListConstraint(
-             ArrayConstraint(int64, 3, stride_lower_bound_incl=None,
+             ArrayConstraint(int64, 3, index_dtype=int32, stride_lower_bound_incl=None,
                              alias_groups=("a",), may_alias_internally=True),
              alias_groups=(), elements_may_alias=False),
          -1.5,
          False,
-         ArrayConstraint(float32, 2, stride_lower_bound_incl=0,
+         ArrayConstraint(float32, 2, index_dtype=int32, stride_lower_bound_incl=0,
                          alias_groups=("a",), may_alias_internally=False),
          ScalarConstraint(int64),
          0],

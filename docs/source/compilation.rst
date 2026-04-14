@@ -82,18 +82,35 @@ of the kernel arguments:
       - Binary Format of Arguments
 
     * - :py:class:`ScalarConstraint`
-      - Passed a single argument of the corresponding type. For example, if the constraint's `dtype`
-        is :py:data:`ct.int32 <cuda.tile.int32>`, the corresponding C type is ``int32_t``;
+      - Passed as a single argument of the corresponding type. For example, if the constraint's
+        `dtype` is :py:data:`ct.int32 <cuda.tile.int32>`, the corresponding C type is ``int32_t``;
         :py:data:`ct.float64 <cuda.tile.float64>` corresponds to C's ``double`` and so on.
 
     * - :py:class:`ArrayConstraint`
       - Passed as `1 + 2n` arguments, where `n` is the number of dimensions (`ndim`) of the array.
         The first argument is the device pointer to the base of the array's data. It is followed
-        by `n` arguments of type `int32_t`, representing the shape of the array. Finally, the
-        last `n` arguments of type `int32_t` represent the strides of the array.
+        by `n` arguments representing the shape of the array. Finally, the last `n` arguments
+        represent the strides of the array.
+        The type of shape and stride arguments is determined by the ``index_dtype`` field of the
+        constraint:
+
+        .. list-table::
+            :header-rows: 1
+
+            * - Constraint's ``index_dtype``
+              - C Type of Shape & Strides
+
+            * - :py:data:`ct.int32 <cuda.tile.int32>`
+              - ``int32_t``
+
+            * - :py:data:`ct.uint32 <cuda.tile.uint32>`
+              - ``uint32_t``
+
+            * - :py:data:`ct.int64 <cuda.tile.int64>`
+              - ``int64_t``
 
     * - :py:class:`ListConstraint` with an :py:class:`ArrayConstraint` element
-      - Passed as two arguments: a device pointer to the base of the list data and an `int32_t`
+      - Passed as two arguments: a device pointer to the base of the list data and an ``int32_t``
         denoting the length of the list. The base pointer must point to an 8-byte aligned
         contiguous buffer in the global GPU memory, consisting of
         `(1 + 2n) * L` 64-bit words, where `L` is the length of the list
@@ -101,8 +118,8 @@ of the kernel arguments:
         Each element array of the list is represented by `(1 + 2n)` words in this buffer. The first
         word stores a device pointer to the base of array; the next `n` signed integers
         store the shape of the array; the final `n` signed integers store the strides of the array.
-        Even though 64-bit integers are used for the shape and the strides,
-        they are interpreted as `int32_t`.
+        Even though 64-bit integers are always used for the shape and the strides,
+        they are truncated to the ``index_dtype`` of the element constraint.
 
     * - :py:class:`ConstantConstraint`
       - Omitted from the launch arguments.

@@ -699,6 +699,9 @@ static PyPtr parse_array_constraint(ConstantCursor& cursor) {
     PyPtr dtype = dtype_to_python(arrty.dtype);
     if (!dtype) return {};
 
+    PyPtr index_dtype = dtype_to_python(DLDataType{kDLInt, 32, 1});
+    if (!index_dtype) return {};
+
     PyPtr constant_strides = steal(PyTuple_New(arrty.ndim));
     if (!constant_strides) return {};
 
@@ -736,9 +739,10 @@ static PyPtr parse_array_constraint(ConstantCursor& cursor) {
     }
 
     PyPtr kwargs = steal(Py_BuildValue(
-            "{sO sI sO sO s() sO sO sO sO}",
+            "{sO sI sO sO sO s() sO sO sO sO}",
             "dtype", dtype.get(),
             "ndim", static_cast<unsigned>(arrty.ndim),
+            "index_dtype", index_dtype.get(),
             "stride_constant", constant_strides.get(),
             "stride_lower_bound_incl", zero.get(),
             "alias_groups",

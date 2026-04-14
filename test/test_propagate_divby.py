@@ -59,6 +59,7 @@ def array_arg(dtype: ct.DType = ct.float32,
     if shape_div is None:
         shape_div = (1,) * ndim
     return ArrayConstraint(dtype, ndim,
+                           index_dtype=ct.int32,
                            base_addr_divisible_by=base_div,
                            stride_lower_bound_incl=0,
                            stride_constant=stride_const,

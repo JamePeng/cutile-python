@@ -207,6 +207,13 @@ def _mangle_array_constraint(a: ArrayConstraint,
     if a.may_alias_internally:
         extras += "i"
 
+    if a.index_dtype == uint32:
+        extras += "u"
+    elif a.index_dtype == int64:
+        extras += "w"
+    else:
+        assert a.index_dtype == int32
+
     if len(extras) > 0:
         ret += "_" + extras
 
@@ -294,6 +301,7 @@ def _demangle_array_constraint(cursor: _Cursor,
     base_addr_div_by = 1
     alias_groups = []
     may_alias_internally = False
+    index_dtype = int32
     if cursor.peek("_[a-z]") is not None:
         cursor.expect("_", "Expected an underscore")
         if cursor.read("p"):
@@ -304,8 +312,14 @@ def _demangle_array_constraint(cursor: _Cursor,
         if cursor.read("i"):
             may_alias_internally = True
 
+        if cursor.read("u"):
+            index_dtype = uint32
+        elif cursor.read("w"):
+            index_dtype = int64
+
     return ArrayConstraint(dtype,
                            ndim,
+                           index_dtype=index_dtype,
                            stride_lower_bound_incl=stride_lower_bound_incl,
                            alias_groups=alias_groups,
                            may_alias_internally=may_alias_internally,
