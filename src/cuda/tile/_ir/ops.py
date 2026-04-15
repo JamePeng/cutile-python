@@ -28,7 +28,7 @@ from cuda.tile._ir.ir import (
     BlockRestriction, FormattedStringValue, RawArrayMemoryValue
 )
 from .type import PointerTy
-from . import hir
+from . import hir, hir_stubs
 from .hir import ResolvedName
 from .op_impl import (
     ImplRegistry, require_constant_int, require_constant_int_tuple,
@@ -160,7 +160,7 @@ class Loop(Operation, opcode="loop"):
         return f"{header_str} (with {carried_vars_str})"
 
 
-@impl(hir.loop)
+@impl(hir_stubs.loop)
 async def loop_impl(body: hir.Block, iterable: Var):
     from .._passes.hir2ir import dispatch_hir_block
 
@@ -322,7 +322,7 @@ def _have_nested_jump(calls: Sequence[hir.Call]) -> bool:
     return any(
         block.jump != hir.Jump.END_BRANCH or _have_nested_jump(block.calls)
         for c in calls
-        if c.callee is hir.if_else
+        if c.callee is hir_stubs.if_else
         for block in c.args[1:]
     )
 
@@ -389,7 +389,7 @@ async def _flatten_branch(branch: hir.Block) -> Var | None:
         return None if len(jump.outputs) == 0 else jump.outputs[0]
 
 
-@impl(hir.if_else)
+@impl(hir_stubs.if_else)
 async def if_else_impl(cond: Var, then_block: hir.Block, else_block: hir.Block) -> Var | None:
     from .._passes.hir2ir import dispatch_hir_block
 
@@ -1406,7 +1406,7 @@ def len_impl(x: Var) -> Var:
     return list_val.length
 
 
-@impl(hir.build_tuple)
+@impl(hir_stubs.build_tuple)
 def build_tuple(items: tuple[Var, ...]) -> Var:
     ty = TupleTy(tuple(x.get_type() for x in items))
     loose_ty = TupleTy(tuple(x.get_loose_type() for x in items))
@@ -1416,7 +1416,7 @@ def build_tuple(items: tuple[Var, ...]) -> Var:
     return res
 
 
-@impl(hir.build_formatted_string)
+@impl(hir_stubs.build_formatted_string)
 def build_formatted_string_impl(format: StringFormat, values: tuple[Var, ...]) -> Var:
     new_pieces = []
     new_values = []
@@ -1459,7 +1459,7 @@ def build_formatted_string_impl(format: StringFormat, values: tuple[Var, ...]) -
     return make_aggregate(FormattedStringValue(new_fmt, tuple(new_values)), ty)
 
 
-@impl(hir.unpack)
+@impl(hir_stubs.unpack)
 def unpack_impl(iterable: Var, expected_len: Var) -> Var:
     ty = iterable.get_type()
     # Don't use the require_tuple_type() helper because we'd like to customize the error message
@@ -1882,7 +1882,7 @@ def assign(value: Var, res: Var) -> None:
     res.ctx.copy_type_information(value, res)
 
 
-@impl(hir.identity)
+@impl(hir_stubs.identity)
 def identity_impl(x: Var) -> Var:
     if x.is_constant():
         return loosely_typed_const(x.get_constant(), x.get_type(), x.get_loose_type())
@@ -4494,7 +4494,7 @@ def store_invalid(local_idx: int, ty: Type, loc: Loc | None = None):
     new_var.set_type(ty)
 
 
-@impl(hir.store_var)
+@impl(hir_stubs.store_var)
 def store_var_impl(name: Var, value: Var):
     name = require_constant_str(name)
     scope = Scope.get_current()
@@ -4502,7 +4502,7 @@ def store_var_impl(name: Var, value: Var):
     store_var(index, value)
 
 
-@impl(hir.load_var)
+@impl(hir_stubs.load_var)
 def load_var_impl(name):
     name = require_constant_str(name)
     scope = Scope.get_current()
@@ -4519,7 +4519,7 @@ def load_var_impl(name):
         raise TileSyntaxError(f"Undefined variable {name} used")
 
 
-@impl(hir.make_closure)
+@impl(hir_stubs.make_closure)
 def make_closure_impl(func_hir: hir.Function, default_values: tuple[Var, ...]):
     default_value_types = tuple(v.get_type() for v in default_values)
 
@@ -4565,7 +4565,7 @@ def static_iter_impl(iterable: Var):
                           " e.g. cuda.tile.static_iter() or ct.static_iter().")
 
 
-@impl(hir.do_static_eval)
+@impl(hir_stubs.do_static_eval)
 def do_static_eval_impl(expr: hir.StaticEvalExpression,
                         local_var_values: tuple[Var, ...]) -> Var:
     local_proxies = tuple(var2sym(x) for x in local_var_values)
@@ -4633,7 +4633,7 @@ def _drain_static_iter_iterable(iterable) -> list[Var]:
     return items
 
 
-@impl(hir.do_static_assert)
+@impl(hir_stubs.do_static_assert)
 async def do_static_assert_impl(condition: Var, message_block: hir.Block) -> None:
     if not condition.is_constant():
         raise TileTypeError("static_assert() condition must be a compile-time constant")
@@ -4657,7 +4657,7 @@ async def do_static_assert_impl(condition: Var, message_block: hir.Block) -> Non
     raise TileStaticAssertionError(message)
 
 
-@impl(hir.static_foreach)
+@impl(hir_stubs.static_foreach)
 async def static_foreach_impl(body: hir.Block, items: Var):
     scope = Scope.get_current()
 

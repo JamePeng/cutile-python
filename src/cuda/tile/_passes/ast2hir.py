@@ -14,7 +14,7 @@ from typing import List, Sequence, Optional, Any, Dict, Type, Callable, OrderedD
 from cuda.tile import _datatype as datatype
 from cuda.tile._exception import TileSyntaxError, Loc, FunctionDesc
 from cuda.tile._ir.hir import make_value, ResolvedName, UNKNOWN_NAME
-from cuda.tile._ir import hir
+from cuda.tile._ir import hir, hir_stubs
 from cuda.tile._ir.type import ClosureDefaultPlaceholder, FormattedPiece, StringFormat
 from cuda.tile._passes.ast_util import ast_get_all_local_names
 from cuda.tile._stub import static_eval, static_assert, static_iter
@@ -213,12 +213,12 @@ class _Context:
         self.current_block.have_result = True
 
     def store(self, var_name: str, value: hir.Operand):
-        self.call_void(hir.store_var, (var_name, value))
+        self.call_void(hir_stubs.store_var, (var_name, value))
         self.current_block.stored_names.add(var_name)
 
     def load(self, var_name: str) -> hir.Value:
         self.loaded_names.add(var_name)
-        return self.call(hir.load_var, (var_name,))
+        return self.call(hir_stubs.load_var, (var_name,))
 
     def get_loc(self, node: ast.AST) -> Loc:
         return Loc(node.lineno, node.col_offset, self.filename,
@@ -273,7 +273,7 @@ def _call_expr(call: ast.Call, ctx: _Context) -> hir.Value:
                 ctx.set_block_jump_with_result(hir.Jump.END_BRANCH, message)
             condition = _call_static_eval(call.args[0],
                                           hir.StaticEvalKind.STATIC_ASSERT_CONDITION, ctx)
-            return ctx.call(hir.do_static_assert, (condition, message_block))
+            return ctx.call(hir_stubs.do_static_assert, (condition, message_block))
         elif kwd_func == "static_iter":
             raise TileSyntaxError("static_iter() is only allowed as iterable in a `for` loop,"
                                   " i.e. `for i in ct.static_iter(...)`")
@@ -318,7 +318,7 @@ def _call_static_eval(expr: ast.expr, kind: hir.StaticEvalKind, ctx: _Context) -
     final_lambda = _eval_ast_expr(final_lambda_ast, ctx)
 
     loaded_locals = tuple(ctx.load(local_name) for local_name in used_locals)
-    return ctx.call(hir.do_static_eval,
+    return ctx.call(hir_stubs.do_static_eval,
                     (hir.StaticEvalExpression(final_lambda, kind), *loaded_locals))
 
 
@@ -462,7 +462,7 @@ def _compare_expr(cmp: ast.Compare, ctx: _Context) -> hir.Value:
     with ctx.new_block() as else_block:
         ctx.set_block_jump_with_result(hir.Jump.END_BRANCH, cond0)
 
-    return ctx.call(hir.if_else, (cond0, then_block, else_block))
+    return ctx.call(hir_stubs.if_else, (cond0, then_block, else_block))
 
 
 @_register(_expr_handlers, ast.Attribute)
@@ -475,7 +475,7 @@ def _attribute_expr(attr: ast.Attribute, ctx: _Context) -> hir.Value:
 def _constant_expr(node: ast.Constant, ctx: Any) -> Any:
     # We could just return node.value directly here, but we wrap the constant
     # in a `identity` call in order to preserve location info.
-    return ctx.call(hir.identity, (node.value,))
+    return ctx.call(hir_stubs.identity, (node.value,))
 
 
 @_register(_expr_handlers, ast.JoinedStr)
@@ -508,13 +508,13 @@ def _fstring_expr(node: ast.JoinedStr, ctx: _Context) -> hir.Value:
             else:
                 raise ctx.syntax_error("f-string: unsupported component")
     fmt = StringFormat(tuple(pieces))
-    return ctx.call(hir.build_formatted_string, (fmt, *var_hirs))
+    return ctx.call(hir_stubs.build_formatted_string, (fmt, *var_hirs))
 
 
 @_register(_expr_handlers, ast.Tuple)
 def _tuple_expr(tup: ast.Tuple, ctx: _Context) -> hir.Value:
     items = tuple(_expr(x, ctx) for x in tup.elts)
-    return ctx.call(hir.build_tuple, items)
+    return ctx.call(hir_stubs.build_tuple, items)
 
 
 @_register(_expr_handlers, ast.Subscript)
@@ -573,7 +573,7 @@ def _do_assign(value: hir.Operand, target, ctx: _Context):
         if isinstance(target, ast.Name):
             ctx.store(target.id, value)
         elif isinstance(target, ast.Tuple | ast.List):
-            value = ctx.call(hir.unpack, (value, len(target.elts)))
+            value = ctx.call(hir_stubs.unpack, (value, len(target.elts)))
             for i, el in enumerate(target.elts):
                 item_var = ctx.call(operator.getitem, (value, i), )
                 _do_assign(item_var, el, ctx)
@@ -614,7 +614,7 @@ def _propagate_return(ctx: _Context):
         ctx.set_block_jump(hir.Jump.BREAK)
     with ctx.new_block() as else_block:
         ctx.set_block_jump(hir.Jump.END_BRANCH)
-    ctx.call_void(hir.if_else, (flag, then_block, else_block))
+    ctx.call_void(hir_stubs.if_else, (flag, then_block, else_block))
 
 
 @_register(_stmt_handlers, ast.For)
@@ -625,11 +625,11 @@ def _for_stmt(stmt: ast.For, ctx: _Context):
     static_iter_expr = _get_static_iter_expr(stmt.iter, ctx)
     if static_iter_expr is None:
         kind = LoopKind.FOR
-        op = hir.loop
+        op = hir_stubs.loop
         iterable = _expr(stmt.iter, ctx)
     else:
         kind = LoopKind.STATIC_FOR
-        op = hir.static_foreach
+        op = hir_stubs.static_foreach
         with ctx.change_loc(static_iter_expr):
             iterable = _call_static_eval(static_iter_expr,
                                          hir.StaticEvalKind.STATIC_ITER_ITERABLE, ctx)
@@ -679,7 +679,7 @@ def _while_stmt(stmt: ast.While, ctx: _Context):
         with ctx.new_block() as else_block:
             ctx.set_block_jump(hir.Jump.BREAK)
 
-        ctx.call_void(hir.if_else, (cond, then_block, else_block))
+        ctx.call_void(hir_stubs.if_else, (cond, then_block, else_block))
 
         ctx.parent_loops.append(LoopKind.WHILE)
         _stmt_list(stmt.body, ctx)
@@ -687,7 +687,7 @@ def _while_stmt(stmt: ast.While, ctx: _Context):
             ctx.set_block_jump(hir.Jump.CONTINUE)
         ctx.parent_loops.pop()
 
-    ctx.call_void(hir.loop, (body_block, None))
+    ctx.call_void(hir_stubs.loop, (body_block, None))
     _propagate_return(ctx)
 
 
@@ -720,7 +720,7 @@ def _boolop_expr(boolop: ast.BoolOp, ctx: _Context) -> hir.Value:
         with ctx.new_block() as else_block:
             ctx.set_block_jump_with_result(hir.Jump.END_BRANCH, cond0)
 
-        return ctx.call(hir.if_else, (cond0, then_block, else_block))
+        return ctx.call(hir_stubs.if_else, (cond0, then_block, else_block))
     elif isinstance(boolop.op, ast.Or):
         """
         cond = cond0() or cond1():
@@ -743,7 +743,7 @@ def _boolop_expr(boolop: ast.BoolOp, ctx: _Context) -> hir.Value:
                 cond1 = _bool_expr(boolop.values[1], ctx)
             ctx.set_block_jump_with_result(hir.Jump.END_BRANCH, cond1)
 
-        return ctx.call(hir.if_else, (cond0, then_block, else_block))
+        return ctx.call(hir_stubs.if_else, (cond0, then_block, else_block))
     else:
         raise ctx.unsupported_syntax()
 
@@ -760,7 +760,7 @@ def _ifexp_expr(ifexp: ast.IfExp, ctx: _Context) -> hir.Value:
         else_val = _expr(ifexp.orelse, ctx)
         ctx.set_block_jump_with_result(hir.Jump.END_BRANCH, else_val)
 
-    return ctx.call(hir.if_else, (cond, then_block, else_block))
+    return ctx.call(hir_stubs.if_else, (cond, then_block, else_block))
 
 
 @_register(_stmt_handlers, ast.If)
@@ -777,7 +777,7 @@ def _if_stmt(stmt: ast.If, ctx: _Context) -> None:
         if else_block.jump is None:
             ctx.set_block_jump(hir.Jump.END_BRANCH)
 
-    ctx.call_void(hir.if_else, (cond, then_block, else_block))
+    ctx.call_void(hir_stubs.if_else, (cond, then_block, else_block))
 
 
 @_register(_stmt_handlers, ast.Continue)
@@ -829,7 +829,7 @@ def _make_closure(node: ast.FunctionDef | ast.Lambda, ctx: _Context) -> hir.Valu
                             else _compile_nested_function_def(node, ctx.filename)).__code__
 
     ctx.nested_functions.append(func_hir)
-    return ctx.call(hir.make_closure, (func_hir, *default_values))
+    return ctx.call(hir_stubs.make_closure, (func_hir, *default_values))
 
 
 def _compile_lambda(node: ast.Lambda, filename: str):
@@ -973,7 +973,7 @@ def _ast2hir(func_def: ast.FunctionDef | ast.Lambda, ctx: _Context) -> hir.Block
                     ctx.store("$retval", None)
                     ctx.set_block_jump(hir.Jump.BREAK)
 
-            ctx.call_void(hir.loop, (body_block, None))
+            ctx.call_void(hir_stubs.loop, (body_block, None))
             root_block.result = ctx.load("$retval")
             root_block.have_result = True
         else:

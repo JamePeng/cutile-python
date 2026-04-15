@@ -15,7 +15,7 @@ from cuda.tile._dispatch_mode import DispatchMode
 if TYPE_CHECKING:
     from cuda.tile.compilation import KernelSignature
 
-__all__ = ("function", "kernel")
+__all__ = ("function", "kernel", "stub")
 
 
 ###############################################################################
@@ -154,3 +154,24 @@ class kernel(TileDispatcher):
 
     def __call__(self, *args, **kwargs):
         raise TypeError("Tile kernels cannot be called directly. Use cuda.tile.launch() instead.")
+
+
+def stub(func=None, /, *, host=False):
+    def decorate(func):
+        func = function(func, host=host)
+        func._cutile_python_stub = True
+        return func
+
+    if func is None:
+        return decorate
+    else:
+        return decorate(func)
+
+
+def is_stub(func) -> bool:
+    while True:
+        if getattr(func, "_cutile_python_stub", False):
+            return True
+        func = getattr(func, "__wrapped__", None)
+        if func is None:
+            return False

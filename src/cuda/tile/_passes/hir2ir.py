@@ -10,6 +10,7 @@ from .ast2hir import get_function_hir
 from .. import TileTypeError
 from .._coroutine_util import resume_after, run_coroutine
 from .._exception import Loc, TileSyntaxError, TileInternalError, TileError, TileRecursionError
+from .._execution import is_stub
 from .._ir import hir, ir
 from .._ir.ir import Var, IRContext, BoundMethodValue, ClosureValue
 from .._ir.op_impl import ImplRegistry
@@ -18,7 +19,7 @@ from .._ir.ops import loosely_typed_const, end_branch, return_, continue_, \
 from .._ir.scope import Scope, LocalScope, IntMap
 from .._ir.type import FunctionTy, BoundMethodTy, DTypeConstructor, ClosureTy, \
     ClosureDefaultPlaceholder, StringFormat
-from .._ir.typing_support import get_signature, Closure
+from .._ir.typing_support import get_signature, Closure, is_supported_builtin_func
 
 
 MAX_RECURSION_DEPTH = 1000
@@ -130,28 +131,10 @@ async def _dispatch_call(hir_call: hir.Call, scope: Scope):
 
 async def call(callee_var: Var, args, kwargs) -> Var | None:
     builder = ir.Builder.get_current()
-    callee, self_arg = _get_callee_and_self(callee_var)
+    callee, self_arg, is_user_defined = _get_callee_and_self(callee_var)
     args = self_arg + args
     arg_list = _bind_args(callee, args, kwargs)
-    impl_registry = ImplRegistry.get_current()
-    if callee in impl_registry.op_implementations:
-        impl = impl_registry.op_implementations[callee]
-        result = impl(*arg_list)
-        if impl._is_coroutine:
-            result = await result
-
-        if builder.is_terminated:
-            # The current block has been terminated, e.g. by flattening an if-else
-            # with a constant condition (`if True: break`). Ignore the `result` in this case.
-            return None
-
-        # Map the result variable
-        if result is None:
-            result = loosely_typed_const(None)
-        assert isinstance(result, Var)
-        return result
-    else:
-        # Callee is a user-defined function.
+    if is_user_defined:
         _check_recursive_call(builder.loc)
         if isinstance(callee, Closure):
             callee_hir = callee.ty.func_hir
@@ -184,6 +167,27 @@ async def call(callee_var: Var, args, kwargs) -> Var | None:
                 new_scope.hir2ir_varmap[callee_hir.body.result.id], new_scope.local, builder)
         new_scope.local.mark_dead()
         return ret
+    else:
+        impl_registry = ImplRegistry.get_current()
+        try:
+            impl = impl_registry.op_implementations[callee]
+        except KeyError:
+            raise NotImplementedError(f"Missing implementation for {callee}")
+
+        result = impl(*arg_list)
+        if impl._is_coroutine:
+            result = await result
+
+        if builder.is_terminated:
+            # The current block has been terminated, e.g. by flattening an if-else
+            # with a constant condition (`if True: break`). Ignore the `result` in this case.
+            return None
+
+        # Map the result variable
+        if result is None:
+            result = loosely_typed_const(None)
+        assert isinstance(result, Var)
+        return result
 
 
 def _get_closure_parent_scopes(closure: Closure, ir_ctx: IRContext) -> tuple[LocalScope, ...]:
@@ -278,18 +282,19 @@ def _check_recursive_call(call_loc: Loc):
                                  f" while inlining a function call")
 
 
-def _get_callee_and_self(callee_var: Var) -> tuple[Any, tuple[()] | tuple[Var]]:
+def _get_callee_and_self(callee_var: Var) -> tuple[Any, tuple[()] | tuple[Var], bool]:
     callee_ty = callee_var.get_type()
     if isinstance(callee_ty, FunctionTy):
-        return callee_ty.func, ()
+        is_user_defined = not (is_stub(callee_ty.func) or is_supported_builtin_func(callee_ty.func))
+        return callee_ty.func, (), is_user_defined
     elif isinstance(callee_ty, BoundMethodTy):
         bound_method = callee_var.get_aggregate()
         assert isinstance(bound_method, BoundMethodValue)
-        return callee_ty.func, (bound_method.bound_self,)
+        return callee_ty.func, (bound_method.bound_self,), False
     elif isinstance(callee_ty, DTypeConstructor):
-        return callee_ty.dtype, ()
+        return callee_ty.dtype, (), False
     elif isinstance(callee_ty, ClosureTy):
-        return Closure(callee_ty, callee_var.get_aggregate()), ()
+        return Closure(callee_ty, callee_var.get_aggregate()), (), True
     else:
         raise TileTypeError(f"Cannot call an object of type {callee_ty}")
 

@@ -77,6 +77,7 @@ class Call:
     def __str__(self):
         opfmt = _OperandFormatter([])
         loc_str = f"  # Line {self.loc.line}"
+        from cuda.tile._ir.hir_stubs import identity
         if self.callee is identity:
             return f"{self.result} = {opfmt(self.args[0])}{loc_str}"
         lhs_str = "" if self.result is None else f"{self.result} = "
@@ -235,17 +236,3 @@ class StaticEvalKind(enum.Enum):
 class StaticEvalExpression:
     compiled_expr: Callable
     kind: StaticEvalKind
-
-
-def if_else(cond, then_block, else_block, /): ...
-def loop(body, iterable, /): ...  # infinite if `iterable` is None
-def static_foreach(body, items, /): ...
-def build_tuple(*items): ...  # Makes a tuple (i.e. returns `items`)
-def build_formatted_string(format, *values): ...  # Creates a FormattedStringTy value
-def unpack(iterable, expected_len, /): ...
-def identity(x): ...   # Identity function (i.e. returns `x`)
-def store_var(name, value, /): ...  # Store into a named variable
-def load_var(name, /): ...  # Load from a named variable
-def make_closure(func_hir: Function, /, *default_values): ...
-def do_static_eval(expr: StaticEvalExpression, *local_var_values): ...
-def do_static_assert(condition, message_block, /): ...

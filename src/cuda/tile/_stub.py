@@ -9,7 +9,7 @@ import textwrap
 from typing import Annotated, TypeVar, Union, Literal, Optional, Protocol
 
 from cuda.tile._memory_model import MemoryOrder, MemoryScope
-from cuda.tile._execution import function
+from cuda.tile._execution import function, stub
 from cuda.tile._datatype import DType
 from cuda.tile._numeric_semantics import RoundingMode, PaddingMode
 
@@ -656,7 +656,7 @@ type) an underlying type hint.
 # Operations
 
 
-@function
+@stub
 def bid(axis) -> int:
     """Gets the index of current block.
 
@@ -682,7 +682,7 @@ def bid(axis) -> int:
     """
 
 
-@function
+@stub
 def num_blocks(axis) -> int:
     """Gets the number of blocks along the axis.
 
@@ -717,7 +717,7 @@ def num_blocks(axis) -> int:
     """
 
 
-@function
+@stub
 def num_tiles(array: Array, /,
               axis: int,
               shape: Constant[Shape],
@@ -754,7 +754,7 @@ def num_tiles(array: Array, /,
     """
 
 
-@function
+@stub
 def load(array: Array, /,
          index: Shape,
          shape: Constant[Shape], *,
@@ -908,7 +908,7 @@ def load(array: Array, /,
     """
 
 
-@function
+@stub
 def store(array: Array, /,
           index: Shape,
           tile: TileOrScalar, *,
@@ -999,7 +999,7 @@ def store(array: Array, /,
     """
 
 
-@function
+@stub
 def gather(array, indices, /, *, mask=None, padding_value=0, check_bounds=True,
            latency=None) -> Tile:
     """
@@ -1049,7 +1049,7 @@ def gather(array, indices, /, *, mask=None, padding_value=0, check_bounds=True,
     """
 
 
-@function
+@stub
 def scatter(array, indices, value, /, *, mask=None, check_bounds=True, latency=None):
     """
     Stores a tile `value` into the `array` elements specified by `indices`.
@@ -1097,7 +1097,7 @@ def scatter(array, indices, value, /, *, mask=None, check_bounds=True, latency=N
 # =========== Atomic ============
 
 
-@function
+@stub
 def atomic_cas(array, indices, expected, desired, /, *,
                check_bounds=True,
                memory_order=MemoryOrder.ACQ_REL,
@@ -1217,7 +1217,7 @@ def _doc_atomic_rmw_op(f):
     return f
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_xchg(array, indices, update, /, *,
                 check_bounds=True,
@@ -1231,7 +1231,7 @@ def atomic_xchg(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_add(array, indices, update, /, *,
                check_bounds=True,
@@ -1245,7 +1245,7 @@ def atomic_add(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_max(array, indices, update, /, *,
                check_bounds=True,
@@ -1260,7 +1260,7 @@ def atomic_max(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_min(array, indices, update, /, *,
                check_bounds=True,
@@ -1275,7 +1275,7 @@ def atomic_min(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_and(array, indices, update, /, *,
                check_bounds=True,
@@ -1290,7 +1290,7 @@ def atomic_and(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_or(array, indices, update, /, *,
               check_bounds=True,
@@ -1305,7 +1305,7 @@ def atomic_or(array, indices, update, /, *,
     """
 
 
-@function
+@stub
 @_doc_atomic_rmw_op
 def atomic_xor(array, indices, update, /, *,
                check_bounds=True,
@@ -1323,7 +1323,7 @@ def atomic_xor(array, indices, update, /, *,
 # ======== Factory ==============
 
 
-@function
+@stub
 def arange(size, /, *, dtype) -> Tile:
     """Creates a tile with value starting from 0 to `size - 1`.
 
@@ -1348,7 +1348,7 @@ def arange(size, /, *, dtype) -> Tile:
     """
 
 
-@function
+@stub
 def full(shape: Shape, fill_value: Scalar, dtype: DType) -> Tile:
     """Creates a tile filled with given value.
 
@@ -1374,7 +1374,7 @@ def full(shape: Shape, fill_value: Scalar, dtype: DType) -> Tile:
     """
 
 
-@function
+@stub
 def ones(shape, dtype) -> Tile:
     """Creates a tile filled with ones.
 
@@ -1399,7 +1399,7 @@ def ones(shape, dtype) -> Tile:
     """
 
 
-@function
+@stub
 def zeros(shape, dtype) -> Tile:
     """Creates a tile filled with zeros.
 
@@ -1426,7 +1426,7 @@ def zeros(shape, dtype) -> Tile:
 # =========== Matmul ============
 
 
-@function
+@stub
 def mma(x, y, /, acc) -> Tile:
     """Matrix multiply-accumulate.
 
@@ -1500,7 +1500,7 @@ def mma(x, y, /, acc) -> Tile:
     """
 
 
-@function
+@stub
 def mma_scaled(x, x_scale, y, y_scale, /, acc) -> Tile:
     """Block-scaled matrix multiply-accumulate.
 
@@ -1557,7 +1557,7 @@ def mma_scaled(x, x_scale, y, y_scale, /, acc) -> Tile:
     """
 
 
-@function
+@stub
 def matmul(x, y, /) -> Tile:
     """Performs matrix multiply on the given tiles.
 
@@ -1618,7 +1618,7 @@ def matmul(x, y, /) -> Tile:
 
 
 # ======== Shape and Dtype ==============
-@function
+@stub
 def expand_dims(x, /, axis) -> Tile:
     """Reshapes the tile by inserting a new axis of size 1 at given position.
 
@@ -1647,7 +1647,7 @@ def expand_dims(x, /, axis) -> Tile:
     """
 
 
-@function
+@stub
 def cat(tiles, /, axis) -> Tile:
     """Concatenates two tiles along the `axis`.
 
@@ -1679,7 +1679,7 @@ def cat(tiles, /, axis) -> Tile:
     """
 
 
-@function
+@stub
 def broadcast_to(x, /, shape) -> Tile:
     """Broadcasts a tile to the specified shape
     following |Numpy broadcasting rule|.
@@ -1706,7 +1706,7 @@ def broadcast_to(x, /, shape) -> Tile:
     """
 
 
-@function
+@stub
 def reshape(x, /, shape) -> Tile:
     """Reshapes a tile to the specified shape.
 
@@ -1739,7 +1739,7 @@ def reshape(x, /, shape) -> Tile:
     """
 
 
-@function
+@stub
 def permute(x, /, axes) -> Tile:
     """Permutes the axes of the input tile.
 
@@ -1765,7 +1765,7 @@ def permute(x, /, axes) -> Tile:
     """
 
 
-@function
+@stub
 def transpose(x, /, axis0=None, axis1=None) -> Tile:
     """Transposes two axes of the input tile with at least 2 dimensions.
 
@@ -1796,7 +1796,7 @@ def transpose(x, /, axis0=None, axis1=None) -> Tile:
     """
 
 
-@function
+@stub
 def astype(x, dtype, /) -> Tile:
     """Converts a tile to the specified data type.
 
@@ -1822,7 +1822,7 @@ def astype(x, dtype, /) -> Tile:
     """
 
 
-@function
+@stub
 def bitcast(x, /, dtype) -> Tile:
     """Reinterpets tile as being of specified data type.
 
@@ -1847,7 +1847,7 @@ def bitcast(x, /, dtype) -> Tile:
     """
 
 
-@function
+@stub
 def pack_to_bytes(x, /) -> Tile:
     """Flattens a tile and reinterprets its raw bytes as uint8 elements.
 
@@ -1874,7 +1874,7 @@ def pack_to_bytes(x, /) -> Tile:
     """
 
 
-@function
+@stub
 def unpack_from_bytes(x, /, dtype) -> Tile:
     """Reinterprets a 1D uint8 byte tile as a 1D tile of the target data type.
 
@@ -1953,7 +1953,7 @@ Returns:
 
 
 @_doc_reduce_op
-@function
+@stub
 def sum(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> Tile:
     """
@@ -2005,7 +2005,7 @@ def sum(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode
 
 
 @_doc_reduce_op
-@function
+@stub
 def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
     """
     Examples:
@@ -2057,7 +2057,7 @@ def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile
 
 
 @_doc_reduce_op
-@function
+@stub
 def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
     """
     Examples:
@@ -2108,7 +2108,7 @@ def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile
 
 
 @_doc_reduce_op
-@function
+@stub
 def prod(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode] = None,
          flush_to_zero: bool = False) -> Tile:
     """
@@ -2145,7 +2145,7 @@ def prod(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMod
 
 
 @_doc_reduce_op
-@function
+@stub
 def argmax(x, /, axis=None, *, keepdims=False) -> Tile:
     """
     Examples:
@@ -2199,7 +2199,7 @@ def argmax(x, /, axis=None, *, keepdims=False) -> Tile:
 
 
 @_doc_reduce_op
-@function
+@stub
 def argmin(x, /, axis=None, *, keepdims=False) -> Tile:
     """
     Examples:
@@ -2252,7 +2252,7 @@ def argmin(x, /, axis=None, *, keepdims=False) -> Tile:
     pass
 
 
-@function
+@stub
 def reduce(x, /, axis, func, identity, *, keepdims=False):
     """
     Apply custom reduction function along axis.
@@ -2304,7 +2304,7 @@ def _doc_scan_op(f):
 
 
 @_doc_scan_op
-@function
+@stub
 def cumsum(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode] = None,
            flush_to_zero: bool = False) -> Tile:
     """
@@ -2342,7 +2342,7 @@ def cumsum(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode]
 
 
 @_doc_scan_op
-@function
+@stub
 def cumprod(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode] = None,
             flush_to_zero: bool = False) -> Tile:
     """
@@ -2363,7 +2363,7 @@ def cumprod(x, /, axis=0, *, reverse=False, rounding_mode: Optional[RoundingMode
     pass
 
 
-@function
+@stub
 def scan(x, /, axis, func, identity, *, reverse=False):
     """
     Apply custom scan (inclusive prefix) function along axis.
@@ -2427,7 +2427,7 @@ Returns:
 
 
 @_doc_binary_op('+')
-@function
+@stub
 def add(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
     """
@@ -2447,7 +2447,7 @@ def add(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 
 
 @_doc_binary_op('-')
-@function
+@stub
 def sub(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
     """
@@ -2467,7 +2467,7 @@ def sub(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 
 
 @_doc_binary_op('*')
-@function
+@stub
 def mul(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
         flush_to_zero: bool = False) -> TileOrScalar:
     """
@@ -2487,7 +2487,7 @@ def mul(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
 
 
 @_doc_binary_op('/')
-@function
+@stub
 def truediv(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
             flush_to_zero: bool = False) -> TileOrScalar:
     """
@@ -2507,7 +2507,7 @@ def truediv(x, y, /, *, rounding_mode: Optional[RoundingMode] = None,
     pass
 
 
-@function
+@stub
 def floordiv(x, y, /) -> TileOrScalar:
     """Elementwise floordiv on two tiles.
 
@@ -2544,7 +2544,7 @@ def floordiv(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('**')
-@function
+@stub
 def pow(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2563,7 +2563,7 @@ def pow(x, y, /) -> TileOrScalar:
     pass
 
 
-@function
+@stub
 def atan2(x1, x2, /) -> TileOrScalar:
     """Elementwise atan2 of two tiles.
 
@@ -2595,7 +2595,7 @@ def atan2(x1, x2, /) -> TileOrScalar:
 
 
 @_doc_binary_op('%')
-@function
+@stub
 def mod(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2614,7 +2614,7 @@ def mod(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('&')
-@function
+@stub
 def bitwise_and(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2634,7 +2634,7 @@ def bitwise_and(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('|')
-@function
+@stub
 def bitwise_or(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2654,7 +2654,7 @@ def bitwise_or(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('^')
-@function
+@stub
 def bitwise_xor(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2674,7 +2674,7 @@ def bitwise_xor(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('<<')
-@function
+@stub
 def bitwise_lshift(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2693,7 +2693,7 @@ def bitwise_lshift(x, y, /) -> TileOrScalar:
 
 
 @_doc_binary_op('>>')
-@function
+@stub
 def bitwise_rshift(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2712,7 +2712,7 @@ def bitwise_rshift(x, y, /) -> TileOrScalar:
     pass
 
 
-@function
+@stub
 def bitwise_not(x, /) -> TileOrScalar:
     """Elementwise bitwise not on a tile.
 
@@ -2742,7 +2742,7 @@ def bitwise_not(x, /) -> TileOrScalar:
 
 
 @_doc_binary_op('min')
-@function
+@stub
 def minimum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
     """
     Examples:
@@ -2762,7 +2762,7 @@ def minimum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
 
 
 @_doc_binary_op('max')
-@function
+@stub
 def maximum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
     """
     Examples:
@@ -2781,7 +2781,7 @@ def maximum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
     pass
 
 
-@function(host=True)
+@stub(host=True)
 def cdiv(x, y, /) -> TileOrScalar:
     """Computes ceil(x / y). Can be used on the host.
 
@@ -2839,7 +2839,7 @@ Returns:
 
 
 @_doc_cmp_op('>')
-@function
+@stub
 def greater(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2858,7 +2858,7 @@ def greater(x, y, /) -> TileOrScalar:
 
 
 @_doc_cmp_op('>=')
-@function
+@stub
 def greater_equal(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2877,7 +2877,7 @@ def greater_equal(x, y, /) -> TileOrScalar:
 
 
 @_doc_cmp_op('<')
-@function
+@stub
 def less(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2896,7 +2896,7 @@ def less(x, y, /) -> TileOrScalar:
 
 
 @_doc_cmp_op('<=')
-@function
+@stub
 def less_equal(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2915,7 +2915,7 @@ def less_equal(x, y, /) -> TileOrScalar:
 
 
 @_doc_cmp_op('==')
-@function
+@stub
 def equal(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2934,7 +2934,7 @@ def equal(x, y, /) -> TileOrScalar:
 
 
 @_doc_cmp_op('!=')
-@function
+@stub
 def not_equal(x, y, /) -> TileOrScalar:
     """
     Examples:
@@ -2977,7 +2977,7 @@ def _doc_unary_op(f):
 
 
 @_doc_unary_op
-@function
+@stub
 def exp(x, /) -> TileOrScalar:
     """
     Examples:
@@ -2996,7 +2996,7 @@ def exp(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def exp2(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
     """
     Examples:
@@ -3015,7 +3015,7 @@ def exp2(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def log(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3034,7 +3034,7 @@ def log(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def log2(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3053,7 +3053,7 @@ def log2(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def sqrt(x, /, *, rounding_mode: Optional[RoundingMode] = None,
          flush_to_zero: bool = False) -> TileOrScalar:
     """
@@ -3073,7 +3073,7 @@ def sqrt(x, /, *, rounding_mode: Optional[RoundingMode] = None,
 
 
 @_doc_unary_op
-@function
+@stub
 def rsqrt(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
     """
     Examples:
@@ -3092,7 +3092,7 @@ def rsqrt(x, /, *, flush_to_zero: bool = False) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def sin(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3111,7 +3111,7 @@ def sin(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def cos(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3130,7 +3130,7 @@ def cos(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def tan(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3149,7 +3149,7 @@ def tan(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def sinh(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3168,7 +3168,7 @@ def sinh(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def cosh(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3186,7 +3186,7 @@ def cosh(x, /) -> TileOrScalar:
     pass
 
 
-@function
+@stub
 def tanh(x, /, *, rounding_mode: Optional[RoundingMode] = None) -> TileOrScalar:
     """
     Perform `tanh` on a tile.
@@ -3216,7 +3216,7 @@ def tanh(x, /, *, rounding_mode: Optional[RoundingMode] = None) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def floor(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3235,7 +3235,7 @@ def floor(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def ceil(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3254,7 +3254,7 @@ def ceil(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def abs(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3274,7 +3274,7 @@ def abs(x, /) -> TileOrScalar:
     pass
 
 
-@function
+@stub
 def negative(x, /) -> TileOrScalar:
     """Same as `-x`.
 
@@ -3300,7 +3300,7 @@ def negative(x, /) -> TileOrScalar:
 
 
 @_doc_unary_op
-@function
+@stub
 def isnan(x, /) -> TileOrScalar:
     """
     Examples:
@@ -3320,7 +3320,7 @@ def isnan(x, /) -> TileOrScalar:
 
 # ======== Select ==============
 
-@function
+@stub
 def where(cond, x, y, /) -> Tile:
     """Returns elements chosen from x or y depending on condition.
 
@@ -3349,7 +3349,7 @@ def where(cond, x, y, /) -> Tile:
     """
 
 
-@function
+@stub
 def extract(x, /, index, shape) -> Tile:
     """Extracts a smaller tile from input tile.
 
@@ -3403,7 +3403,7 @@ def extract(x, /, index, shape) -> Tile:
 
 # ============ Utility =================
 
-@function
+@stub
 def printf(format, *args) -> None:
     """Print the values at runtime from the device
 
@@ -3434,7 +3434,7 @@ def printf(format, *args) -> None:
     """
 
 
-@function
+@stub
 def print(*args, sep: str = ' ', end: str = '\n') -> None:
     """Print values at runtime from the device using Python-style syntax.
 
@@ -3471,7 +3471,7 @@ def print(*args, sep: str = ' ', end: str = '\n') -> None:
     """
 
 
-@function
+@stub
 def assert_(cond, /, message=None) -> None:
     """Assert that all elements of the given tile are True.
 
@@ -3499,7 +3499,7 @@ def assert_(cond, /, message=None) -> None:
     """
 
 
-@function
+@stub
 def static_eval(expr, /):
     """Evaluates the given Python expression at compile time.
 
@@ -3534,7 +3534,7 @@ def static_eval(expr, /):
     """
 
 
-@function
+@stub
 def static_assert(condition, message=None, /):
     """Asserts that a condition is true at compile time.
 
@@ -3593,7 +3593,7 @@ def static_assert(condition, message=None, /):
     """
 
 
-@function
+@stub
 def static_iter(iterable):
     """Iterates at compile time.
 
@@ -3643,12 +3643,12 @@ def static_iter(iterable):
 # ==== Private stubs ====
 
 
-@function
+@stub
 def _m_array_slice(array, axis, start, stop): ...
 # Array.slice(axis, start, stop)
 
 
-@function
+@stub
 def _m_tile_item(tile): ...
 # Tile.item()
 
@@ -3667,33 +3667,33 @@ def _inherit_kwdefaults(source):
 
 
 @_inherit_kwdefaults(Array.tiled_view)
-@function
+@stub
 def _m_array_tiled_view(array, tile_shape, *, padding_mode): ...
 # Array.tiled_view(shape, padding_mode=padding_mode)
 
 
-@function
+@stub
 def _m_tiled_view_num_tiles(tiled_view, axis): ...
 # TiledView.num_tiles(axis)
 
 
 @_inherit_kwdefaults(TiledView.load)
-@function
+@stub
 def _m_tiled_view_load(tiled_view, index, *, latency, allow_tma): ...
 # TiledView.load(index, latency=latency, allow_tma=allow_tma)
 
 
 @_inherit_kwdefaults(TiledView.store)
-@function
+@stub
 def _m_tiled_view_store(tiled_view, index, tile, *, latency, allow_tma): ...
 # TiledView.store(index, tile, latency=latency, allow_tma=allow_tma)
 
 
-@function
+@stub
 def _m_array_get_raw_memory(array: Array) -> RawArrayMemory: ...  # Array.get_raw_memory()
 
 
-@function
+@stub
 def _m_raw_array_memory_load_offset(
         raw_array_memory: RawArrayMemory, offset: TileOrScalar, /, *,
         mask: Optional[Tile] = None,
@@ -3701,7 +3701,7 @@ def _m_raw_array_memory_load_offset(
         latency: Optional[int] = None) -> Tile: ...  # RawArrayMemory.load_offset()
 
 
-@function
+@stub
 def _m_raw_array_memory_store_offset(
         raw_array_memory: RawArrayMemory, offset: TileOrScalar, value: TileOrScalar, /, *,
         mask: Optional[Tile] = None,

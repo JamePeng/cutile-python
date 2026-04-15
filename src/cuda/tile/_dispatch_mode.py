@@ -4,9 +4,13 @@
 
 import threading
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from ._exception import TileStaticEvalError
-from ._ir.hir import StaticEvalKind
+
+
+if TYPE_CHECKING:
+    from ._ir.hir import StaticEvalKind
 
 
 class DispatchMode:
@@ -33,7 +37,7 @@ class NormalMode(DispatchMode):
 
 
 class StaticEvalMode(DispatchMode):
-    def __init__(self, kind: StaticEvalKind):
+    def __init__(self, kind: "StaticEvalKind"):
         self._kind = kind
 
     def call_tile_function_from_host(self, func, args, kwargs):
