@@ -34,7 +34,7 @@ struct StreamBuffer {
     Chunk* head;
     Chunk* transaction_head;
     Chunk* tail;
-    StreamBuffer* next_free = nullptr;
+    StreamBuffer* next_free;
 };
 
 struct StreamBufferPool {
@@ -49,10 +49,6 @@ struct StreamBufferPool {
 
 StreamBufferPool* stream_buffer_pool_new() {
     return new StreamBufferPool();
-}
-
-void stream_buffer_pool_delete(StreamBufferPool* pool) {
-    delete pool;
 }
 
 static void delete_chunk(const DriverApi* driver, Chunk* chunk) {
@@ -138,15 +134,16 @@ static void delete_free_chunks(const DriverApi* driver, StreamBufferPool* pool) 
     pool->chunk_freelist = nullptr;
 }
 
-static StreamBuffer* alloc_stream_buffer(StreamBufferPool* pool, CUstream stream) {
+static StreamBuffer* alloc_stream_buffer(StreamBufferPool* pool) {
     StreamBuffer* sb = pool->sb_freelist;
     if (sb) {
         pool->sb_freelist = sb->next_free;
-        sb->next_free = nullptr;
-        return sb;
     } else {
         sb = new StreamBuffer();
     }
+    sb->open_transaction = false;
+    sb->head = sb->tail = sb->transaction_head = nullptr;
+    sb->next_free = nullptr;
     return sb;
 }
 
@@ -200,7 +197,7 @@ StreamBufferTransaction stream_buffer_transaction_open(const DriverApi* driver,
     StreamBuffer* sb;
     size_t i = find_stream(stream_ids, stream_id);
     if (i == SIZE_MAX) {
-        sb = alloc_stream_buffer(pool, stream);
+        sb = alloc_stream_buffer(pool);
         pool->stream_ids.push_back(stream_id);
         pool->stream_buffers.push_back(sb);
     } else {

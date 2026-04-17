@@ -105,19 +105,20 @@ _spinner = ['|', '/', '-', '\\']
 
 
 def progress(n: int, total: int, errors: int):
-    try:
-        isatty = sys.stdout.isatty()
-    except AttributeError:
-        return
+    if n == 0:
+        print()
+    marker = _spinner[n % len(_spinner)]
+    width = len(str(total))
+    end = "\r\033[K" if n == total - 1 else ""
+    print(f"\r{marker}  Progress: {n:{width}}/{total} | Errors: {errors:{width}}",
+          end=end, flush=True)
 
-    if isatty:
-        if n == 0:
-            print()
-        marker = _spinner[n % len(_spinner)]
-        width = len(str(total))
-        end = "\r" if n < total - 1 else "\r\033[K"
-        print(f"{marker}  Progress: {n:{width}}/{total} | Errors: {errors:{width}}",
-              end=end, flush=True)
+
+def _in_terminal() -> bool:
+    try:
+        return sys.stdout.isatty()
+    except AttributeError:
+        return False
 
 
 def exhaustive_search(
@@ -225,6 +226,7 @@ def exhaustive_search(
     best_time_us = float("inf")
     best_cfg_id = None
     total = len(search_space)
+    isatty = _in_terminal()
 
     for i, cfg in enumerate(search_space):
         grid = grid_fn(cfg)
@@ -251,7 +253,7 @@ def exhaustive_search(
             if avg_us < best_time_us:
                 best_time_us = avg_us
                 best_cfg_id = len(successes) - 1
-            if not quiet:
+            if not quiet and isatty:
                 progress(i, total, len(errors))
 
     if len(search_space) == 0:

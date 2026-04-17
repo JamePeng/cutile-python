@@ -1621,8 +1621,7 @@ static Result<PreparedLaunch> prepare_launch(
         CUstream launch_stream,
         PyObject* const* pyargs,
         Py_ssize_t num_pyargs,
-        StreamBufferTransaction& tx,
-        StreamBufferPool* sb_pool = nullptr) {
+        StreamBufferTransaction& tx) {
 
     LaunchHelperPtr helper = launch_helper_get();
 
@@ -1712,16 +1711,12 @@ static Result<PreparedLaunch> prepare_launch(
             if (status != CU_STREAM_CAPTURE_STATUS_NONE)
                 return raise(PyExc_RuntimeError, "List argument in CUDAGraph isn't supported yet");
 
-            if (!sb_pool) {
-                Result<StreamBufferPool*> pool_res =
-                        get_stream_buffer_pool(driver, helper->cuda_context);
-                if (!pool_res.is_ok()) return ErrorRaised;
-                sb_pool = *pool_res;
-            }
+            Result<StreamBufferPool*> pool_res = get_stream_buffer_pool(driver,
+                                                                        helper->cuda_context);
+            if (!pool_res.is_ok()) return ErrorRaised;
 
-            tx = stream_buffer_transaction_open(driver, sb_pool, launch_stream);
-            if (!tx)
-                return raise(PyExc_RuntimeError, "Failed to open a stream buffer transaction");
+            tx = stream_buffer_transaction_open(driver, *pool_res, launch_stream);
+            if (!tx) return raise(PyExc_RuntimeError, "Failed to open a stream buffer transaction");
         }
 
         size_t size = helper->nested_arrays.size() * sizeof(helper->nested_arrays[0]);
@@ -1794,16 +1789,10 @@ static Result<double> benchmark(const DriverApi* driver,
                                 CUstream launch_stream,
                                 PyObject** pyargs,
                                 Py_ssize_t num_pyargs) {
-    struct PoolGuard {
-        StreamBufferPool* p;
-        ~PoolGuard() { stream_buffer_pool_delete(p); }
-    } local_pool{stream_buffer_pool_new()};
-
     StreamBufferTransaction tx;
 
     Result<PreparedLaunch> prep = prepare_launch(
-            driver, dispatcher_pyobj, launch_stream, pyargs, num_pyargs,
-            tx, local_pool.p);
+            driver, dispatcher_pyobj, launch_stream, pyargs, num_pyargs, tx);
     if (!prep.is_ok()) return ErrorRaised;
 
     CUcontext ctx = prep->helper->cuda_context;
