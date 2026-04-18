@@ -173,6 +173,7 @@ def exhaustive_search(
         # Tune the kernel
 
         from itertools import product
+        from cuda.tile import ByTarget
 
         def tune(x, y, out) -> ct.tune.TuningResult:
             keys = ("tm", "tn", "tk", "num_ctas")
@@ -184,7 +185,7 @@ def exhaustive_search(
                             (1, 2))]
             grid = lambda cfg: (ct.cdiv(M, cfg['tm']), ct.cdiv(N, cfg['tn']))
             args = lambda cfg: (x, y, out.clone(), cfg['tm'], cfg['tn'], cfg['tk'])
-            hints = lambda cfg: {'num_ctas': cfg['num_ctas']}
+            hints = lambda cfg: {'num_ctas': ByTarget(sm_100=cfg['num_ctas'])}
             stream = torch.cuda.current_stream()
             tuning_result = ct.tune.exhaustive_search(search_space,
                                                       stream,
@@ -205,7 +206,7 @@ def exhaustive_search(
         # Launch the kernel with tuned result
 
         tm, tn, tk, num_ctas = result.best.config.values()
-        kernel = matmul.replace_hints(num_ctas=num_ctas)
+        kernel = matmul.replace_hints(num_ctas=ByTarget(sm_100=num_ctas))
         ct.launch(torch.cuda.current_stream(),
                   (ct.cdiv(M, tm), ct.cdiv(N, tn)),
                   kernel,

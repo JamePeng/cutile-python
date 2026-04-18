@@ -10,6 +10,9 @@ class _UnspecifiedType():
     def __repr__(self):
         return "UNSPECIFIED"
 
+    def __deepcopy__(self, memo):
+        return self
+
 
 UNSPECIFIED = _UnspecifiedType()
 
@@ -30,24 +33,27 @@ class ByTarget(Generic[T]):
     --------
     Use one ``num_ctas`` value for all architectures:
 
-    .. code-block:: python
+    .. testcode::
+        :template: setup_only.py
 
-        from cuda.tile import kernel, ByTarget
+        from cuda.tile import ByTarget
 
-        @kernel(num_ctas=8)
+        @ct.kernel(num_ctas=8)
         def kernel_fn(x):
             ...
 
     Use different ``num_ctas`` values for specific architectures, and a
     fallback value for all others:
 
-    .. code-block:: python
+    .. testcode::
+        :template: setup_only.py
 
-        from cuda.tile import kernel, ByTarget
+        from cuda.tile import ByTarget
 
-        @kernel(num_ctas=ByTarget(sm_100=8, sm_120=4, default=2))
+        @ct.kernel(num_ctas=ByTarget(sm_100=8, sm_120=4, default=2))
         def kernel_fn(x):
             ...
+
     """
     def __init__(self, *, default=UNSPECIFIED, **value_by_target):
         for sm, value in value_by_target.items():

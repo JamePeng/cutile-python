@@ -133,7 +133,7 @@ class kernel(TileDispatcher):
         .. testcode::
             :template: setup_only.py
 
-            @ct.kernel(num_ctas=2)
+            @ct.kernel(occupancy=2)
             def kernel():
                 pass
 
@@ -142,7 +142,7 @@ class kernel(TileDispatcher):
             # cache hit
             ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
 
-            new_kernel = kernel.replace_hints(num_ctas=4)
+            new_kernel = kernel.replace_hints(occupancy=4)
 
             # compile with new hints
             ct.launch(torch.cuda.current_stream(), (1,), new_kernel, ())
