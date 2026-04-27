@@ -1883,17 +1883,29 @@ def getattr_type_impl(object: Var, name: Var):
 # ===========================================================================================
 
 @impl(getattr, overload=(DataclassTy, WILDCARD))
-def getattr_dataclass_impl(object: Var, name: Var):
+async def getattr_dataclass_impl(object: Var, name: Var):
     ty = object.get_type()
     val = object.get_aggregate()
     assert isinstance(val, DataclassValue)
     attr_name = require_constant_str(name)
     field_idx = val.info.field_name_to_idx.get(attr_name)
-    if field_idx is None:
-        # TODO: user-defined methods and properties
-        raise TileTypeError(f"'{ty.cls.__name__}' object has no attribute '{attr_name}'")
+    if field_idx is not None:
+        return val.items[field_idx]
 
-    return val.items[field_idx]
+    cls = ty.cls
+    try:
+        cls_attr = getattr(cls, attr_name)
+    except AttributeError:
+        raise TileTypeError(f"'{cls.__name__}' object has no attribute '{attr_name}'")
+
+    if isinstance(cls_attr, FunctionType | BuiltinFunctionType):
+        return bind_method(object, cls_attr)
+    elif isinstance(cls_attr, property):
+        from .._passes.hir2ir import call
+        getter = loosely_typed_const(cls_attr.fget)
+        return await call(getter, (object,), {})
+    else:
+        return loosely_typed_const(cls_attr)
 
 
 # ===========================================================================================

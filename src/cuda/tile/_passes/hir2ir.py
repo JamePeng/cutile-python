@@ -5,7 +5,8 @@ import inspect
 import sys
 from contextlib import contextmanager
 import dataclasses
-from typing import Sequence
+from types import BuiltinFunctionType, FunctionType
+from typing import Sequence, Mapping
 
 from .ast2hir import get_function_hir
 from .. import TileTypeError
@@ -160,7 +161,10 @@ async def _call_user_defined(callee_hir: hir.Function, arg_list: list[Var], buil
     return ret
 
 
-async def _call_function(callee, args, kwargs, builder: ir.Builder):
+async def _call_function(callee: FunctionType | BuiltinFunctionType,
+                         args: Sequence[Var],
+                         kwargs: Mapping[str, Var],
+                         builder: ir.Builder):
     sig = get_signature(callee)
     arg_list = _bind_args(sig, callee.__name__, args, kwargs)
     if is_stub(callee) or is_supported_builtin_func(callee):

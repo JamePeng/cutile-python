@@ -122,6 +122,53 @@ def test_dataclasses_replace():
     assert x.tolist() == [2, 7, 13, 2, 30, 40, 123]
 
 
+def test_user_defined_methods_and_constants():
+    @dataclass(frozen=True)
+    class WithMethod:
+        x: int
+        y: int
+
+        NUMBER = 123
+
+        def foo(self):
+            return self.x * 10 + self.y
+
+    @ct.kernel
+    def kern(x, y, z):
+        fb = WithMethod(ct.bid(0) + 5, 7)
+        ct.scatter(x, ct.bid(0), fb.foo())
+        ct.scatter(y, ct.bid(0), fb.NUMBER)
+        ct.scatter(z, ct.bid(0), WithMethod.NUMBER)
+
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    z = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (2,), kern, (x, y, z))
+    assert x.tolist() == [57, 67]
+    assert y.tolist() == [123, 123]
+    assert z.tolist() == [123, 123]
+
+
+def test_user_defined_property():
+    @dataclass(frozen=True)
+    class WithProperty:
+        x: int
+        y: int
+
+        @property
+        def foo(self):
+            return self.x * 10 + self.y
+
+    @ct.kernel
+    def kern(x):
+        fb = WithProperty(ct.bid(0) + 5, 7)
+        ct.scatter(x, ct.bid(0), fb.foo)
+
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (2,), kern, (x,))
+    assert x.tolist() == [57, 67]
+
+
 def test_dataclasses_replace_no_such_field():
     @ct.kernel
     def kern():
