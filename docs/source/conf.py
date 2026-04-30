@@ -60,6 +60,13 @@ html_sidebars = {
 
 # Doc testing
 doctest_test_doctest_blocks = ""
+doctest_global_setup = """
+from cuda.tile._cext import get_compute_capability
+
+
+def is_blackwell_or_newer():
+    return get_compute_capability()[0] >= 10
+"""
 
 # -- Generated content --------------------------------------------------------
 # Make sure the generated includes directory exists

@@ -14,11 +14,6 @@ from cuda.tile._bytecode.version import BytecodeVersion
 from conftest import requires_tileiras
 from util import assert_close, require_blackwell_or_newer
 
-# TODO: remove when feature is out of development only
-from cuda.tile._stub import mma_scaled, unpack_from_bytes
-ct.mma_scaled = mma_scaled
-ct.unpack_from_bytes = unpack_from_bytes
-
 
 pytestmark = [require_blackwell_or_newer(), requires_tileiras(BytecodeVersion.V_13_3)]
 

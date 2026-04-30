@@ -13,12 +13,6 @@ from cuda.tile._cext import CallingConvention
 from cuda.tile._exception import TileUnsupportedFeatureError, TileValueError
 from conftest import dtype_id, requires_tileiras
 
-# TODO: remove when feature is out of development only
-from cuda.tile._datatype import float8_e8m0fnu, float4_e2m1fn
-
-ct.float8_e8m0fnu = float8_e8m0fnu
-ct.float4_e2m1fn = float4_e2m1fn
-
 
 def compile_with(pyfunc, args, arch: str, version: str):
     kernel = ct.kernel(pyfunc)

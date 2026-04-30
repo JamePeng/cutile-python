@@ -232,13 +232,15 @@ def _expand_template(template, body):
     return '\n'.join(result)
 
 
-def _make_code_block(code, groups=None, source_info=None, node_type=None):
+def _make_code_block(code, groups=None, source_info=None, node_type=None, options=None):
     kwargs = dict(language='python')
     if node_type is not None:
         kwargs['testnodetype'] = node_type
         kwargs['groups'] = groups or ['default']
     node = nodes.literal_block(code, code, **kwargs)
     node['options'] = {}
+    if options and 'skipif' in options:
+        node['skipif'] = options['skipif']
     if source_info:
         node.source, node.line = source_info
     return node
@@ -331,10 +333,14 @@ class SnippetTestcodeDirective(TestcodeDirective):
 
         snippet = textwrap.dedent(snippet)
 
-        snippet_block = _make_code_block(snippet, groups=None, source_info=None, node_type=None)
+        snippet_block = _make_code_block(snippet, groups=None,
+                                         source_info=None,
+                                         node_type=None,
+                                         options=self.options)
         full_block = _make_code_block(full, self._get_groups(),
                                       source_info=self._source_info(),
-                                      node_type="testcode")
+                                      node_type="testcode",
+                                      options=self.options)
 
         tabs = _make_tabs(env, snippet_block, full_block)
         return [tabs]

@@ -1946,13 +1946,20 @@ def mma_scaled(x, x_scale, y, y_scale, /, acc) -> Tile:
 
         .. testcode::
             :template: kernel_wrapper.py
+            :skipif: not is_blackwell_or_newer()
 
-            tx = ct.ones((16, 64), ct.float8_e4m3fn)
-            sx = ct.ones((16, 2), ct.float8_e8m0fnu)
-            ty = ct.ones((64, 16), ct.float8_e4m3fn)
-            sy = ct.ones((2, 16), ct.float8_e8m0fnu)
-            acc = ct.zeros((16, 16), ct.float32)
+            tx = ct.ones((2, 64), ct.float8_e4m3fn)
+            sx = ct.full((2, 2), 2.0, ct.float8_e8m0fnu)
+            ty = ct.ones((64, 2), ct.float8_e4m3fn)
+            sy = ct.full((2, 2), 2.0, ct.float8_e8m0fnu)
+            acc = ct.zeros((2, 2), ct.float32)
             tz = ct.mma_scaled(tx, sx, ty, sy, acc)
+            print(f"{tz:.1f}")
+
+        .. testoutput::
+            :skipif: not is_blackwell_or_newer()
+
+            [[256.0, 256.0], [256.0, 256.0]]
     """
 
 

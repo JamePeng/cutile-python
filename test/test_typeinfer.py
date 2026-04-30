@@ -16,11 +16,6 @@ from cuda.tile._compile import get_sm_arch
 from util import is_hopper_or_newer, is_blackwell_or_newer, raises_if
 from conftest import get_tileiras_version
 
-# TODO: remove when feature is out of development only
-from cuda.tile._datatype import float8_e8m0fnu, float4_e2m1fn
-ct.float8_e8m0fnu = float8_e8m0fnu
-ct.float4_e2m1fn = float4_e2m1fn
-
 
 def nd_tensor(nd: int, dtype=None):
     return torch.rand((4,) * nd, dtype=dtype, device='cuda')

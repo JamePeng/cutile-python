@@ -11,11 +11,6 @@ from util import assert_equal, make_test_tensor, require_hopper_or_newer, requir
 from cuda.tile._exception import TileTypeError
 from conftest import float_dtypes, int_dtypes, requires_tileiras, uint_dtypes, dtype_id
 
-# TODO: remove when feature is out of development only
-from cuda.tile._datatype import float4_e2m1fn
-from cuda.tile._stub import pack_to_bytes, unpack_from_bytes
-ct.pack_to_bytes = pack_to_bytes
-ct.unpack_from_bytes = unpack_from_bytes
 
 pytestmark = requires_tileiras(BytecodeVersion.V_13_3)
 
@@ -129,7 +124,7 @@ def test_cross_type_pack_unpack(dtype_x, dtype_y):
 
 
 @pytest.mark.parametrize("dtype", test_dtypes + [
-    pytest.param(float4_e2m1fn, marks=require_blackwell_or_newer()),
+    pytest.param(ct.float4_e2m1fn, marks=require_blackwell_or_newer()),
 ])
 def test_unpack_pack_roundtrip(dtype):
     @ct.kernel

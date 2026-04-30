@@ -55,6 +55,8 @@ Shape & DType
    transpose
    astype
    bitcast
+   pack_to_bytes
+   unpack_from_bytes
 
 
 .. _operations-reduction:
@@ -96,6 +98,7 @@ Matmul
    :nosignatures:
 
    mma
+   mma_scaled
    matmul
 
 .. _operations-selection:
