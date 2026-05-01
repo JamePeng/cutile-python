@@ -153,10 +153,18 @@ def _convert_nonfinite(val, bitwidth, exp_bits, precision, non_finite_behavior) 
             sign = math.copysign(1.0, val) < 0.0
             return (sign << (bitwidth - 1)) | ((1 << (bitwidth - 1)) - 1)
         case NonFiniteBehavior.IEEE:
-            # Exponent is all ones. Truncate the low bits, preserve the rest of the payload
             float64_bits, = struct.unpack("<Q", struct.pack("<d", val))
-            payload = (float64_bits >> (52 - precision)) & ((1 << precision) - 1)
+
+            # Exponent is all ones
             hi_bits = (float64_bits >> (63 - exp_bits)) << precision
-            return hi_bits | payload
+
+            if math.isnan(val) and (float64_bits & (1 << 51)) == 0:
+                # Handles signaling NaN sepcifically since truncating the low bits may cut off
+                # all the 1 bits and turn it into infinity
+                precision_bits = 1
+            else:
+                # Truncate the low bits, preserve the rest of the payload
+                precision_bits = (float64_bits >> (52 - precision)) & ((1 << precision) - 1)
+            return hi_bits | precision_bits
         case _:
             assert False
