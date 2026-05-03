@@ -122,6 +122,21 @@ def test_dataclasses_replace():
     assert x.tolist() == [2, 7, 13, 2, 30, 40, 123]
 
 
+def test_loop_carried_dataclass_reconstructed_with_field_info():
+    @ct.kernel
+    def kern(x, n):
+        fb = FooBar(1, 10, 100)
+        for i in range(n):
+            fb = dataclasses.replace(fb, foo=fb.foo + 1, bar=fb.bar + i)
+        ct.scatter(x, 0, fb.foo)
+        ct.scatter(x, 1, fb.bar)
+        ct.scatter(x, 2, fb.baz)
+
+    x = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1,), kern, (x, 3))
+    assert x.tolist() == [4, 13, 100]
+
+
 def test_user_defined_methods_and_constants():
     @dataclass(frozen=True)
     class WithMethod:

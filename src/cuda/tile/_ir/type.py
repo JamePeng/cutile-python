@@ -223,7 +223,8 @@ class DataclassTy(Type):
 
     def make_aggregate_value(self, items: tuple["Var", ...]) -> "AggregateValue":
         from .ir import DataclassValue
-        return DataclassValue(items)
+        from .typing_support import get_dataclass_info
+        return DataclassValue(items, get_dataclass_info(self.cls))
 
     def __str__(self):
         return (
