@@ -90,6 +90,9 @@ else()
     message(STATUS "Fetching dlpack")
 endif()
 
+include(cmake/FetchXLAHeaders.cmake)
+fetch_xla_headers()
+
 add_subdirectory(cext)
 
 

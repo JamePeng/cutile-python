@@ -89,5 +89,3 @@ struct Hash<T, typename std::enable_if_t<std::is_enum_v<T>> > {
         return Hash<uint64_t>::hash(static_cast<uint64_t>(val), h);
     }
 };
-
-

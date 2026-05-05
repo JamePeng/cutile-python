@@ -38,9 +38,10 @@ class BuildExtWithCmake(build_ext):
         # TODO: ideally, we should "make install" the library somewhere, so that CMake removes
         #   any build RPATHs etc. But I'll leave that for another day.
 
-    def _cmake(self, build_dir: str, build_type: str, dlpack_path: str):
+    def _cmake(self, build_dir: str, build_type: str, dlpack_path: str, xla_path: str):
         cmake_cmd = ["cmake", "-B", build_dir, project_root,
                      f"-DDLPACK_PATH={dlpack_path}",
+                     f"-DXLA_PATH={xla_path}",
                      f"-DCMAKE_BUILD_TYPE={build_type}",
                      f"-DPython_EXECUTABLE={sys.executable}",
                      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
@@ -60,8 +61,9 @@ class BuildExtWithCmake(build_ext):
 
         build_type = "Debug" if self.debug else "Release"
         dlpack_path = os.getenv("CUDA_TILE_CMAKE_DLPACK_PATH", "")
+        xla_path = os.getenv("CUDA_TILE_CMAKE_XLA_PATH", "")
         parallel = 1 if self.parallel is None else self.parallel
-        self._cmake(build_dir, build_type, dlpack_path)
+        self._cmake(build_dir, build_type, dlpack_path, xla_path)
         self._make(build_dir, build_type, parallel)
 
         for ext in self.extensions:

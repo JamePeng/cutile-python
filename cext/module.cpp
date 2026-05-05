@@ -6,6 +6,7 @@
 
 #include "tile_kernel.h"
 #include "cuda_helper.h"
+#include "xla_ffi_py.h"
 
 #ifdef _WIN32
 extern "C" int _fltused = 0;
@@ -46,6 +47,10 @@ PyMODINIT_FUNC PyInit__cext() {
 
     if (!cuda_helper_init(m.get()))
         return nullptr;
+
+    if (!xla_ffi_init(m.get()))
+        return nullptr;
+
 
     return m.release();
 }

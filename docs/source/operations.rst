@@ -281,3 +281,22 @@ Autotuning
 
    kernel.replace_hints
    compiler_timeout
+
+
+.. _operations-jax:
+
+JAX FFI
+-------
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   jax.cutile_call
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+   :template: autosummary/dataclass_no_init.rst
+
+   jax.OutputPlaceholder
+   jax.InputOutput

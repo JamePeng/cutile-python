@@ -277,6 +277,22 @@ static inline PyPtr try_import(const char* modname, SavedException* exc = nullpt
     return ret;
 }
 
+class GILGuard {
+public:
+    GILGuard(const GILGuard&) = delete;
+    void operator=(const GILGuard&) = delete;
+
+    GILGuard() {
+        gstate = PyGILState_Ensure();
+    }
+
+    ~GILGuard() {
+        PyGILState_Release(gstate);
+    }
+private:
+    PyGILState_STATE gstate;
+};
+
 #ifdef Py_GIL_DISABLED
 class PyCriticalSectionGuard {
     public:

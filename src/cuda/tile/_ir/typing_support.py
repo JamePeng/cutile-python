@@ -298,6 +298,23 @@ if HAS_NUMPY:
         np.dtype('bool'): datatype.bool_
     })
 
+# ========= JAX MLDtype support ===========
+try:
+    import ml_dtypes
+    HAS_ML_DTYPES = True
+except ImportError:
+    HAS_ML_DTYPES = False
+    ml_dtypes = None
+
+
+if HAS_NUMPY and HAS_ML_DTYPES:
+    register_dtypes({
+        np.dtype(ml_dtypes.bfloat16): datatype.bfloat16,
+        np.dtype(ml_dtypes.float8_e4m3fn): datatype.float8_e4m3fn,
+        np.dtype(ml_dtypes.float8_e5m2): datatype.float8_e5m2,
+        np.dtype(ml_dtypes.float8_e8m0fnu): datatype.float8_e8m0fnu,
+    })
+
 
 # ===== PyTorch ===========
 

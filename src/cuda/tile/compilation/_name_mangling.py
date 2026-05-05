@@ -11,7 +11,8 @@ from typing import Sequence
 from ._signature import ArrayConstraint, ParameterConstraint, ListConstraint, ScalarConstraint, \
     KernelSignature, _collect_alias_groups, ConstantConstraint
 from cuda.tile._datatype import DType, bool_, uint8, uint16, uint32, uint64, int64, int32, int16, \
-    int8, float16, float32, float64, bfloat16, float8_e4m3fn, float8_e5m2, float8_e8m0fnu, tfloat32
+    int8, float16, float32, float64, bfloat16, float8_e4m3fn, float8_e5m2, float8_e8m0fnu, \
+    tfloat32
 from .._cext import CallingConvention
 
 

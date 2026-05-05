@@ -36,8 +36,10 @@ endif()
 
 set(cext_include_dirs
     ${dlpack_INCLUDE_DIR}
+    ${xla_INCLUDE_DIR}
     ${Python_INCLUDE_DIRS}
-    ${CUDAToolkit_INCLUDE_DIRS})
+    ${CUDAToolkit_INCLUDE_DIRS}
+)
 
 
 # Build a static library first, so that we could reuse it for several build targets
@@ -49,6 +51,8 @@ add_library(_cext_static STATIC
     py.cpp
     stream_buffer.cpp
     tile_kernel.cpp
+    xla_ffi.cpp
+    xla_ffi_py.cpp
     )
 
 target_compile_options(_cext_static PUBLIC ${cext_compile_flags} ${nostdlib_flags})
