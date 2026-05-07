@@ -7,6 +7,8 @@ from cuda.tile._exception import (
     TileTypeError,
     TileUnsupportedFeatureError,
     TileInternalError,
+    TileCompilerError,
+    TileCompilerExecutionError,
 )
 
 __all__ = (
@@ -14,4 +16,6 @@ __all__ = (
     "TileTypeError",
     "TileUnsupportedFeatureError",
     "TileInternalError",
+    "TileCompilerError",
+    "TileCompilerExecutionError",
 )

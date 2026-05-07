@@ -80,7 +80,15 @@ class kernel(_cext.TileDispatcher):
 
         return super().__new__(cls, function, **kwargs)
 
-    def __init__(self, function=None, /, *, opt_level: None | int = 3):
+    def __init__(
+        self,
+        function=None,
+        /,
+        *,
+        opt_level: None | int = 3,
+        arch: str | None = None,
+        gpu_name: str | None = None,
+    ):
         if not isinstance(function, FunctionType):
             raise TypeError("`kernel` decorator must be applied to a Python function")
 
@@ -93,14 +101,16 @@ class kernel(_cext.TileDispatcher):
                          ann_func.int64_parameter_mask)
         self._annotated_function = ann_func
         self._compiler_options = compiler_options
+        self._arch = arch
+        self._gpu_name = gpu_name
 
     def _compile(self, signature: KernelSignature, ctx: ir.IRContext):
         from cuda.lang._compile import compile_simt
-
         result = compile_simt(
             self._annotated_function,
             (signature,),
-            arch=None,
+            arch=self._arch,
+            gpu_name=self._gpu_name,
             compiler_options=self._compiler_options,
             ctx=None,  # the launcher currently provides a cutile context
         )

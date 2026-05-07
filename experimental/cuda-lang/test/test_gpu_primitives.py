@@ -3,27 +3,37 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import cuda.lang as cl
-from cuda.lang.compilation import KernelSignature
+from cuda.lang._exception import TileCompilerExecutionError
+from cuda.tile._cext import get_compute_capability
 import torch
+import pytest
 
-from .util import require_blackwell_or_newer, require_hopper_or_newer
+from .util import require_hopper_or_newer
 
 
-@require_blackwell_or_newer()
-def test_setmaxregister_intrinsics_compile_to_mlir():
+def test_arch_specific_kernel_failure():
+    @cl.kernel(arch='compute_80', gpu_name='sm_80')
+    def kernel():
+        cl.elect_sync()
+
+    with pytest.raises(
+        TileCompilerExecutionError,
+        match="Cannot select: intrinsic %llvm.nvvm.elect.sync",
+    ):
+        cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
+
+
+@require_hopper_or_newer()
+def test_setmaxregister():
+    major, minor = get_compute_capability()
+    target = f"{major}{minor}a"
+
+    @cl.kernel(arch=f"compute_{target}", gpu_name=f"sm_{target}")
     def kernel():
         cl.setmaxregister_increase(64)
         cl.setmaxregister_decrease(32)
 
-    result = cl.compile_simt(
-        kernel,
-        [KernelSignature(())],
-        gpu_name="sm_100a",
-        arch="compute_100a",
-    )
-
-    assert "llvm.nvvm.setmaxnreg.inc.sync.aligned.u32" in result.mlir
-    assert "llvm.nvvm.setmaxnreg.dec.sync.aligned.u32" in result.mlir
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
 
 
 def test_tid():
