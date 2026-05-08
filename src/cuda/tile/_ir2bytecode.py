@@ -6,9 +6,11 @@ import functools
 import os
 from contextlib import contextmanager
 from typing import Dict, Tuple, Any, Optional
+import warnings
 
 from cuda.tile import _datatype as datatype
 from cuda.tile._bytecode.attribute import make_load_store_hints
+from cuda.tile._bytecode.version import BytecodeVersion
 from cuda.tile._datatype import get_signedness
 from cuda.tile import DType
 import cuda.tile._bytecode as bc
@@ -419,8 +421,18 @@ def generate_bytecode_for_kernel(func_body: Block,
                                  writer: bc.BytecodeWriter,
                                  anonymize_debug_attr: bool):
     target_options = compiler_options.specialize_for_target(sm_arch)
+    num_worker_warps = target_options.num_worker_warps
+    if num_worker_warps is not None and writer.version < BytecodeVersion.V_13_3:
+        warnings.warn(
+            f"num_worker_warps requires tileiras "
+            f"{BytecodeVersion.V_13_3.as_string()} or later; ignoring "
+            f"(current version is {writer.version.as_string()}).",
+        )
+        num_worker_warps = None
+
     entry_hints = bc.EntryHints(num_cta_in_cga=target_options.num_ctas,
-                                occupancy=target_options.occupancy)
+                                occupancy=target_options.occupancy,
+                                num_worker_warps_per_cta=num_worker_warps)
 
     param_type_ids = [typeid(writer.type_table, p.get_type()) for p in func_body.params]
     debug_attr_map = DebugAttrMap(writer.debug_attr_table, symbol, anonymize_debug_attr)

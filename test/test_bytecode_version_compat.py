@@ -13,8 +13,7 @@ from cuda.tile._numeric_semantics import RoundingMode
 from cuda.tile.compilation import CallingConvention, KernelSignature
 
 
-def compile_with_version(pyfunc, args, version: str):
-    kernel = ct.kernel(pyfunc)
+def compile_with_version(kernel, args, version: str):
     cconv = CallingConvention.cutile_python_v1()
     sig = KernelSignature.from_kernel_args(kernel, args, cconv)
     ct.compilation.export_kernel(kernel, [sig], output_file=BytesIO(),
@@ -27,6 +26,7 @@ def tensor(dtype=torch.float32):
 
 
 def test_atan2_requires_13_2():
+    @ct.kernel
     def kernel(x, y, z):
         tx = ct.load(x, 0, shape=64)
         ty = ct.load(y, 0, shape=64)
@@ -37,6 +37,7 @@ def test_atan2_requires_13_2():
 
 
 def test_tanh_rounding_mode_requires_13_2():
+    @ct.kernel
     def kernel(x, y):
         tx = ct.load(x, 0, shape=64)
         ct.store(y, 0, tile=ct.tanh(tx, rounding_mode=RoundingMode.APPROX))
@@ -47,6 +48,7 @@ def test_tanh_rounding_mode_requires_13_2():
 
 
 def test_tanh_without_rounding_mode_works_on_13_1():
+    @ct.kernel
     def kernel(x, y):
         tx = ct.load(x, 0, shape=64)
         ct.store(y, 0, tile=ct.tanh(tx))
@@ -56,6 +58,7 @@ def test_tanh_without_rounding_mode_works_on_13_1():
 
 
 def test_exp_rounding_mode_requires_13_3():
+    @ct.kernel
     def kernel(x, y):
         tx = ct.load(x, 0, shape=64)
         ct.store(y, 0, tile=ct.exp(tx, rounding_mode=RoundingMode.APPROX))
@@ -66,9 +69,21 @@ def test_exp_rounding_mode_requires_13_3():
 
 
 def test_exp_without_rounding_mode_works_on_13_1():
+    @ct.kernel
     def kernel(x, y):
         tx = ct.load(x, 0, shape=64)
         ct.store(y, 0, tile=ct.exp(tx))
 
     # Should not raise version error
     compile_with_version(kernel, (tensor(), tensor()), "13.1")
+
+
+def test_num_worker_warps_warns_below_13_3():
+    @ct.kernel(num_worker_warps=8)
+    def kernel(x, y):
+        tx = ct.load(x, 0, shape=64)
+        ct.store(y, 0, tile=tx)
+
+    with pytest.warns(UserWarning,
+                      match=r"num_worker_warps requires tileiras 13\.3"):
+        compile_with_version(kernel, (tensor(), tensor()), "13.1")

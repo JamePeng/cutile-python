@@ -16,6 +16,7 @@ class CompilerOptions:
     num_ctas: None | int | ByTarget[int] = None
     occupancy: None | int | ByTarget[int] = None
     opt_level: int | ByTarget[int] = 3
+    num_worker_warps: None | int | ByTarget[int] = None
 
     def __post_init__(self):
         for field in dataclasses.fields(self):
@@ -59,3 +60,10 @@ def _validate_opt_level(opt_level: None | int):
     if opt_level is not None:
         if opt_level < 0 or opt_level > 3:
             raise ValueError(f'opt_level should be [0, 3], got {opt_level}')
+
+
+def _validate_num_worker_warps(num_worker_warps: None | int):
+    if num_worker_warps is not None:
+        if num_worker_warps not in (4, 8):
+            raise ValueError(f'num_worker_warps should be either 4 or 8,'
+                             f' got {num_worker_warps}')

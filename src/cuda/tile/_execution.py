@@ -75,6 +75,16 @@ class kernel(TileDispatcher):
             Default: None (auto).
         occupancy: Expected number of active CTAs per SM, [1, 32]. Default: None (auto).
         opt_level: Optimization level [0, 3], default 3.
+        num_worker_warps: Number of warps in the CUDA core warp groups in a
+            warp-specialized kernel. The compiler may add warps
+            (e.g., for asynchronous memory transfers) that are not counted here.
+            This value does not represent the total warp count.
+            It's worth tuning when a warp-specialized kernel has high register pressure
+            that other approaches cannot resolve.
+            Normalization-style kernels with large tiles are the canonical cases.
+            Must be either 4 or 8.
+            Default: None (auto).
+            Since CTK 13.3. Ignored with a warning otherwise.
 
     Target-specific values for the compiler options above can be provided
     using a :py:class:`ByTarget` object.
@@ -92,7 +102,8 @@ class kernel(TileDispatcher):
                  /, *,
                  num_ctas: None | int | ByTarget[int] = None,
                  occupancy: None | int | ByTarget[int] = None,
-                 opt_level: None | int | ByTarget[int] = 3):
+                 opt_level: None | int | ByTarget[int] = 3,
+                 num_worker_warps: None | int | ByTarget[int] = None):
         if not isinstance(function, FunctionType):
             raise TypeError("`kernel` decorator must be applied to a Python function")
 
@@ -103,7 +114,8 @@ class kernel(TileDispatcher):
         compiler_options = CompilerOptions(
             num_ctas=num_ctas,
             occupancy=occupancy,
-            opt_level=opt_level
+            opt_level=opt_level,
+            num_worker_warps=num_worker_warps
         )
         super().__init__(ann_func.constant_parameter_mask, ann_func.int64_index_parameter_mask,
                          ann_func.int64_parameter_mask)

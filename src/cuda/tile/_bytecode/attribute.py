@@ -62,6 +62,7 @@ def encode_dictionary_untagged(items: Sequence[tuple[str, TaggedAttribute]],
 class EntryHints:
     num_cta_in_cga: Optional[int] = None
     occupancy: Optional[int] = None
+    num_worker_warps_per_cta: Optional[int] = None
 
     def as_dictionary(self) -> Dictionary:
         items = []
@@ -69,6 +70,9 @@ class EntryHints:
             items.append(("num_cta_in_cga", Integer.create_i32(self.num_cta_in_cga)))
         if self.occupancy is not None:
             items.append(("occupancy", Integer.create_i32(self.occupancy)))
+        if self.num_worker_warps_per_cta is not None:
+            items.append(("num_worker_warps_per_cta",
+                         Integer.create_i32(self.num_worker_warps_per_cta)))
         return Dictionary(items)
 
 
