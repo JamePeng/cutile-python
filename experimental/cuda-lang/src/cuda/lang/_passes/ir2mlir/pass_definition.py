@@ -181,21 +181,27 @@ def _get_mlir_unary_op_for_op_and_type(
     typ: ir_type.TileTy,
 ) -> Callable[[mlir.Value], mlir.Value] | None:
     dtype = typ.dtype
-    if fn == "pos":
-        return lambda operand: operand
+    match fn:
+        case 'pos':
+            return lambda operand: operand
+        case "invert" if datatype.is_boolean(dtype):
 
-    if fn != "neg":
-        return None
+            def invert(operand):
+                mlir_bool = ir_type_to_mlir_type(datatype.bool_)
+                false = mlir_constant_of_type(mlir_bool, 0)
+                cmp = mlir.arith.add_CmpIOp(
+                    predicate=mlir.arith.CmpIPredicate.eq, lhs=operand, rhs=false
+                )
+                cmp = mlir.arith.add_ExtUIOp(out_type=mlir_bool, in_=cmp)
+                return cmp
 
-    if datatype.is_float(dtype):
-        return mlir.arith.add_NegFOp
-
-    if datatype.is_integral(dtype):
-        mlir_type = ir_type_to_mlir_type(typ)
-        zero = mlir_constant_of_type(mlir_type, 0)
-        return lambda operand: mlir.arith.add_SubIOp(lhs=zero, rhs=operand)
-
-    return None
+            return invert
+        case 'neg' if datatype.is_float(dtype):
+            return mlir.arith.add_NegFOp
+        case 'neg' if datatype.is_integral(dtype):
+            mlir_type = ir_type_to_mlir_type(typ)
+            zero = mlir_constant_of_type(mlir_type, 0)
+            return lambda operand: mlir.arith.add_SubIOp(lhs=zero, rhs=operand)
 
 
 def _get_mlir_comparison_op(
@@ -513,7 +519,7 @@ class IR2MLIR:
         )
         if mlir_op is None:
             raise NotImplementedError(
-                f"Arithmetic operation {operation.fn} not supported for {res_dtype=}"
+                f"Arithmetic operation '{operation.fn}' not supported for {res_dtype=}"
             )
 
         operand = self.get_var(operation.operand)

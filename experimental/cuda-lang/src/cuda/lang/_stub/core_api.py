@@ -133,7 +133,7 @@ class Pointer(Generic[T]):
 
 
 @function
-def warp_size():
+def warp_size() -> int32:
     return int32(32)
 
 
@@ -141,7 +141,7 @@ FULL_MASK = 0xFFFFFFFF
 
 
 @function
-def full_mask():
+def full_mask() -> int32:
     return int32(FULL_MASK)
 
 
