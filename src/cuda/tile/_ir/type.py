@@ -290,10 +290,24 @@ def size_to_bytecode(s: Optional[int]) -> int:
 # ============== Pointer Type ===============
 
 
+class MemorySpace(enum.Enum):
+    GENERIC = 0
+    GLOBAL = 1
+    SHARED = 3
+    CONSTANT = 4
+    LOCAL = 5
+    TENSOR = 6
+    SHARED_CLUSTER = 7
+
+
 @dataclass(frozen=True)
 class PointerTy(Type):
     pointee_type: Type
-    memory_space: Any = None
+    memory_space: MemorySpace = MemorySpace.GENERIC
+
+    def __str__(self):
+        memspc = "" if self.memory_space == MemorySpace.GENERIC else f", {self.memory_space}"
+        return f"Pointer[{self.pointee_type}{memspc}]"
 
 
 # ============== Tile Type ===============
@@ -344,7 +358,7 @@ class ArrayTy(Type):
                  shape: Tuple[Optional[int], ...],
                  strides: Tuple[Optional[int], ...],
                  index_dtype=None,
-                 memory_space=None):
+                 memory_space: MemorySpace = MemorySpace.GENERIC):
         from .._datatype import int32
         assert isinstance(element_type, Type)
         self.element_type = element_type
@@ -403,7 +417,8 @@ class ArrayTy(Type):
         strides_str = ('?' if x is None else str(x) for x in self.strides)
         strides_str = "(" + ','.join(strides_str) + ")"
         indexty_str = "" if self.index_dtype == int32 else f",index_dtype={self.index_dtype}]"
-        return f"Array[{type_str},{shape_str}:{strides_str}{indexty_str}]"
+        memspc = "" if self.memory_space == MemorySpace.GENERIC else f", {self.memory_space}"
+        return f"Array[{type_str},{shape_str}:{strides_str}{indexty_str}{memspc}]"
 
 
 # ============== PartitionView Type ===============

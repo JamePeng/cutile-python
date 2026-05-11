@@ -19,7 +19,6 @@ from cuda.tile._compiler_options import CompilerOptions
 from cuda.tile._exception import TileCompilerExecutionError
 from cuda.lang._logging import get_log_flags
 from cuda.lang._ir import ir, hir
-from cuda.lang._ir.type import MemorySpace
 from cuda.lang._passes.ast2hir import get_function_hir
 from cuda.lang._passes.ir2mlir import ir2mlir
 from cuda.lang._passes.flatten_cfg import flatten_cfg
@@ -103,8 +102,7 @@ def get_function_ir(
             constant_mask,
             parameter_names,
             function.param_locs,
-            ctx,
-            array_memory_space=MemorySpace.GENERIC
+            ctx
         )
         canonicalize_parameters(params, builder)
         with cuda_lang_impl_registry.as_current():

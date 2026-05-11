@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from dataclasses import dataclass
-from enum import Enum
 
 from cuda.lang._ir.ir import LocalArrayContextManagerValue
 from cuda.lang._enums import TensorMapSwizzle
@@ -22,22 +21,12 @@ from cuda.tile._ir.type import (
     EnumTy,
     make_tile_ty,
     ContextManagerTy,
-    ContextManagerState,
+    ContextManagerState, MemorySpace,
 )
 import cuda.tile._datatype as datatype
 from cuda.tile._datatype import DType
 from cuda.tile._ir.ir import Var, AggregateValue
 from cuda.lang._exception import TileTypeError
-
-
-class MemorySpace(Enum):
-    GENERIC = 0
-    GLOBAL = 1
-    SHARED = 3
-    CONSTANT = 4
-    LOCAL = 5
-    TENSOR = 6
-    SHARED_CLUSTER = 7
 
 
 def _is_power_of_2(value: int) -> bool:

@@ -158,8 +158,6 @@ def satisfies_pointer_constraint(value, constraint: OpaquePointerSpec):
     if isinstance(pointer_ty, TilePointerTy):
         if constraint == opaque_ptr:
             return True
-        if pointer_ty.memory_space is None:
-            return False
         return pointer_ty.memory_space.value == constraint.value
 
     return pointer_ty.memory_space.value == constraint.value
