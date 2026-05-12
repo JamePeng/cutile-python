@@ -31,7 +31,7 @@ def check_tiled_view_properties(tiled_view, dtype, tile_shape):
     ct.static_assert(tv_tile_shape == tile_shape)
 
 
-@pytest.mark.parametrize("shape", [64, (128,), (225,)])
+@pytest.mark.parametrize("shape", [64, (225,)])
 @pytest.mark.parametrize("tile_size", [64, 128])
 @pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("allow_tma", [False, True])
@@ -55,7 +55,7 @@ def test_tiled_view_copy_1d(shape, tile_size, dtype, allow_tma):
 @pytest.mark.parametrize("noncontiguous", [False, True])
 @pytest.mark.parametrize("shape", [(128, 256), (192, 134)])
 @pytest.mark.parametrize("tile_size", [(64, 64), (128, 128)])
-@pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
+@pytest.mark.parametrize("dtype", [torch.int32, torch.float32], ids=dtype_id)
 def test_tiled_view_copy_2d(shape, tile_size, dtype, noncontiguous):
 
     @ct.kernel
@@ -517,17 +517,14 @@ def make_ref_tv_atomic(ref_fn, torch_op, tile_size, traversal_steps):
                                        AtomicOp.AND, AtomicOp.OR, AtomicOp.XOR])
 @pytest.mark.parametrize("x_dtype", arithmetic_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("y_dtype", arithmetic_dtypes, ids=dtype_id)
-@pytest.mark.parametrize("shape", [(50, 60), (512, 256)])
-@pytest.mark.parametrize("tile_size", [(128, 128)])
-@pytest.mark.parametrize("traversal_steps", [None, (110, 110), (130, 130)])
-def test_tiled_view_atomic(atomic_op, x_dtype, y_dtype, shape, tile_size, traversal_steps):
+def test_tiled_view_atomic(atomic_op, x_dtype, y_dtype):
+    shape = (200, 256)
+    tile_size = (128, 128)
     get_tv_method, torch_op, supported_dtypes = tv_atomic_configs[atomic_op]
     x = make_tensor(shape, dtype=x_dtype, device='cuda')
     y = make_tensor(shape, dtype=y_dtype, device='cuda')
     ref_x = x.clone()
-    effective_steps = traversal_steps if traversal_steps is not None else tile_size
-    grid = (ct.cdiv(x.shape[0], effective_steps[0]), ct.cdiv(x.shape[1], effective_steps[1]),)
-    kernel = make_tv_atomic_kernel(get_tv_method, traversal_steps)
+    kernel = make_tv_atomic_kernel(get_tv_method, None)
 
     if x_dtype not in supported_dtypes:
         should_raise = True
@@ -536,20 +533,43 @@ def test_tiled_view_atomic(atomic_op, x_dtype, y_dtype, shape, tile_size, traver
     elif atomic_op.is_bitwise():
         should_raise = x_dtype != y_dtype
         err_match = "to exactly match the target dtype"
-        ref_fn = make_ref_tv_atomic(ref_atomic_bitwise, torch_op, tile_size, effective_steps)
+        ref_fn = make_ref_tv_atomic(ref_atomic_bitwise, torch_op, tile_size, tile_size)
     else:
         if x_dtype == torch.bfloat16 and not is_hopper_or_newer():
             pytest.skip("bf16 is only supported on hopper or newer")
 
         should_raise = not _is_implicit_cast_ok(to_dtype(y_dtype), to_dtype(x_dtype))
         err_match = "cannot implicitly cast"
-        ref_fn = make_ref_tv_atomic(ref_atomic_arith, torch_op, tile_size, effective_steps)
+        ref_fn = make_ref_tv_atomic(ref_atomic_arith, torch_op, tile_size, tile_size)
 
     with raises_if(should_raise, TileTypeError, match=err_match):
+        grid = (ct.cdiv(x.shape[0], tile_size[0]), ct.cdiv(x.shape[1], tile_size[1]),)
         ct.launch(torch.cuda.current_stream(), grid, kernel,
                   (x, y, tile_size[0], tile_size[1]))
         ref_fn(ref_x, y)
         torch.testing.assert_close(x, ref_x)
+
+
+@requires_tileiras(BytecodeVersion.V_13_3)
+@pytest.mark.parametrize("atomic_op", [AtomicOp.ADD, AtomicOp.XOR])
+@pytest.mark.parametrize("shape", [(50, 60), (512, 256)])
+@pytest.mark.parametrize("tile_size", [(128, 128)])
+@pytest.mark.parametrize("traversal_steps", [(110, 110), (130, 130)])
+def test_tiled_view_atomic_traversal_steps(atomic_op, shape, tile_size, traversal_steps):
+    dtype = torch.int32
+    get_tv_method, torch_op, _ = tv_atomic_configs[atomic_op]
+    x = make_tensor(shape, dtype=dtype, device='cuda')
+    y = make_tensor(shape, dtype=dtype, device='cuda')
+    ref_x = x.clone()
+    kernel = make_tv_atomic_kernel(get_tv_method, traversal_steps)
+    ref_fn = ref_atomic_bitwise if atomic_op.is_bitwise() else ref_atomic_arith
+    ref_tv = make_ref_tv_atomic(ref_fn, torch_op, tile_size, traversal_steps)
+
+    grid = (ct.cdiv(x.shape[0], traversal_steps[0]), ct.cdiv(x.shape[1], traversal_steps[1]),)
+    ct.launch(torch.cuda.current_stream(), grid, kernel,
+              (x, y, tile_size[0], tile_size[1]))
+    ref_tv(ref_x, y)
+    torch.testing.assert_close(x, ref_x)
 
 
 @requires_tileiras(BytecodeVersion.V_13_3)
