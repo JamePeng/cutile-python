@@ -8,8 +8,6 @@ import enum
 class BytecodeVersion(enum.IntEnum):
     V_13_1 = 130100
     V_13_2 = 130200
-
-    # Development Only
     V_13_3 = 130300
 
     def major(self) -> int:
