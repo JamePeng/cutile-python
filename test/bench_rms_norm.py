@@ -104,7 +104,7 @@ def _static_persistent_autotune_configs():
     ts_m_vals = [2, 4, 8, 16]
     ts_n_vals = [2**9, 2**10, 2**11, 2**12, 2**13, 2**14]
     num_ctas_vals = [1, 2]
-    occupancy_vals = [1, 2, 4, 8, 16, 32]
+    occupancy_vals = [1, 2, 4, 8]
 
     for ts_m, ts_n, s, w in itertools.product(ts_m_vals, ts_n_vals, num_ctas_vals, occupancy_vals):
         yield SimpleNamespace(
