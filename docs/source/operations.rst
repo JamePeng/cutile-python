@@ -22,8 +22,8 @@ Load/Store
    num_tiles
    load
    store
-   load_advanced
-   store_advanced
+   load_advanced_indexing
+   store_advanced_indexing
    gather
    scatter
 

@@ -4875,7 +4875,7 @@ def _parse_advanced_index(indices: Var, ndim: int) -> tuple[int, tuple[int, ...]
     items = list(indices.get_aggregate().items)
     if len(items) != ndim:
         raise TileTypeError(
-            f"load_advanced/store_advanced index length {len(items)} does not "
+            f"load_advanced_indexing/store_advanced_indexing index length {len(items)} does not "
             f"match array rank {ndim}")
 
     sparse_dims: list[int] = []
@@ -4901,7 +4901,7 @@ def _parse_advanced_index(indices: Var, ndim: int) -> tuple[int, tuple[int, ...]
             if not length_var.is_constant():
                 raise TileTypeError(
                     f"ct.Slice length at dim {dim} must be a compile-time constant "
-                    f"in load_advanced/store_advanced")
+                    f"in load_advanced_indexing/store_advanced_indexing")
             length_val = length_var.get_constant()
             if not isinstance(length_val, int) or length_val <= 0:
                 raise TileTypeError(
@@ -4910,17 +4910,17 @@ def _parse_advanced_index(indices: Var, ndim: int) -> tuple[int, tuple[int, ...]
             gs_index.append(item.get_aggregate().start)
         else:
             raise TileTypeError(
-                f"load_advanced/store_advanced index at dim {dim} must be a "
+                f"load_advanced_indexing/store_advanced_indexing index at dim {dim} must be a "
                 f"1D integer Tile (sparse dim) or ct.Slice(start, length) "
                 f"(dense dim), got type {item_ty}")
 
     if len(sparse_dims) == 0:
         raise TileTypeError(
-            "load_advanced/store_advanced: exactly one index must be a 1D "
+            "load_advanced_indexing/store_advanced_indexing: exactly one index must be a 1D "
             "integer Tile (the sparse dim); none found")
     if len(sparse_dims) > 1:
         raise TileTypeError(
-            f"load_advanced/store_advanced: exactly one index must be a 1D "
+            f"load_advanced_indexing/store_advanced_indexing: exactly one index must be a 1D "
             f"integer Tile (the sparse dim); found {len(sparse_dims)} at "
             f"dims {sparse_dims}")
 
@@ -4932,13 +4932,13 @@ def _parse_advanced_index(indices: Var, ndim: int) -> tuple[int, tuple[int, ...]
     return sparse_dims[0], tuple(tile_shape), tuple(gs_index)
 
 
-@impl(ct.load_advanced, min_version=BytecodeVersion.V_13_3)
+@impl(ct.load_advanced_indexing, min_version=BytecodeVersion.V_13_3)
 def load_advanced_impl(array: Var, indices: Var, padding_mode: Var,
                        latency: Var, allow_tma: Var) -> Var:
     array_ty = require_array_type(array)
     if array_ty.ndim < 2:
         raise TileTypeError(
-            "load_advanced requires a 2D or higher-rank array; "
+            "load_advanced_indexing requires a 2D or higher-rank array; "
             "use ct.gather() for 1D arrays")
     sparse_dim, tile_shape, gs_index = _parse_advanced_index(indices, array_ty.ndim)
     padding_mode_val = require_constant_enum(padding_mode, PaddingMode)
@@ -4953,13 +4953,13 @@ def load_advanced_impl(array: Var, indices: Var, padding_mode: Var,
     return result
 
 
-@impl(ct.store_advanced, min_version=BytecodeVersion.V_13_3)
+@impl(ct.store_advanced_indexing, min_version=BytecodeVersion.V_13_3)
 def store_advanced_impl(array: Var, indices: Var, tile: Var,
                         latency: Var, allow_tma: Var):
     array_ty = require_array_type(array)
     if array_ty.ndim < 2:
         raise TileTypeError(
-            "store_advanced requires a 2D or higher-rank array; "
+            "store_advanced_indexing requires a 2D or higher-rank array; "
             "use ct.scatter() for 1D arrays")
     sparse_dim, tile_shape, gs_index = _parse_advanced_index(indices, array_ty.ndim)
     tile_ty = require_tile_type(tile)

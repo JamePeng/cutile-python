@@ -14,15 +14,15 @@ from conftest import requires_tileiras
 pytestmark = requires_tileiras(BytecodeVersion.V_13_3)
 
 # ===========================================================================================
-# ct.load_advanced / ct.store_advanced: basic load/store
+# ct.load_advanced_indexing / ct.store_advanced_indexing: basic load/store
 # ===========================================================================================
 
 
 @ct.kernel
 def load_store_advanced_rows(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int]):
     indices = ct.arange(ROWS, dtype=ct.int32)
-    tile = ct.load_advanced(x, (indices, ct.Slice(0, COLS)))
-    ct.store_advanced(y, (indices, ct.Slice(0, COLS)), tile)
+    tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
+    ct.store_advanced_indexing(y, (indices, ct.Slice(0, COLS)), tile)
 
 
 def test_store_basic():
@@ -34,14 +34,14 @@ def test_store_basic():
 
 
 # ===========================================================================================
-# ct.load_advanced/store_advanced: non-contiguous row indices (actual gather/scatter)
+# ct.load_advanced_indexing/store_advanced_indexing: non-contiguous row indices (gather/scatter)
 # ===========================================================================================
 
 
 @ct.kernel
 def gather_even_rows(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int]):
     indices = ct.arange(ROWS, dtype=ct.int32) * 2  # [0, 2, 4, 6]
-    tile = ct.load_advanced(x, (indices, ct.Slice(0, COLS)))
+    tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
     ct.store(y, (0, 0), tile)
 
 
@@ -59,7 +59,7 @@ def test_gather_non_contiguous():
 def scatter_even_rows(y, ROWS: ct.Constant[int], COLS: ct.Constant[int], col_start):
     indices = ct.arange(ROWS, dtype=ct.int32) * 2  # [0, 2, 4, 6]
     tile = ct.full((ROWS, COLS), 99, dtype=y.dtype)
-    ct.store_advanced(y, (indices, ct.Slice(col_start, COLS)), tile)
+    ct.store_advanced_indexing(y, (indices, ct.Slice(col_start, COLS)), tile)
 
 
 def test_scatter_non_contiguous():
@@ -72,7 +72,7 @@ def test_scatter_non_contiguous():
 
 
 # ===========================================================================================
-# ct.load_advanced: ct.Slice with dynamic start
+# ct.load_advanced_indexing: ct.Slice with dynamic start
 # ===========================================================================================
 
 
@@ -80,7 +80,7 @@ def test_scatter_non_contiguous():
 def load_advanced_dynamic_col(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int],
                               col_start):
     indices = ct.arange(ROWS, dtype=ct.int32)
-    tile = ct.load_advanced(x, (indices, ct.Slice(col_start, COLS)))
+    tile = ct.load_advanced_indexing(x, (indices, ct.Slice(col_start, COLS)))
     ct.store(y, (0, 0), tile)
 
 
@@ -96,14 +96,14 @@ def test_load_dynamic_col_start(col_start):
 
 
 # ===========================================================================================
-# ct.load_advanced: ct.Slice with constant start
+# ct.load_advanced_indexing: ct.Slice with constant start
 # ===========================================================================================
 
 
 @ct.kernel
 def load_advanced_const_col_start(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int]):
     indices = ct.arange(ROWS, dtype=ct.int32)
-    tile = ct.load_advanced(x, (indices, ct.Slice(2, COLS)))
+    tile = ct.load_advanced_indexing(x, (indices, ct.Slice(2, COLS)))
     ct.store(y, (0, 0), tile)
 
 
@@ -117,7 +117,7 @@ def test_load_constant_col_start():
 
 
 # ===========================================================================================
-# ct.load_advanced: out-of-order sparse indices gather rows in specified order.
+# ct.load_advanced_indexing: out-of-order sparse indices gather rows in specified order.
 # ===========================================================================================
 
 
@@ -128,7 +128,7 @@ def test_load_out_of_order_sparse():
         # indices [7, 4, 2, 3]: i=0→7, i=1→4, i≥2→i
         indices = ct.where(i == 0, ct.full((ROWS,), 7, dtype=ct.int32),
                            ct.where(i == 1, ct.full((ROWS,), 4, dtype=ct.int32), i))
-        tile = ct.load_advanced(x, (indices, ct.Slice(0, COLS)))
+        tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
         ct.store(y, (0, 0), tile)
 
     x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
@@ -139,7 +139,7 @@ def test_load_out_of_order_sparse():
 
 
 # ===========================================================================================
-# ct.load_advanced: OOB
+# ct.load_advanced_indexing: OOB
 # ===========================================================================================
 
 
@@ -148,8 +148,8 @@ def test_load_zero_padding():
     def load_advanced_zero_padding(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int],
                                    col_start):
         indices = ct.arange(ROWS, dtype=ct.int32)
-        tile = ct.load_advanced(x, (indices, ct.Slice(col_start, COLS)),
-                                padding_mode=ct.PaddingMode.ZERO)
+        tile = ct.load_advanced_indexing(x, (indices, ct.Slice(col_start, COLS)),
+                                         padding_mode=ct.PaddingMode.ZERO)
         ct.store(y, (0, 0), tile)
     rows, cols = 4, 8
     y_cols = cols // 2
@@ -169,8 +169,8 @@ def test_load_sparse_partial_oob_zero_padding():
     def kernel(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int]):
         # indices [6, 7, 8, 9]: 6 and 7 are in-bounds, 8 and 9 are OOB for an 8-row array
         indices = ct.arange(ROWS, dtype=ct.int32) + 6
-        tile = ct.load_advanced(x, (indices, ct.Slice(0, COLS)),
-                                padding_mode=ct.PaddingMode.ZERO)
+        tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)),
+                                         padding_mode=ct.PaddingMode.ZERO)
         ct.store(y, (0, 0), tile)
 
     x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
@@ -188,7 +188,7 @@ def test_load_repeated_sparse_correct():
         i = ct.arange(ROWS, dtype=ct.int32)
         # indices = [0, 0, 4, 6]: first two repeat row 0, last two are distinct
         indices = ct.where(i < 2, ct.zeros((ROWS,), dtype=ct.int32), i * 2)
-        tile = ct.load_advanced(x, (indices, ct.Slice(0, COLS)))
+        tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
         ct.store(y, (0, 0), tile)
 
     x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
@@ -199,7 +199,7 @@ def test_load_repeated_sparse_correct():
 
 
 # ===========================================================================================
-# ct.store_advanced semantics
+# ct.store_advanced_indexing semantics
 # ===========================================================================================
 
 
@@ -211,7 +211,7 @@ def test_store_repeated_sparse_ub():
         # indices = [0, 0, 4, 6]: first two repeat row 0 (UB), last two are distinct
         indices = ct.where(i < 2, ct.zeros((ROWS,), dtype=ct.int32), i * 2)
         tile = ct.full((ROWS, COLS), 99, dtype=y.dtype)
-        ct.store_advanced(y, (indices, ct.Slice(0, COLS)), tile)
+        ct.store_advanced_indexing(y, (indices, ct.Slice(0, COLS)), tile)
 
     y = torch.zeros(8, 4, device='cuda', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y, 4, 4))
@@ -244,7 +244,7 @@ def test_error_2d_tile_as_sparse():
     @ct.kernel
     def kernel(x):
         indices = ct.zeros((4, 4), dtype=ct.int32)
-        ct.load_advanced(x, (indices, ct.Slice(0, 4)))
+        ct.load_advanced_indexing(x, (indices, ct.Slice(0, 4)))
 
     x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="1D"):
@@ -254,7 +254,7 @@ def test_error_2d_tile_as_sparse():
 def test_error_no_sparse_dim_load():
     @ct.kernel
     def kernel(x, y, col_start):
-        result = ct.load_advanced(x, (ct.Slice(0, 4), ct.Slice(col_start, 4)))
+        result = ct.load_advanced_indexing(x, (ct.Slice(0, 4), ct.Slice(col_start, 4)))
         ct.store(y, (0, 0), result)
 
     x = torch.arange(64, device='cuda', dtype=torch.int32).reshape(8, 8)
@@ -267,7 +267,7 @@ def test_error_no_sparse_dim_store():
     @ct.kernel
     def kernel(y):
         tile = ct.full((4, 4), 99, dtype=y.dtype)
-        ct.store_advanced(y, (ct.Slice(2, 4), ct.Slice(1, 4)), tile)
+        ct.store_advanced_indexing(y, (ct.Slice(2, 4), ct.Slice(1, 4)), tile)
 
     y = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
@@ -279,7 +279,7 @@ def test_error_multiple_sparse_dims_load():
     def kernel(x, y):
         r = ct.arange(4, dtype=ct.int32) * 2
         c = ct.arange(4, dtype=ct.int32) + 1
-        result = ct.load_advanced(x, (r, c))
+        result = ct.load_advanced_indexing(x, (r, c))
         ct.store(y, (0,), result)
 
     x = torch.arange(64, device='cuda', dtype=torch.int32).reshape(8, 8)
@@ -294,7 +294,7 @@ def test_error_multiple_sparse_dims_store():
         r = ct.arange(4, dtype=ct.int32) * 2
         c = ct.arange(4, dtype=ct.int32) + 1
         tile = ct.full((4,), 99, dtype=y.dtype)
-        ct.store_advanced(y, (r, c), tile)
+        ct.store_advanced_indexing(y, (r, c), tile)
 
     y = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
@@ -305,7 +305,7 @@ def test_error_wrong_index_rank():
     @ct.kernel
     def kernel(x):
         indices = ct.arange(4, dtype=ct.int32)
-        ct.load_advanced(x, (indices, ct.Slice(0, 4), ct.Slice(0, 4)))
+        ct.load_advanced_indexing(x, (indices, ct.Slice(0, 4), ct.Slice(0, 4)))
 
     x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="does not match array rank"):
@@ -316,7 +316,7 @@ def test_error_non_power_of_2_slice_length():
     @ct.kernel
     def kernel(x):
         indices = ct.arange(4, dtype=ct.int32)
-        ct.load_advanced(x, (indices, ct.Slice(0, 3)))
+        ct.load_advanced_indexing(x, (indices, ct.Slice(0, 3)))
 
     x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="power of two"):

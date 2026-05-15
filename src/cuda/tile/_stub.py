@@ -948,11 +948,11 @@ class Slice:
     _cutile_is_builtin = True
     """A start + length index for array dimensions.
 
-    Used as a dense-dimension entry in :func:`load_advanced` and
-    :func:`store_advanced`.  ``start`` is an integer giving the
+    Used as a dense-dimension entry in :func:`load_advanced_indexing` and
+    :func:`store_advanced_indexing`.  ``start`` is an integer giving the
     element-space start offset along this dimension; ``length`` is the
     tile size, and must be a power of two and must be a
-    compile-time constant at the :func:`load_advanced`/:func:`store_advanced`
+    compile-time constant at the :func:`load_advanced_indexing`/:func:`store_advanced_indexing`
     call site.
 
     Args:
@@ -1414,10 +1414,10 @@ def store(array: Array, /,
 
 
 @stub
-def load_advanced(array: Array, indices, /, *,
-                  padding_mode: PaddingMode = PaddingMode.UNDETERMINED,
-                  latency: Optional[int] = None,
-                  allow_tma: Optional[bool] = None) -> Tile:
+def load_advanced_indexing(array: Array, indices, /, *,
+                           padding_mode: PaddingMode = PaddingMode.UNDETERMINED,
+                           latency: Optional[int] = None,
+                           allow_tma: Optional[bool] = None) -> Tile:
     """Loads a tile from non-contiguous slices of `array`.
 
     ``indices`` is a tuple of length ``array.ndim``.  Exactly one entry must
@@ -1458,7 +1458,7 @@ def load_advanced(array: Array, indices, /, *,
             @ct.kernel
             def kernel(x, y, col_start):
                 row_indices = ct.arange(4, dtype=ct.int32)
-                tile = ct.load_advanced(x, (row_indices, ct.Slice(col_start, 4)),
+                tile = ct.load_advanced_indexing(x, (row_indices, ct.Slice(col_start, 4)),
                                         padding_mode=ct.PaddingMode.ZERO)
                 ct.store(y, (0, 0), tile)
 
@@ -1472,17 +1472,17 @@ def load_advanced(array: Array, indices, /, *,
             [[2, 3, 4, 5], [10, 11, 12, 13], [18, 19, 20, 21], [26, 27, 28, 29]]
 
     .. seealso::
-        - :func:`store_advanced`
+        - :func:`store_advanced_indexing`
     """
 
 
 @stub
-def store_advanced(array: Array, indices, tile: TileOrScalar, /, *,
-                   latency: Optional[int] = None,
-                   allow_tma: Optional[bool] = None) -> None:
+def store_advanced_indexing(array: Array, indices, tile: TileOrScalar, /, *,
+                            latency: Optional[int] = None,
+                            allow_tma: Optional[bool] = None) -> None:
     """Stores a `tile` into non-contiguous slices of `array`.
 
-    Uses the same ``indices`` convention as :func:`load_advanced` — exactly
+    Uses the same ``indices`` convention as :func:`load_advanced_indexing` — exactly
     one entry is a 1-D integer :class:`Tile` (sparse dim) and the rest are
     :class:`Slice` objects (dense dims).
     The tile's shape must exactly match the shape implied by the indices.
@@ -1491,7 +1491,7 @@ def store_advanced(array: Array, indices, tile: TileOrScalar, /, *,
 
     Args:
         array (Array): Array to store into.
-        indices (tuple): Same convention as :func:`load_advanced`.
+        indices (tuple): Same convention as :func:`load_advanced_indexing`.
         tile (Tile): Tile to store. Shape must exactly match the shape
             implied by ``indices``.
         latency (int, optional): DRAM traffic hint (1 = low, 10 = high).
@@ -1506,7 +1506,7 @@ def store_advanced(array: Array, indices, tile: TileOrScalar, /, *,
             def kernel(y):
                 row_indices = ct.arange(4, dtype=ct.int32) + 1
                 tile = ct.full((4, 4), 1, dtype=y.dtype)
-                ct.store_advanced(y, (row_indices, ct.Slice(0, 4)), tile)
+                ct.store_advanced_indexing(y, (row_indices, ct.Slice(0, 4)), tile)
 
             y = torch.zeros(6, 4, device='cuda', dtype=torch.int32)
             ct.launch(stream, (1,), kernel, (y,))
@@ -1517,7 +1517,7 @@ def store_advanced(array: Array, indices, tile: TileOrScalar, /, *,
             [[0, 0, 0, 0], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [0, 0, 0, 0]]
 
     .. seealso::
-        - :func:`load_advanced`
+        - :func:`load_advanced_indexing`
     """
 
 
