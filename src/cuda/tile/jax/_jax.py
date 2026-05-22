@@ -6,7 +6,6 @@ import io
 import inspect
 import struct
 import hashlib
-import numpy as np
 from functools import partial
 from typing import Any, Sequence
 from dataclasses import dataclass
@@ -23,6 +22,7 @@ import cuda.tile._compile as ct_compile
 try:
     import jax
     import jax.extend
+    import numpy as np
     from jax.interpreters import mlir
     from jax._src.lib.mlir import ir
     HAS_JAX = True
