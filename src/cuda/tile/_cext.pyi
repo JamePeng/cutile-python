@@ -27,6 +27,7 @@ def launch_extended(stream,
                     cooperative: bool=False,
                     cluster_dim: Dim3 | None=None,
                     preferred_cluster_dim: Dim3 | None=None,
+                    pdl: bool=False
                     ):
     ...
 
