@@ -324,31 +324,10 @@ def local_array(
 ) -> LocalArrayContextManager:
     """Create an on-device array in local memory.
 
-    Local arrays must be declared at the beginning of the kernel
-    and must have a dynamic shape. The optional alignment is specified in bytes
-    and must be a positive power of two.
-
-    Examples:
-
-        .. testcode::
-            :template: setup_only.py
-
-            @cl.kernel
-            def kernel():
-                local_array = cl.local_array(shape=(32,), dtype=cl.int32)
-                tx, _, _ = cl.thread_idx()
-                local_array[0] = tx
-                if tx == 0:
-                    cl.printf("thread id %d sees local_array[0] = %d\\n", tx, local_array[0])
-                else:
-                    cl.printf("thread id %d sees local_array[0] = %d\\n", tx, local_array[0])
-
-            cl.launch(stream, (1,), (2,), kernel, ())
-
-        .. testoutput::
-
-            thread id 0 sees local_array[0] = 0
-            thread id 1 sees local_array[0] = 1
+    Local arrays must be declared in a `with` statement and have static shape.
+    The local memory is only valid inside the with block.
+    The optional alignment is specified in bytes and must be a positive power
+    of two.
     """
 
 
