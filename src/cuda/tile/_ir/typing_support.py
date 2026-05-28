@@ -4,16 +4,17 @@
 import inspect
 import operator
 import dataclasses
-from enum import Enum, IntEnum
+from enum import Enum
 from functools import lru_cache
 from types import ModuleType, FunctionType
 from typing import Any, Callable, Mapping, Union
 
 from cuda.tile import _datatype as datatype, DType
 from cuda.tile._exception import TileTypeError, TileValueError
+from .ir import TypingHooks
 from .type import DataclassInfo, PointerInfoTy
 
-from .type import Type, TupleTy, DTypeConstructor, DTypeSpec, NONE, StringTy, \
+from .type import Type, DTypeConstructor, DTypeSpec, NONE, StringTy, \
     ELLIPSIS, SLICE, ModuleTy, FunctionTy, EnumTy, TypeTy, LooselyTypedScalar, \
     TileTy
 
@@ -50,6 +51,10 @@ def _safe_get(dict, key, default=None):
 
 def is_dtype(x: Any):
     return isinstance(x, DType) or _safe_get(_dtype_registry, x) is not None
+
+
+def as_third_party_dtype_spec(x: Any) -> DTypeSpec | None:
+    return _safe_get(_dtype_registry, x)
 
 
 def _is_dtype_allowed_as_constructor(dtype: DType) -> bool:
@@ -158,19 +163,15 @@ def dtype_of_constant_scalar(val: bool | int | float) -> DType:
         raise TypeError(f'Python value {val} of type {type(val)} is not supported.')
 
 
-def typeof_pyval(val) -> Type:
+def type_of_constant_python_value(val, typing_hooks: TypingHooks) -> Type:
     if val is None:
         return NONE
-    if (t := _safe_get(_dtype_registry, type(val))):
-        return TileTy(t.dtype)
     if isinstance(val, bool | int | float):
-        return TileTy(dtype_of_constant_scalar(val))
+        return typing_hooks.get_tensor_like_type(dtype_of_constant_scalar(val), ())
     if isinstance(val, Enum):
         return EnumTy(type(val))
     if isinstance(val, str):
         return StringTy(val)
-    if isinstance(val, tuple):
-        return TupleTy(tuple(typeof_pyval(v) for v in val))
     if val is Ellipsis:
         return ELLIPSIS
     if isinstance(val, slice):
@@ -186,40 +187,23 @@ def typeof_pyval(val) -> Type:
             return DTypeConstructor(val)
         else:
             return DTypeSpec(val)
-    if (t := _safe_get(_dtype_registry, val)) is not None:
+    if (t := as_third_party_dtype_spec(val)) is not None:
         return t
     if isinstance(val, datatype.PointerInfo):
         return PointerInfoTy(val)
-
     if isinstance(val, type):
         return TypeTy(val)
 
-    # TODO: should we add dlpack?
-    raise TypeError(f'Python value {val} of type {type(val)} is not supported.')
+    ty = type(val)
+    prefix = "" if ty.__module__ == "builtins" else f"{ty.__module__}."
+    raise TileTypeError(f"Cannot create constant from value of type {prefix}{ty.__qualname__}.")
 
 
-def loose_type_of_pyval(value: Any) -> Type:
+def loose_type_of_constant_python_value(value: Any, typing_hooks: TypingHooks) -> Type:
     if isinstance(value, bool | int | float):
         return LooselyTypedScalar(value)
-    elif isinstance(value, tuple):
-        return TupleTy(tuple(loose_type_of_pyval(x) for x in value))
     else:
-        return typeof_pyval(value)
-
-
-_SUPPORTED_CONST_TYPES = (int, float, bool, str, ModuleType, FunctionType, type, Enum, IntEnum)
-
-
-def get_constant_value(val: Any) -> Any:
-    if val is None or isinstance(val, _SUPPORTED_CONST_TYPES) or is_supported_builtin_func(val):
-        return val
-    if is_dtype(val):
-        return to_dtype(val)
-    if isinstance(val, tuple):
-        return tuple(get_constant_value(x) for x in val)
-    typ = type(val)
-    prefix = "" if typ.__module__ == "builtins" else f"{typ.__module__}."
-    raise TileTypeError(f"Cannot create constant from value of type {prefix}{typ.__qualname__}.")
+        return type_of_constant_python_value(value, typing_hooks)
 
 
 @lru_cache

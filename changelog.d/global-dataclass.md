@@ -1,0 +1,1 @@
+- Allow frozen dataclass instances to be used as globals in device code.

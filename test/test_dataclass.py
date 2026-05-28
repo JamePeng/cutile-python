@@ -49,6 +49,18 @@ def test_nested_dataclass():
     assert x.tolist() == [2, 7, 30, 40, 5]
 
 
+def test_dataclass_global_capture():
+    fb = FooBar(2, 7)
+
+    @ct.kernel
+    def kern(x):
+        ct.scatter(x, (), fb.foo)
+
+    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
+    assert x.item() == 2
+
+
 def test_dataclass_with_field_named_self():
     @dataclass(frozen=True)
     class Selfish:

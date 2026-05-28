@@ -470,3 +470,17 @@ def test_tile_setitem():
     with pytest.raises(TileTypeError,
                        match="Tiles are immutable: item assignment is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
+
+
+def test_typeof_numpy_scalar():
+    import numpy as np
+    val = np.int16(4)
+
+    @ct.kernel
+    def kernel():
+        val_dtype = val.dtype
+        ct.static_assert(val_dtype == ct.int16)
+        x = val
+        ct.static_assert(x == 4)
+
+    ct.launch(torch.cuda.current_stream(), (1,), kernel, ())

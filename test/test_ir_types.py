@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import copy
+import functools
 import pickle
 
 import pytest
@@ -23,7 +24,7 @@ from cuda.tile._datatype import (
     IntegerInfo, opaque_pointer_dtype, pointer_dtype, PointerInfo,
 )
 from cuda.tile._ir.ops_utils import promote_dtypes, check_implicit_cast
-from cuda.tile._ir.typing_support import to_dtype, typeof_pyval
+from cuda.tile._ir.typing_support import to_dtype
 import torch
 import numpy as np
 
@@ -338,12 +339,12 @@ def test_torch_dtype_support():
     assert to_dtype(torch.float8_e8m0fnu) == float8_e8m0fnu
 
 
-def test_typeof_pyval():
-    tp = typeof_pyval
+def test_type_of_constant_python_value():
+    from cuda.tile._ir.typing_support import type_of_constant_python_value
+    from cuda.tile._compile import _TileTypingHooks
+    tp = functools.partial(type_of_constant_python_value, typing_hooks=_TileTypingHooks())
     assert tp(1) == TileTy(int32)
     assert tp(1.) == TileTy(float32)
-    assert tp(np.int16(1)) == TileTy(int16)
-    assert tp(np.float64(1.0)) == TileTy(float64)
     assert tp(True) == TileTy(bool_)
     assert tp(None) == NONE
 

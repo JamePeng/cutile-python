@@ -59,7 +59,8 @@ from .ops_utils import (
 )
 from .scope import Scope, JumpInfo, ControlFlowInfo
 from .typing_support import (
-    typeof_pyval, loose_type_of_pyval, get_constant_value, get_dataclass_info,
+    get_dataclass_info, as_third_party_dtype_spec, type_of_constant_python_value,
+    loose_type_of_constant_python_value,
 )
 from .type import (
     PartitionViewTy, StridedViewTy, GatherScatterViewTy, TupleTy, TileTy, NoneType,
@@ -72,7 +73,7 @@ from .type import (
 )
 from cuda.tile._datatype import (
     DType, is_integral, is_float, is_signed, is_boolean, is_pointer_dtype, PointerInfo,
-    opaque_pointer_dtype, pointer_dtype,
+    opaque_pointer_dtype, pointer_dtype
 )
 from cuda.tile._ir2bytecode import (
     BytecodeContext, typeid,
@@ -651,21 +652,29 @@ def loosely_typed_const(value: Any,
                         ty: Optional[Type] = None,
                         loose_ty: Optional[Type] = None,
                         name: str | None = None) -> Var:
+    builder = Builder.get_current()
     if ty is None:
-        if isinstance(value, tuple):
-            return build_tuple(tuple(loosely_typed_const(item) for item in value))
-        ty = typeof_pyval(value)
-    ret = strictly_typed_const(value, ty, name=name)
+        ty = type_of_constant_python_value(value, builder.ir_ctx.typing_hooks)
+    assert not ty.is_aggregate(), "Use sym2var(value, constant_only=True) instead"
+
+    # Normalize third party dtype spec objects (e.g. torch.float32 -> ct.float32)
+    if isinstance(ty, DTypeSpec):
+        value = ty.dtype
+
+    ret = _strictly_typed_const_inner(builder, value, ty, name=name)
     if loose_ty is None:
-        loose_ty = loose_type_of_pyval(value)
+        loose_ty = loose_type_of_constant_python_value(value, builder.ir_ctx.typing_hooks)
     ret.set_loose_type(loose_ty)
     return ret
 
 
 def strictly_typed_const(value: Any, ty: Type, name: str | None = None) -> Var:
-    builder = Builder.get_current()
-    result = None if name is None else builder.ir_ctx.make_var(name, builder.loc)
+    return _strictly_typed_const_inner(Builder.get_current(), value, ty, name)
 
+
+def _strictly_typed_const_inner(builder: Builder,
+                                value: Any, ty: Type, name: str | None = None) -> Var:
+    result = None if name is None else builder.ir_ctx.make_var(name, builder.loc)
     ret = builder.add_operation(TypedConst, ty, dict(value=value), result=result)
     if not isinstance(ty, TileTy) or ty.ndim == 0:
         # We currently don't have a way to represent an N-dimensional tile constant
@@ -1893,7 +1902,7 @@ def getattr_tile_dtype_impl(object: Var, name: Var):
 
 @impl(getattr, overload=(TileTy, "shape"))
 def getattr_tile_shape_impl(object: Var, name: Var):
-    return loosely_typed_const(object.get_type().shape)
+    return sym2var(object.get_type().shape, constant_only=True)
 
 
 @impl(getattr, overload=(TileTy, "ndim"))
@@ -1924,12 +1933,12 @@ def getattr_tiled_view_dtype_impl(object: Var, name: Var):
 
 @impl(getattr, overload=(TiledViewTy, "tile_shape"))
 def getattr_tiled_view_tile_shape_impl(object: Var, name: Var):
-    return loosely_typed_const(object.get_type().tile_shape)
+    return sym2var(object.get_type().tile_shape, constant_only=True)
 
 
 @impl(getattr, overload=(TiledViewTy, "traversal_steps"))
 def getattr_tiled_view_traversal_steps_impl(object: Var, name: Var):
-    return loosely_typed_const(object.get_type().traversal_steps)
+    return sym2var(object.get_type().traversal_steps, constant_only=True)
 
 
 @impl(getattr, overload=(TiledViewTy, "num_tiles"))
@@ -1981,7 +1990,7 @@ def getattr_module_impl(object: Var, name: Var):
     ty = object.get_type()
     attr_name = require_constant_str(name)
     try:
-        return loosely_typed_const(getattr(ty.py_mod, attr_name))
+        return sym2var(getattr(ty.py_mod, attr_name), constant_only=True)
     except AttributeError:
         raise TileTypeError(f"Module '{ty.py_mod.__name__}' has no attribute '{attr_name}'")
 
@@ -1991,7 +2000,7 @@ def getattr_type_impl(object: Var, name: Var):
     ty = object.get_type()
     attr_name = require_constant_str(name)
     try:
-        return loosely_typed_const(getattr(ty.ty, attr_name))
+        return sym2var(getattr(ty.ty, attr_name), constant_only=True)
     except AttributeError:
         raise TileTypeError(f"'{ty.ty.__name__}' object has no attribute '{attr_name}'")
 
@@ -2023,7 +2032,7 @@ async def getattr_dataclass_impl(object: Var, name: Var):
         getter = loosely_typed_const(cls_attr.fget)
         return await call(getter, (object,), {})
     else:
-        return loosely_typed_const(cls_attr)
+        return sym2var(cls_attr, constant_only=True)
 
 
 # ===========================================================================================
@@ -2058,7 +2067,11 @@ def assign(value: Var, res: Var) -> None:
 @impl(hir_stubs.identity)
 def identity_impl(x: Var) -> Var:
     if x.is_constant():
-        return loosely_typed_const(x.get_constant(), x.get_type(), x.get_loose_type())
+        ty = x.get_type()
+        if ty.is_aggregate():
+            return make_aggregate(x.get_aggregate(), ty, x.get_loose_type())
+        else:
+            return loosely_typed_const(x.get_constant(), x.get_type(), x.get_loose_type())
     else:
         return x
 
@@ -5268,8 +5281,7 @@ def load_var_impl(name):
         return ret
     elif rn.index >= 0:
         val = scope.func_hir.frozen_global_values[rn.index]
-        val = get_constant_value(val)
-        return loosely_typed_const(val)
+        return sym2var(val, constant_only=True)
     else:
         raise TileSyntaxError(f"Undefined variable {name} used")
 
@@ -5450,30 +5462,38 @@ async def static_foreach_impl(body: hir.Block, items: Var):
         await dispatch_hir_block(body)
 
 
-def sym2var(x: Any) -> Var:
+def sym2var(x: Any, constant_only: bool = False) -> Var:
     # TODO: verify we don't have a stale closure
 
     if isinstance(x, Symbol):
+        if constant_only:
+            raise TileTypeError("Cannot create a constant from a symbolic value")
         return x._var
 
     if isinstance(x, tuple):
-        return build_tuple(tuple(sym2var(item) for item in x))
+        return build_tuple(tuple(sym2var(item, constant_only=constant_only) for item in x))
 
     cls = type(x)
     if dataclasses.is_dataclass(cls):
         info = get_dataclass_info(cls)
-        field_vars = tuple(sym2var(getattr(x, f.name))
+        field_vars = tuple(sym2var(getattr(x, f.name), constant_only=constant_only)
                            for f in dataclasses.fields(cls))
         return build_dataclass_instance(field_vars, info)
 
     if isinstance(x, MethodType):
-        self_var = sym2var(x.__self__)
+        self_var = sym2var(x.__self__, constant_only=constant_only)
         if not isinstance(x.__func__, FunctionType | BuiltinFunctionType):
             raise TileTypeError(f"Object of type {type(x).__name__}"
                                 f" cannot be used as a function for binding a method")
         return bind_method(self_var, x.__func__)
 
-    x = get_constant_value(x)
+    # Transform a third party typed scalar (e.g., np.int16(5)) into a strictly typed constant
+    dtype_spec = as_third_party_dtype_spec(type(x))
+    if dtype_spec is not None:
+        pyval = datatype.numeric_dtype_category(dtype_spec.dtype).pytype(x)
+        ty = Builder.get_current().ir_ctx.typing_hooks.get_tensor_like_type(dtype_spec.dtype, ())
+        return strictly_typed_const(pyval, ty)
+
     return loosely_typed_const(x)
 
 

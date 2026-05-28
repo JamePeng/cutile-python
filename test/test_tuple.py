@@ -265,3 +265,16 @@ def test_tuple_compare_constant_args():
     assert x.item() == 1
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4, 9))
     assert x.item() == -1
+
+
+def test_tuple_global_capture():
+    tup = (100, (101, 102), (103, (104, 105)))
+
+    @ct.kernel
+    def kernel(x):
+        ct.scatter(x, 0, tup[0])
+        ct.scatter(x, 1, tup[2][1][1])
+
+    x = torch.zeros(2, dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
+    assert x.tolist() == [100, 105]

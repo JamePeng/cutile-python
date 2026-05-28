@@ -18,7 +18,7 @@ from .._ir import hir, ir
 from .._ir.ir import Var, IRContext
 from .._ir.op_impl import ImplRegistry
 from .._ir.ops import loosely_typed_const, end_branch, return_, continue_, \
-    break_, store_var, build_dataclass_instance, build_tuple, dtype_constructor
+    break_, store_var, build_dataclass_instance, build_tuple, dtype_constructor, sym2var
 from .._ir.scope import Scope, LocalScope, IntMap
 from .._ir.type import FunctionTy, BoundMethodTy, DTypeConstructor, ClosureTy, \
     ClosureDefaultPlaceholder, StringFormat, TypeTy, TupleTy, BoundMethodValue, TupleValue, \
@@ -390,7 +390,7 @@ def _resolve_operand(x: hir.Operand, scope: Scope) \
     elif isinstance(x, hir.Block | hir.Function | hir.StaticEvalExpression | StringFormat):
         return x
     else:
-        return loosely_typed_const(x)
+        return sym2var(x, constant_only=True)
 
 
 def _bind_args(sig: inspect.Signature, func_name: str, args, kwargs,
@@ -411,6 +411,6 @@ def _bind_args(sig: inspect.Signature, func_name: str, args, kwargs,
                 assert closure_defaults is not None
                 default = closure_defaults[param.default.default_value_index]
             else:
-                default = loosely_typed_const(param.default)
+                default = sym2var(param.default, constant_only=True)
             ret.append(default)
     return ret
