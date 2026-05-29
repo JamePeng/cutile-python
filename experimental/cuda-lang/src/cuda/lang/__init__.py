@@ -115,7 +115,6 @@ from ._datatype import (
     opaque_shared_cluster_ptr,
     opaque_tensor_ptr,
     MemorySpace,
-    vector_ty,
 )
 
 __all__ = (
@@ -201,7 +200,6 @@ __all__ = (
     "MemoryScope",
     "MemoryOrder",
     "compile_simt",
-    "vector_ty",
     "TensorMapSwizzle",
     "TensorMap",
     "tensor_map_tiled",

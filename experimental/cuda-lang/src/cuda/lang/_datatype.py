@@ -9,11 +9,9 @@ from cuda.lang._ir.type import (
     MemorySpace,
     TileTy,
     is_vector_ty,
-    make_vector_ty,
 )
 from cuda.tile._stub import Tile
 from cuda.tile._ir.type import SymbolicTile
-from cuda.tile._ir.typing_support import is_dtype, register_dtypes, to_dtype
 from cuda.tile._datatype import (
     DType,
     bfloat16,
@@ -53,18 +51,6 @@ mbarrier = _define_dtype('mbarrier', _DTypeDefinition(bitwidth=64))
 clusterlaunchcontrol_token = _define_dtype(
     "clusterlaunchcontrol_token", _DTypeDefinition(bitwidth=128)
 )
-
-
-def vector_ty(dtype: DType, length: int) -> TileTy:
-    # Return a rank-1 TileTy(dtype, (length,)), creating it on first request and
-    # registering the instance in cutile's dtype_registry so it can be
-    # used as a compile-time constant inside kernels. Subsequent calls
-    # with the same (dtype, length) return the already-registered instance.
-    vt = make_vector_ty(dtype, length)
-    if is_dtype(vt):
-        return to_dtype(vt)
-    register_dtypes({vt: vt}, usable_as_constructor=True)
-    return vt
 
 
 def to_torch_dtype(dtype: DType | TileTy):
@@ -191,7 +177,6 @@ __all__ = [
     "mbarrier",
     "clusterlaunchcontrol_token",
     "DType",
-    "vector_ty",
     "to_torch_dtype",
     "default_int_type",
     "any_opaque_ptr",
