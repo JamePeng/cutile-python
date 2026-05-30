@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from functools import singledispatchmethod
 from typing import Sequence
 
-from cuda.lang._datatype import is_pointer_dtype, PointerInfo
 from cuda.lang._ir import ir, ops
 from cuda.lang import _mlir as mlir
 from cuda.tile._memory_model import MemoryOrder
@@ -18,6 +17,7 @@ import cuda.lang._mlir.extras.types as T
 import cuda.lang._ir.type as ir_type
 from cuda.lang.compilation import KernelSignature
 import cuda.lang._datatype as datatype
+from cuda.tile._datatype import PointerInfo, is_pointer_dtype
 from cuda.lang._exception import TileTypeError
 from cuda.tile._ir.type import TileTy
 from .type_conversion import (

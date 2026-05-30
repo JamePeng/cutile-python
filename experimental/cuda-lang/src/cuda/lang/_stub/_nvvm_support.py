@@ -4,7 +4,7 @@
 import inspect
 import typing
 from dataclasses import dataclass
-from typing import Callable, Any, Annotated
+from typing import Callable, Any, Annotated, NamedTuple
 
 from cuda.lang._execution import stub
 from cuda.lang._ir.type import TileTy
@@ -15,6 +15,7 @@ from cuda.tile._ir.op_impl import require_integer_0d_tile_type, require_scalar_p
 from cuda.tile._ir.ir import Var, add_operation_variadic
 from cuda.tile._ir.ops import implicit_cast, build_tuple
 from cuda.tile import _datatype as datatype
+from cuda.tile._ir.type import Type
 from cuda.tile._memory_model import MemorySpace
 
 
@@ -24,6 +25,37 @@ def _raw_nvvm_intrinsic_impl(stub, *args: Var):
     if name is None:
         name = stub.__name__.replace("_", ".")
 
+    prepared_operands, result_types, make_retval = _prepare_common(stub, args)
+    return make_retval(add_operation_variadic(
+        RawNVVMIntrinsic,
+        tuple(result_types),
+        intrinsic="llvm.nvvm." + name,
+        operands_=tuple(prepared_operands),
+    ))
+
+
+def _libdevice_func_impl(stub, *args: Var):
+    from cuda.lang._ir.ops import ForeignFunction
+    name = stub.__name__
+    if not name.startswith("__nv_"):
+        name = "__nv_" + name
+
+    prepared_operands, result_types, make_retval = _prepare_common(stub, args)
+    return make_retval(add_operation_variadic(
+        ForeignFunction,
+        tuple(result_types),
+        function_name=name,
+        operands_=tuple(prepared_operands),
+    ))
+
+
+class PreparedCall(NamedTuple):
+    prepared_operands: tuple[Var, ...]
+    result_types: tuple[Type, ...]
+    make_retval: Callable
+
+
+def _prepare_common(stub, args: tuple[Var, ...]):
     stub_sig = inspect.signature(stub)
 
     prepared_operands = []
@@ -34,9 +66,7 @@ def _raw_nvvm_intrinsic_impl(stub, *args: Var):
                 require_scalar_type(arg)
             else:
                 require_vector_type(arg, ann.vector_length)
-            arg = _implicit_cast_with_fallback(
-                    arg, ann.dtype,
-                    f"Invalid argument #{param_idx} for '{name}' intrinsic")
+            arg = _implicit_cast_with_fallback(arg, ann.dtype, f"Invalid argument #{param_idx}")
         elif isinstance(ann, _IntrinsicPredicateAnnotation):
             ann.predicate(arg)
         else:
@@ -61,12 +91,7 @@ def _raw_nvvm_intrinsic_impl(stub, *args: Var):
         shape = () if ann.vector_length is None else (ann.vector_length,)
         result_types.append(TileTy(ann.dtype, shape))
 
-    return make_retval(add_operation_variadic(
-        RawNVVMIntrinsic,
-        tuple(result_types),
-        intrinsic="llvm.nvvm." + name,
-        operands_=tuple(prepared_operands),
-    ))
+    return PreparedCall(tuple(prepared_operands), tuple(result_types), make_retval)
 
 
 def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: str) -> Var:
@@ -83,12 +108,19 @@ def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: s
 
 
 _raw_nvvm_intrinsic_impl._is_coroutine = False
+_libdevice_func_impl._is_coroutine = False
 
 
 def nvvm_intrinsic_stub(func, *, name: str | None):
     func = stub(func)
     func._cutile_custom_implementation_handler = _raw_nvvm_intrinsic_impl
     func._nvvm_intrinsic_name = name
+    return func
+
+
+def libdevice_function_stub(func):
+    func = stub(func)
+    func._cutile_custom_implementation_handler = _libdevice_func_impl
     return func
 
 

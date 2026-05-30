@@ -99,7 +99,7 @@ from .ir import (
     format_var,
     LocalArrayContextManagerValue,
 )
-from .._stub import TensorMapSwizzle, MbarrierScope
+from .._stub import TensorMapSwizzle, MbarrierScope, foreign_function
 from cuda.tile._ir import hir_stubs
 from cuda.tile._ir.typing_support import I32_TY, U64_TY, BOOL_TY
 
@@ -1359,7 +1359,7 @@ class ForeignFunction(Operation, opcode="foreign_function", memory_effect=Memory
     operands_: tuple[Var, ...] = operand()
 
 
-@impl(stub.foreign_function._call_foreign_function)
+@impl(foreign_function._call_foreign_function)
 def _call_foreign_function_impl(func: Var, return_type: Var, parameters: Var):
     function_name = require_constant_str(func)
     require_tuple_type(parameters)

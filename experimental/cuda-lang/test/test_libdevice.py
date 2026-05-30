@@ -1,11 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import typing
 
 import pytest
 import cuda.lang as cl
 import torch
 import inspect
+
+from cuda.lang._stub._nvvm_support import _IntrinsicDTypeAnnotation
+from cuda.tile import DType
 
 ENTRYPOINTS = tuple(
     filter(
@@ -98,7 +102,7 @@ def make_kernel(func, dtypes: tuple) -> cl.kernel:
 def test_libdevice_functions(function_name):
     func = getattr(cl.libdevice, function_name)
     params = inspect.signature(func).parameters
-    dtypes = tuple(p.annotation for p in params.values())
+    dtypes = tuple(_dtype_from_annotation(p.annotation) for p in params.values())
     kernel = make_kernel(func, dtypes)
     kernel = cl.kernel(kernel)
     f32 = torch.randn(1, dtype=torch.float32, device="cuda")
@@ -113,3 +117,13 @@ def test_libdevice_functions(function_name):
         kernel,
         (f32, f64, i16, i32, i64),
     )
+
+
+def _dtype_from_annotation(ann) -> DType:
+    if typing.get_origin(ann) is typing.Annotated:
+        _, ann = typing.get_args(ann)
+        assert isinstance(ann, _IntrinsicDTypeAnnotation)
+        return ann.dtype
+    else:
+        assert isinstance(ann, DType)
+        return ann

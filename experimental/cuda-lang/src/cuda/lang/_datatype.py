@@ -2,16 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import enum
-from typing import TypeAlias, Union, Any
+from typing import TypeAlias, Union
 
 from cuda.lang._ir.type import (
     MemorySpace,
     TileTy,
-    is_vector_ty,
 )
 from cuda.tile._stub import Tile
-from cuda.tile._ir.type import SymbolicTile
 from cuda.tile._datatype import (
     DType,
     bfloat16,
@@ -45,7 +42,6 @@ from cuda.tile._datatype import (
     is_pointer_dtype,
     pointer_dtype,
     opaque_pointer_dtype,
-    PointerInfo,
     _define_dtype, _DTypeDefinition,
 )
 
@@ -91,60 +87,11 @@ def to_torch_dtype(dtype: DType | TileTy):
     raise NotImplementedError(f"No torch dtype mapping for {dtype}")
 
 
-class OpaquePointerSpec(enum.Enum):
-    GENERIC = MemorySpace.GENERIC.value
-    GLOBAL = MemorySpace.GLOBAL.value
-    SHARED = MemorySpace.SHARED.value
-    CONSTANT = MemorySpace.CONSTANT.value
-    LOCAL = MemorySpace.LOCAL.value
-    SHARED_CLUSTER = MemorySpace.SHARED_CLUSTER.value
-    TENSOR = MemorySpace.TENSOR.value
-
-    ANY = -1
-
-
-any_opaque_ptr = OpaquePointerSpec.ANY
-opaque_generic_ptr = opaque_ptr = OpaquePointerSpec.GENERIC
-opaque_global_ptr = OpaquePointerSpec.GLOBAL
-opaque_shared_ptr = OpaquePointerSpec.SHARED
-opaque_constant_ptr = OpaquePointerSpec.CONSTANT
-opaque_local_ptr = OpaquePointerSpec.LOCAL
-opaque_shared_cluster_ptr = OpaquePointerSpec.SHARED_CLUSTER
-opaque_tensor_ptr = OpaquePointerSpec.TENSOR
-
-
-TypeSpec: TypeAlias = Union[OpaquePointerSpec | DType | TileTy]
-
-
-def is_literal_or_exact_dtype(value: Any, dtype: DType):
-    match value:
-        case int() if is_integral(dtype):
-            return True
-        case bool() if is_boolean(dtype):
-            return True
-        case float() if is_float(dtype):
-            return True
-        case SymbolicTile() if is_vector_ty(dtype):
-            return value.dtype == dtype.dtype and value.shape == dtype.shape
-        case SymbolicTile() if value.dtype == dtype:
-            return True
-        case _:
-            return False
+TypeSpec: TypeAlias = Union[DType | TileTy]
 
 
 def is_any_pointer(value):
     return isinstance(value, Tile) and value.ndim == 0 and is_pointer_dtype(value.dtype)
-
-
-def satisfies_pointer_constraint(value, constraint: OpaquePointerSpec):
-    if not is_any_pointer(value):
-        return False
-
-    if constraint == any_opaque_ptr:
-        return True
-
-    info = PointerInfo(value.dtype)
-    return info.memory_space.value == constraint.value
 
 
 __all__ = [
@@ -159,8 +106,6 @@ __all__ = [
     "is_pointer_dtype",
     "pointer_dtype",
     "opaque_pointer_dtype",
-    "satisfies_pointer_constraint",
-    "is_literal_or_exact_dtype",
     "get_signedness",
     "integer_dtype",
     "bool_",
@@ -186,14 +131,5 @@ __all__ = [
     "DType",
     "to_torch_dtype",
     "default_int_type",
-    "any_opaque_ptr",
-    "opaque_ptr",
-    "opaque_generic_ptr",
-    "opaque_global_ptr",
-    "opaque_shared_ptr",
-    "opaque_constant_ptr",
-    "opaque_local_ptr",
-    "opaque_shared_cluster_ptr",
-    "opaque_tensor_ptr",
     "MemorySpace",
 ]
