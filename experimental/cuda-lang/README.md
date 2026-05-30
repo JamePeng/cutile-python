@@ -15,10 +15,7 @@ def saxpy(
     a: cl.Constant[float],
     X, Y
 ):
-    tidx, _, _ = cl.thread_idx()
-    bidx, _, _ = cl.block_idx()
-    block_dim_x, _, _ = cl.block_dim()
-    idx = tidx + bidx * block_dim_x
+    idx = cl.thread_idx(0) + cl.block_idx(0) * cl.block_dim(0)
     if idx < N:
         Y[idx] = a * X[idx] + Y[idx]
 
@@ -28,11 +25,13 @@ X = torch.ones(N, dtype=torch.float32, device="cuda")
 Y = torch.ones(N, dtype=torch.float32, device="cuda")
 expected = (alpha * X + Y).cpu()
 cl.launch(
-  stream=torch.cuda.current_stream(),
-  grid=(64,),
-  block=(64,),
-  kernel=saxpy,
+  torch.cuda.current_stream(),
+  (64,),
+  (64,),
+  saxpy,
   (N, alpha, X, Y),
 )
 assert torch.allclose(expected, Y.cpu())
 ```
+
+See `test/examples` for more example programs.
