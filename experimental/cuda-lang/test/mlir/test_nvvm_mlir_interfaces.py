@@ -5,10 +5,13 @@
 
 import pytest
 import cuda.lang as cl
-from cuda.lang._exception import TileTypeError
+from cuda.lang._exception import TileCompilerExecutionError, TileTypeError
+from cuda.lang._compile import compile_simt, KernelSignature
 import cuda.lang._stub.nvvm_mlir_interfaces as nvvm
 import torch
-from ..util import require_hopper_or_newer
+
+from cuda.tile._exception import TileValueError
+from ..util import require_hopper_or_newer, filecheck
 
 
 @require_hopper_or_newer()
@@ -16,7 +19,7 @@ def test_mlir_interface_enums():
     @cl.kernel
     def kernel(tensor):
         nvvm.fence_proxy_acquire(
-            scope=nvvm.MemScopeKind.CTA,
+            scope=cl.MemoryScope.BLOCK,
             addr=tensor.get_base_pointer(),
             size=128,
             from_proxy=nvvm.ProxyKind.GENERIC,
@@ -63,3 +66,96 @@ def test_mlir_interface_error_on_non_constant_attr():
         match="Expected a boolean constant, but given value is not constant",
     ):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (False,))
+
+
+def test_wrong_enum_class():
+    # the nvvm operation takes a MemScopeKind, but we map enums already exposed
+    # in cuda.lang/cutile to nvvm enums when they exist, so this intrinsic
+    # takes a cuda.tile._memory_model.MemoryScope instead. Ensure we give an
+    # error on the NVVM enum and we accept the cuda.tile one.
+    @cl.kernel
+    def kernel():
+        cl.memory_barrier(scope=nvvm.MemScopeKind.CLUSTER)
+
+    with pytest.raises(
+        TileTypeError,
+        match=r"Expected MemoryScope, but given value has type Enum\[MemScopeKind\]",
+    ):
+        cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
+
+
+def test_correct_enum_class():
+    # the nvvm operation takes a MemScopeKind, but we map enums already exposed
+    # in cuda.lang/cutile to nvvm enums when they exist, so this intrinsic
+    # takes a cuda.tile._memory_model.MemoryScope instead. Ensure we give an
+    # error on the NVVM enum and we accept the cuda.tile one.
+    @cl.kernel
+    def kernel():
+        cl.memory_barrier(scope=cl.MemoryScope.BLOCK)
+
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
+
+
+@pytest.mark.parametrize(
+    "enum,expect",
+    (
+        (cl.MemoryScope.BLOCK, "cta"),
+        (cl.MemoryScope.DEVICE, "gpu"),
+        (cl.MemoryScope.SYS, "sys"),
+        (cl.MemoryScope.NONE, None),
+        # TODO: add cluster scope
+        # (cl.MemoryScope.CLUSTER, ""),
+    ),
+)
+def test_memory_scope_enum_mappings(enum, expect):
+    def kernel():
+        cl.memory_barrier(scope=enum)
+
+    if expect is None:
+        with pytest.raises(
+            TileValueError,
+            match="Expected one of MemoryScope.BLOCK, MemoryScope.DEVICE, "
+            "MemoryScope.SYS, got MemoryScope.NONE",
+        ):
+            result = compile_simt(kernel, [KernelSignature(())])
+    else:
+        result = compile_simt(kernel, [KernelSignature(())])
+        filecheck(
+            result.mlir,
+            f"""
+            CHECK: nvvm.memory.barrier
+            CHECK-SAME: scope = #nvvm<mem_scope <{expect}>>
+            """,
+        )
+
+
+@require_hopper_or_newer()
+@pytest.mark.parametrize(
+    "enum,expect",
+    (
+        (cl.MemoryOrder.ACQUIRE, "acquire"),
+        (cl.MemoryOrder.RELEASE, "release"),
+        (cl.MemoryOrder.ACQ_REL, None),
+        (cl.MemoryOrder.RELAXED, None),
+        (cl.MemoryOrder.WEAK, None),
+    ),
+)
+def test_memory_space_enum_mappings(enum, expect):
+    def kernel():
+        nvvm.fence_sync_restrict(order=enum)
+
+    if expect is None:
+        with pytest.raises(
+            TileCompilerExecutionError,
+            match="op only acquire and release semantics are supported",
+        ):
+            compile_simt(kernel, [KernelSignature(())])
+    else:
+        result = compile_simt(kernel, [KernelSignature(())])
+        filecheck(
+            result.mlir,
+            f"""
+            CHECK: nvvm.fence.sync_restrict
+            CHECK-SAME: order = #nvvm<mem_order <{expect}>>
+            """,
+        )

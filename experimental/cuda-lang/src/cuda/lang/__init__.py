@@ -84,6 +84,9 @@ from ._stub import (
     clusterlaunchcontrol_try_cancel,
     clusterlaunchcontrol_is_canceled,
     clusterlaunchcontrol_get_first_block_idx,
+    griddepcontrol,
+    GridDepActionKind,
+    memory_barrier,
 )
 
 from ._datatype import (
@@ -220,4 +223,7 @@ __all__ = (
     "clusterlaunchcontrol_try_cancel",
     "clusterlaunchcontrol_is_canceled",
     "clusterlaunchcontrol_get_first_block_idx",
+    "griddepcontrol",
+    "GridDepActionKind",
+    "memory_barrier",
 )

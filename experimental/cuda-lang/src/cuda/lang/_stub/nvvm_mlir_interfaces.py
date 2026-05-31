@@ -8,7 +8,17 @@ from __future__ import annotations
 
 from typing import get_args
 
-from cuda.lang._stub._nvvm_mlir_support import ArgSpec, ResultSpec, nvvm_mlir_interface_stub
+from cuda.lang._stub._nvvm_mlir_support import (
+    ArgSpec,
+    SharedSpaceAttr,
+    MemorySpace,
+    MemoryScopeAttr,
+    MemoryScope,
+    MemoryOrderAttr,
+    MemoryOrder,
+    ResultSpec,
+    nvvm_mlir_interface_stub,
+)
 from cuda.lang._stub.nvvm import (
     B,
     BF16,
@@ -235,27 +245,27 @@ def fence_mbarrier_init() -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy',
-    args=(ArgSpec(type=strip(ProxyKind), name='kind', kind='attribute'), ArgSpec(type=strip(SharedSpace), name='space', kind='attribute', optional=True),),
+    args=(ArgSpec(type=strip(ProxyKind), name='kind', kind='attribute'), ArgSpec(type=SharedSpaceAttr, name='space', kind='attribute', optional=True),),
 )
-def fence_proxy(*, kind: ProxyKind, space: SharedSpace | None = None) -> None: ...
+def fence_proxy(*, kind: ProxyKind, space: MemorySpace | None = None) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.acquire',
-    args=(ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'), ArgSpec(type=strip(P0), name='addr'), ArgSpec(type=strip(I32), name='size'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(P0), name='addr'), ArgSpec(type=strip(I32), name='size'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
 )
-def fence_proxy_acquire(*, scope: MemScopeKind, addr: P0, size: I32, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
+def fence_proxy_acquire(*, scope: MemoryScope, addr: P0, size: I32, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.release',
-    args=(ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
 )
-def fence_proxy_release(*, scope: MemScopeKind, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
+def fence_proxy_release(*, scope: MemoryScope, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.sync_restrict',
-    args=(ArgSpec(type=strip(MemOrderKind), name='order', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryOrderAttr, name='order', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
 )
-def fence_proxy_sync_restrict(*, order: MemOrderKind, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.async_) -> None: ...
+def fence_proxy_sync_restrict(*, order: MemoryOrder, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.async_) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.sc.cluster',
@@ -264,9 +274,9 @@ def fence_sc_cluster() -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.sync_restrict',
-    args=(ArgSpec(type=strip(MemOrderKind), name='order', kind='attribute'),),
+    args=(ArgSpec(type=MemoryOrderAttr, name='order', kind='attribute'),),
 )
-def fence_sync_restrict(*, order: MemOrderKind) -> None: ...
+def fence_sync_restrict(*, order: MemoryOrder) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.griddepcontrol',
@@ -297,15 +307,15 @@ def mbarrier_arrive_drop_nocomplete(*, addr: P0 | P3, count: I32) -> I64: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.complete_tx',
-    args=(ArgSpec(type=(strip(P3), strip(P7),), name='addr'), ArgSpec(type=strip(I32), name='txcount'), ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'),),
+    args=(ArgSpec(type=(strip(P3), strip(P7),), name='addr'), ArgSpec(type=strip(I32), name='txcount'), ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'),),
 )
-def mbarrier_complete_tx(*, addr: P3 | P7, txcount: I32, scope: MemScopeKind = MemScopeKind.CTA) -> None: ...
+def mbarrier_complete_tx(*, addr: P3 | P7, txcount: I32, scope: MemoryScope = MemoryScopeAttr.mlir2cl(MemScopeKind.CTA)) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.expect_tx',
-    args=(ArgSpec(type=(strip(P3), strip(P7),), name='addr'), ArgSpec(type=strip(I32), name='txcount'), ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'),),
+    args=(ArgSpec(type=(strip(P3), strip(P7),), name='addr'), ArgSpec(type=strip(I32), name='txcount'), ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'),),
 )
-def mbarrier_expect_tx(*, addr: P3 | P7, txcount: I32, scope: MemScopeKind = MemScopeKind.CTA) -> None: ...
+def mbarrier_expect_tx(*, addr: P3 | P7, txcount: I32, scope: MemoryScope = MemoryScopeAttr.mlir2cl(MemScopeKind.CTA)) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.init',
@@ -322,16 +332,16 @@ def mbarrier_inval(*, addr: P0 | P3) -> None: ...
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.test.wait',
     results=(ResultSpec(name='res', type=strip(B)),),
-    args=(ArgSpec(type=(strip(P0), strip(P3),), name='addr'), ArgSpec(type=(strip(I64), strip(I32),), name='stateOrPhase'), ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'), ArgSpec(type=strip(B), name='relaxed', kind='attribute'),),
+    args=(ArgSpec(type=(strip(P0), strip(P3),), name='addr'), ArgSpec(type=(strip(I64), strip(I32),), name='stateOrPhase'), ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(B), name='relaxed', kind='attribute'),),
 )
-def mbarrier_test_wait(*, addr: P0 | P3, state_or_phase: I64 | I32, scope: MemScopeKind = MemScopeKind.CTA, relaxed: B = False) -> B: ...
+def mbarrier_test_wait(*, addr: P0 | P3, state_or_phase: I64 | I32, scope: MemoryScope = MemoryScopeAttr.mlir2cl(MemScopeKind.CTA), relaxed: B = False) -> B: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.try_wait',
     results=(ResultSpec(name='res', type=strip(B)),),
-    args=(ArgSpec(type=(strip(P0), strip(P3),), name='addr'), ArgSpec(type=(strip(I64), strip(I32),), name='stateOrPhase'), ArgSpec(type=strip(I32), name='ticks', optional=True), ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'), ArgSpec(type=strip(B), name='relaxed', kind='attribute'),),
+    args=(ArgSpec(type=(strip(P0), strip(P3),), name='addr'), ArgSpec(type=(strip(I64), strip(I32),), name='stateOrPhase'), ArgSpec(type=strip(I32), name='ticks', optional=True), ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(B), name='relaxed', kind='attribute'),),
 )
-def mbarrier_try_wait(*, addr: P0 | P3, state_or_phase: I64 | I32, ticks: I32 | None = None, scope: MemScopeKind = MemScopeKind.CTA, relaxed: B = False) -> B: ...
+def mbarrier_try_wait(*, addr: P0 | P3, state_or_phase: I64 | I32, ticks: I32 | None = None, scope: MemoryScope = MemoryScopeAttr.mlir2cl(MemScopeKind.CTA), relaxed: B = False) -> B: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.mbarrier.try_wait.parity',
@@ -341,9 +351,9 @@ def mbarrier_try_wait_parity(*, addr: P0 | P3, phase: I32, ticks: I32) -> None: 
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.memory.barrier',
-    args=(ArgSpec(type=strip(MemScopeKind), name='scope', kind='attribute'),),
+    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'),),
 )
-def memory_barrier(*, scope: MemScopeKind) -> None: ...
+def memory_barrier(*, scope: MemoryScope) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.nanosleep',

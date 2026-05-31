@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Literal, TypeVar
 
+from cuda.tile._memory_model import MemoryOrder, MemoryScope, MemorySpace
 import cuda.lang._datatype as datatype
 from cuda.lang._execution import stub
 import cuda.lang._mlir as mlir
+from cuda.lang._mlir.nvvm import MemScopeKind, MemOrderKind, SharedSpace
 from cuda.lang._stub._nvvm_support import (
     _IntrinsicDTypeAnnotation,
     _IntrinsicPredicateAnnotation,
@@ -48,12 +50,72 @@ class ResultSpec:
     variadic: bool = False
 
 
+@dataclass(frozen=True)
+class AliasedEnumAttr:
+    cl_enum: type[Enum]
+    mlir_enum: type[Enum]
+    value_map: tuple[tuple[Enum, Enum], ...]
+
+    def cl2mlir(self, enum_val):
+        for cl_val, mlir_val in self.value_map:
+            if enum_val == cl_val:
+                return mlir_val
+        valid = ", ".join(str(value) for value, _ in self.value_map)
+        raise TileValueError(f"Expected one of {valid}, got {enum_val}")
+
+    def mlir2cl(self, enum_val):
+        for cl_val, mlir_val in self.value_map:
+            if enum_val == mlir_val:
+                return cl_val
+        valid = ", ".join(str(value) for _, value in self.value_map)
+        raise TileValueError(f"Expected one of {valid}, got {enum_val}")
+
+
+SharedSpaceAttr = AliasedEnumAttr(
+    cl_enum=MemorySpace,
+    mlir_enum=SharedSpace,
+    value_map=(
+        (MemorySpace.SHARED, SharedSpace.shared_cta),
+        (MemorySpace.SHARED_CLUSTER, SharedSpace.shared_cluster),
+    ),
+)
+
+
+MemoryOrderAttr = AliasedEnumAttr(
+    cl_enum=MemoryOrder,
+    mlir_enum=MemOrderKind,
+    value_map=(
+        (MemoryOrder.WEAK, MemOrderKind.WEAK),
+        (MemoryOrder.RELAXED, MemOrderKind.RELAXED),
+        (MemoryOrder.ACQUIRE, MemOrderKind.ACQUIRE),
+        (MemoryOrder.RELEASE, MemOrderKind.RELEASE),
+        (MemoryOrder.ACQ_REL, MemOrderKind.ACQ_REL),
+    ),
+)
+
+
+MemoryScopeAttr = AliasedEnumAttr(
+    cl_enum=MemoryScope,
+    mlir_enum=MemScopeKind,
+    value_map=(
+        (MemoryScope.BLOCK, MemScopeKind.CTA),
+        (MemoryScope.DEVICE, MemScopeKind.GPU),
+        (MemoryScope.SYS, MemScopeKind.SYS),
+    ),
+)
+
+
 def is_none_constant(value: Var) -> bool:
     return value.is_constant() and value.get_constant() is None
 
 
 def is_enum_type(ty) -> bool:
     return isinstance(ty, type) and issubclass(ty, Enum)
+
+
+def make_enum_attr(enum_type: type[Enum], value: Enum) -> mlir.Attribute:
+    attr_cls = getattr(mlir.nvvm, enum_type.__name__ + "Attr")
+    return attr_cls(value=value)
 
 
 def cast_operand(spec: ArgSpec, arg: Var) -> Var:
@@ -84,10 +146,14 @@ def make_mlir_attribute(spec: ArgSpec, arg: Var) -> tuple[str, mlir.Attribute] |
     if spec.optional and is_none_constant(arg):
         return None
 
+    if isinstance(spec.type, AliasedEnumAttr):
+        arg = require_constant_enum(arg, spec.type.cl_enum)
+        mapped = spec.type.cl2mlir(arg)
+        return spec.name, make_enum_attr(spec.type.mlir_enum, mapped)
+
     if is_enum_type(spec.type):
-        attr_cls = getattr(mlir.nvvm, spec.type.__name__ + "Attr")
         arg = require_constant_enum(arg, spec.type)
-        return spec.name, attr_cls(value=arg)
+        return spec.name, make_enum_attr(spec.type, arg)
 
     if spec.unit:
         arg = require_constant_bool(arg)
@@ -183,4 +249,13 @@ def nvvm_mlir_interface_stub(
     return decorate
 
 
-__all__ = ("ArgSpec", "ResultSpec", "nvvm_mlir_interface_stub")
+__all__ = (
+    "AliasedEnumAttr",
+    "ArgSpec",
+    "MemoryOrder",
+    "MemoryOrderAttr",
+    "MemoryScope",
+    "MemoryScopeAttr",
+    "ResultSpec",
+    "nvvm_mlir_interface_stub",
+)

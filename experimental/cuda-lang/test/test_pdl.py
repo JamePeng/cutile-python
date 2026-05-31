@@ -9,14 +9,13 @@ from .util import require_hopper_or_newer
 
 @require_hopper_or_newer()
 def test_pdl():
-    # TODO: better on-device api for pdl
-
     @cl.kernel
     def dependee(a):
         tx = cl.thread_idx(0)
         a[tx] = tx * 2.0
-        cl.nvvm.membar_gl()
-        cl.nvvm.griddepcontrol_launch_dependents()
+
+        cl.memory_barrier(scope=cl.MemoryScope.DEVICE)
+        cl.griddepcontrol(kind=cl.GridDepActionKind.launch_dependents)
 
     @cl.kernel
     def dependent(a, b):
@@ -26,7 +25,7 @@ def test_pdl():
         val = tx * 4.0 + b[tx]
         # ---
 
-        cl.nvvm.griddepcontrol_wait()
+        cl.griddepcontrol(kind=cl.GridDepActionKind.wait)
         a[tx] = val + a[tx]
 
     a = torch.zeros(32, dtype=torch.float32).cuda()

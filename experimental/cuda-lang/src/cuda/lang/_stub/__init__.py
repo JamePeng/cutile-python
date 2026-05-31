@@ -18,6 +18,12 @@ from cuda.tile._datatype import (
 from . import nvvm
 from . import libdevice
 
+from .nvvm_mlir_interfaces import (
+    griddepcontrol,
+    GridDepActionKind,
+    memory_barrier,
+)
+
 from .core_api import (
     warp_size,
     full_mask,
@@ -165,4 +171,7 @@ __all__ = (
     "clusterlaunchcontrol_try_cancel",
     "clusterlaunchcontrol_is_canceled",
     "clusterlaunchcontrol_get_first_block_idx",
+    "griddepcontrol",
+    "GridDepActionKind",
+    "memory_barrier",
 )
