@@ -2,13 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import builtins
-import dataclasses
 import enum
 import functools
 import math
 import operator
 from dataclasses import dataclass
-from types import MethodType, BuiltinFunctionType, FunctionType
+from types import BuiltinFunctionType, FunctionType
 from typing import (
     Literal, Sequence, Tuple, Optional, Any, List, Callable, Iterator, Iterable,
 )
@@ -19,8 +18,8 @@ import cuda.tile._stub as ct
 from cuda.tile import _datatype as datatype
 from cuda.tile import RoundingMode, MemoryOrder, MemoryScope
 from cuda.tile._mutex import tile_mutex
-from cuda.tile._exception import TileInternalError, TileTypeError, TileSyntaxError, TileError, \
-    TileStaticAssertionError, TileStaticEvalError, TileValueError, TileUnsupportedFeatureError
+from cuda.tile._exception import TileInternalError, TileTypeError, TileSyntaxError, \
+    TileValueError, TileUnsupportedFeatureError
 from cuda.tile._ir.ir import (
     Operation, Var, Loc, Block, add_operation, Builder, enter_nested_block, nested_block,
     PhiState, LoopVarState, make_aggregate, ConstantState, MemoryEffect, attribute, operand,
@@ -32,9 +31,11 @@ from .arithmetic_ops import reshape, broadcast_to, astype, compare_tensorlike, \
     mod_tensorlike, promote_and_broadcast_to, arithmetic_impl_registry, binop_propagate_constant, \
     comparison_operator_impl
 from .cast_ops import implicit_cast
-from .core_ops import loosely_typed_const, strictly_typed_const
+from .core_ops import loosely_typed_const, strictly_typed_const, build_tuple, bind_method, \
+    sym2var, core_impl_registry
+from .static_eval_ops import static_eval_impl_registry
 from .type import (
-    var2sym, TupleValue, BoundMethodValue, ArrayValue, DataclassValue, DataclassInfo,
+    TupleValue, ArrayValue, DataclassValue,
     RangeValue, ListValue, TiledViewValue, ClosureValue, FormattedStringValue, RawArrayMemoryValue,
     IndexSliceValue
 )
@@ -53,8 +54,7 @@ from .op_impl import (
     require_0d_tile_maybe_loose_type, require_bool, require_optional_range_type,
     require_tile_or_tile_tuple_type, require_constant_scalar_tuple, require_constant_scalar,
     require_callable_type, require_raw_array_memory_type,
-    OverloadNotFoundError, WILDCARD, require_dataclass_type,
-    ensure_tile)
+    OverloadNotFoundError, WILDCARD, ensure_tile)
 from .ops_utils import (
     UNARYOP_REGISTRY,
     check_rd_and_ftz, PaddingMode, get_default_order,
@@ -64,17 +64,14 @@ from .ops_utils import (
     promote_dtypes, validate_memory_order_and_scope, reraise_tile_exception,
 )
 from .scope import Scope, JumpInfo, ControlFlowInfo
-from .typing_support import (
-    get_dataclass_info, as_third_party_dtype_spec,
-)
 from .type import (
     PartitionViewTy, StridedViewTy, GatherScatterViewTy, TupleTy, TileTy, NoneType,
-    BoundMethodTy, ArrayTy,
+    ArrayTy,
     ListTy, SliceType, RangeIterType, Type,
     NONE, ModuleTy, TypeTy, LooselyTypedScalar, DTypeSpec, StringTy, InvalidType,
     ClosureTy, LiveCapturedScope, TokenTy, TiledViewTy, FormattedStringTy,
     StringFormat, FormattedPiece, RawArrayMemoryTy, DataclassTy, IndexSliceTy,
-    ContextManagerLifecycle, ContextManagerTy, Symbol
+    ContextManagerLifecycle, ContextManagerTy,
 )
 from cuda.tile._datatype import (
     DType, is_integral, is_float, is_signed, is_boolean, is_pointer_dtype, PointerInfo,
@@ -87,9 +84,11 @@ from cuda.tile._ir2bytecode import (
 import cuda.tile._bytecode as bc
 from cuda.tile._bytecode.version import BytecodeVersion
 from .._debug import CUDA_TILE_TESTING_DISABLE_DIV
-from .._dispatch_mode import StaticEvalMode
+
 
 tile_impl_registry = ImplRegistry()
+tile_impl_registry.update(core_impl_registry())
+tile_impl_registry.update(static_eval_impl_registry())
 tile_impl_registry.update(arithmetic_impl_registry())
 impl = tile_impl_registry.impl
 overload_dispatcher = tile_impl_registry.overload_dispatcher
@@ -1096,45 +1095,6 @@ def len_impl(x: Var) -> Var:
     return list_val.length
 
 
-@impl(hir_stubs.build_tuple)
-def build_tuple(items: tuple[Var, ...]) -> Var:
-    ty = TupleTy(tuple(x.get_type() for x in items))
-    loose_ty = TupleTy(tuple(x.get_loose_type() for x in items))
-    res = make_aggregate(TupleValue(items), ty, loose_ty)
-    if all(x.is_constant() for x in items):
-        res.set_constant(tuple(x.get_constant() for x in items))
-    return res
-
-
-def build_dataclass_instance(items: tuple[Var, ...], info: DataclassInfo) -> Var:
-    cls = info.cls
-    ty = DataclassTy(cls, tuple(x.get_type() for x in items))
-    loose_ty = DataclassTy(cls, tuple(x.get_loose_type() for x in items))
-    res = make_aggregate(DataclassValue(items, info), ty, loose_ty)
-    if all(x.is_constant() for x in items):
-        const_val = cls(**{name: x.get_constant()
-                           for name, x in zip(info.field_names, items, strict=True)})
-        res.set_constant(const_val)
-    return res
-
-
-@impl(dataclasses.replace)
-def dataclasses_replace_impl(obj: Var, changes: dict[str, Var]):
-    dataclass_ty = require_dataclass_type(obj)
-    dataclass_val = obj.get_aggregate()
-    assert isinstance(dataclass_val, DataclassValue)
-    name2idx = dataclass_val.info.field_name_to_idx
-    new_items = list(dataclass_val.items)
-    for name, val in changes.items():
-        try:
-            idx = name2idx[name]
-        except KeyError:
-            raise TileTypeError(f"Dataclass '{dataclass_ty.cls.__name__}'"
-                                f" has no such field '{name}'")
-        new_items[idx] = val
-    return build_dataclass_instance(tuple(new_items), dataclass_val.info)
-
-
 @impl(hir_stubs.build_formatted_string)
 def build_formatted_string_impl(format: StringFormat, values: tuple[Var, ...]) -> Var:
     new_pieces = []
@@ -1589,12 +1549,6 @@ async def getattr_dataclass_impl(object: Var, name: Var):
 
 
 # ===========================================================================================
-
-
-def bind_method(object: Var, func) -> Var:
-    agg_value = BoundMethodValue(object)
-    res_ty = BoundMethodTy(object.get_type(), func)
-    return make_aggregate(agg_value, res_ty)
 
 
 @dataclass(eq=False)
@@ -4669,164 +4623,6 @@ def make_closure_impl(func_hir: hir.Function, default_values: tuple[Var, ...]):
                            tuple(frozen_capture_types_by_depth))
     closure_val = ClosureValue(default_values, tuple(frozen_captures_by_depth))
     return make_aggregate(closure_val, closure_ty)
-
-
-@impl(ct.static_eval)
-def static_eval_impl(expr: Var):
-    raise TileSyntaxError("static_eval() must be used directly by name,"
-                          " e.g. cuda.tile.static_eval() or ct.static_eval().")
-
-
-@impl(ct.static_assert)
-def static_assert_impl(condition: Var, message: Var):
-    raise TileSyntaxError("static_assert() must be used directly by name,"
-                          " e.g. cuda.tile.static_assert() or ct.static_assert().")
-
-
-@impl(ct.static_iter)
-def static_iter_impl(iterable: Var):
-    raise TileSyntaxError("static_iter() must be used directly by name,"
-                          " e.g. cuda.tile.static_iter() or ct.static_iter().")
-
-
-@impl(hir_stubs.do_static_eval)
-def do_static_eval_impl(expr: hir.StaticEvalExpression,
-                        local_var_values: tuple[Var, ...]) -> Var:
-    local_proxies = tuple(var2sym(x) for x in local_var_values)
-    with StaticEvalMode(expr.kind).as_current():
-        try:
-            result = expr.compiled_expr(*local_proxies)
-        except TileError:
-            raise
-        except Exception as e:
-            where = expr.kind._value_
-            msg = f"Exception was raised inside {where} ({type(e).__name__}"
-            e_str = str(e)
-            if len(e_str) > 0:
-                msg += ": " + e_str
-            msg += ")"
-            raise TileStaticEvalError(msg) from e
-
-    if expr.kind == hir.StaticEvalKind.STATIC_ASSERT_MESSAGE:
-        if result is None:
-            result = ""
-        return loosely_typed_const(str(result))
-    elif expr.kind == hir.StaticEvalKind.STATIC_ITER_ITERABLE:
-        items = _drain_static_iter_iterable(result)
-        return build_tuple(tuple(items))
-    else:
-        return sym2var(result)
-
-
-_STATIC_ITER_MAX_ITERATIONS = 1000
-
-
-def _drain_static_iter_iterable(iterable) -> list[Var]:
-    try:
-        it = iter(iterable)
-    except Exception as e:
-        msg = str(e)
-        if len(msg) > 0:
-            msg = ": " + msg
-        raise TileTypeError(f"Invalid static_iter() iterable{msg}")
-
-    items = []
-    for i in range(_STATIC_ITER_MAX_ITERATIONS + 1):
-        try:
-            x = next(it)
-        except StopIteration:
-            break
-        except Exception as e:
-            msg = str(e)
-            if len(msg) > 0:
-                msg = ": " + msg
-            raise TileTypeError(f"Error was raised while obtaining item #{i}"
-                                f" from the static_iter() iterable{msg}")
-
-        try:
-            var = sym2var(x)
-        except TileTypeError as e:
-            raise TileStaticEvalError(
-                f"Invalid item #{i} of static_iter() iterable: {str(e)}")
-
-        items.append(var)
-    else:
-        raise TileStaticEvalError(f"Maximum number of iterations"
-                                  f" ({_STATIC_ITER_MAX_ITERATIONS}) has been reached"
-                                  f" while unpacking the static_iter() iterable")
-    return items
-
-
-@impl(hir_stubs.do_static_assert)
-async def do_static_assert_impl(condition: Var, message_block: hir.Block) -> None:
-    if not condition.is_constant():
-        raise TileTypeError("static_assert() condition must be a compile-time constant")
-
-    ty = condition.get_type()
-    if not (isinstance(ty, TileTy) and is_boolean(ty.dtype)):
-        raise TileTypeError(f"static_assert() condition must be a boolean, not {ty}")
-
-    if condition.get_constant():
-        return None
-
-    from .._passes.hir2ir import dispatch_hir_block
-    info = ControlFlowInfo((), flatten=True)
-    with Scope.get_current().change_if_else_info(info):
-        await dispatch_hir_block(message_block)
-    [jump] = info.jumps
-    assert jump.jump_op is None
-    [message] = jump.outputs
-    message = message.get_constant()
-    assert isinstance(message, str)
-    raise TileStaticAssertionError(message)
-
-
-@impl(hir_stubs.static_foreach)
-async def static_foreach_impl(body: hir.Block, items: Var):
-    scope = Scope.get_current()
-
-    tuple_val = items.get_aggregate()
-    assert isinstance(tuple_val, TupleValue)
-
-    for item in tuple_val.items:
-        scope.hir2ir_varmap[body.params[0].id] = item
-        from .._passes.hir2ir import dispatch_hir_block
-        await dispatch_hir_block(body)
-
-
-def sym2var(x: Any, constant_only: bool = False) -> Var:
-    # TODO: verify we don't have a stale closure
-
-    if isinstance(x, Symbol):
-        if constant_only:
-            raise TileTypeError("Cannot create a constant from a symbolic value")
-        return x._var
-
-    if isinstance(x, tuple):
-        return build_tuple(tuple(sym2var(item, constant_only=constant_only) for item in x))
-
-    cls = type(x)
-    if dataclasses.is_dataclass(cls):
-        info = get_dataclass_info(cls)
-        field_vars = tuple(sym2var(getattr(x, f.name), constant_only=constant_only)
-                           for f in dataclasses.fields(cls))
-        return build_dataclass_instance(field_vars, info)
-
-    if isinstance(x, MethodType):
-        self_var = sym2var(x.__self__, constant_only=constant_only)
-        if not isinstance(x.__func__, FunctionType | BuiltinFunctionType):
-            raise TileTypeError(f"Object of type {type(x).__name__}"
-                                f" cannot be used as a function for binding a method")
-        return bind_method(self_var, x.__func__)
-
-    # Transform a third party typed scalar (e.g., np.int16(5)) into a strictly typed constant
-    dtype_spec = as_third_party_dtype_spec(type(x))
-    if dtype_spec is not None:
-        pyval = datatype.numeric_dtype_category(dtype_spec.dtype).pytype(x)
-        ty = Builder.get_current().ir_ctx.typing_hooks.get_tensor_like_type(dtype_spec.dtype, ())
-        return strictly_typed_const(pyval, ty)
-
-    return loosely_typed_const(x)
 
 
 def _add_dummy_op_to_invalid_vars(vars: Sequence[Var],

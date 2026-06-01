@@ -40,8 +40,6 @@ from cuda.tile._ir.arithmetic_ops import (
 )
 from cuda.tile._ir.ops import (
     tile_impl_registry,
-    bind_method,
-    build_tuple,
     Return,
     return_,
     Assign,
@@ -63,6 +61,8 @@ from cuda.tile._ir.arithmetic_ops import (
     astype,
 )
 from cuda.tile._ir.core_ops import (
+    bind_method,
+    build_tuple,
     loosely_typed_const,
     strictly_typed_const,
 )
