@@ -18,7 +18,8 @@ from .._ir import hir, ir
 from .._ir.ir import Var, IRContext
 from .._ir.op_impl import ImplRegistry
 from .._ir.ops import loosely_typed_const, end_branch, return_, continue_, \
-    break_, store_var, build_dataclass_instance, build_tuple, dtype_constructor, sym2var
+    break_, store_var, build_dataclass_instance, build_tuple, sym2var
+from .._ir.arithmetic_ops import dtype_constructor
 from .._ir.scope import Scope, LocalScope, IntMap
 from .._ir.type import FunctionTy, BoundMethodTy, DTypeConstructor, ClosureTy, \
     ClosureDefaultPlaceholder, StringFormat, TypeTy, TupleTy, BoundMethodValue, TupleValue, \

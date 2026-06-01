@@ -20,7 +20,7 @@ from cuda.tile._exception import TileTypeError
 from cuda.tile._numeric_semantics import RoundingMode
 from cuda.tile._ir.core_ops import loosely_typed_const, strictly_typed_const
 from cuda.tile._ir.ir import operand, Operation, Var, add_operation, Builder, attribute
-from cuda.tile._ir.op_impl import ImplRegistry
+from cuda.tile._ir.op_impl import ImplRegistry, ensure_scalar
 from cuda.tile._ir.ops_utils import is_shape_broadcastable_to, promote_types, \
     get_dtype, get_default_rounding_mode, rounding_mode_to_bytecode, \
     reraise_tile_exception, check_rd_and_ftz, BINOP_REGISTRY
@@ -153,6 +153,20 @@ def astype(x: Var[TensorLikeTy], dtype: DType) -> Var[TensorLikeTy]:
 
     result_ty = x.ctx.typing_hooks.get_tensor_like_type(dtype, x_ty.tensor_shape())
     return add_operation(TileAsType, result_ty, x=x)
+
+
+def dtype_constructor(new_dtype: DType, x: Var) -> Var[TensorLikeTy]:
+    if x.is_constant():
+        pytype = numeric_dtype_category(new_dtype).pytype
+        try:
+            const_value = pytype(x.get_constant())
+        except (ValueError, TypeError):
+            raise TileTypeError(f"Invalid argument type for {new_dtype}")
+        ty = x.ctx.typing_hooks.get_tensor_like_type(new_dtype, ())
+        return strictly_typed_const(const_value, ty=ty)
+
+    x = ensure_scalar(x)
+    return astype(x, new_dtype)
 
 
 def promote_and_broadcast_to(x: Var, ty: TensorLikeTy) -> Var[TensorLikeTy]:

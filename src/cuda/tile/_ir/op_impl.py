@@ -23,7 +23,7 @@ from .typing_support import datatype, get_signature
 from .ir import Var, Builder
 from .type import TiledViewTy, TupleTy, TileTy, DTypeSpec, EnumTy, StringTy, ArrayTy, SliceType, \
     ListTy, LooselyTypedScalar, RangeIterType, FunctionTy, ClosureTy, BoundMethodTy, \
-    DTypeConstructor, Type, RawArrayMemoryTy, DataclassTy, TupleValue, PointerInfoTy
+    DTypeConstructor, Type, RawArrayMemoryTy, DataclassTy, TupleValue, PointerInfoTy, TensorLikeTy
 
 
 def _verify_params_match(stub_sig: inspect.Signature, func_sig: inspect.Signature):
@@ -492,11 +492,15 @@ def require_0d_tile_type(var: Var) -> TileTy:
     return ty
 
 
-def require_scalar_type(var: Var) -> TileTy:
+def ensure_scalar(var: Var) -> Var[TensorLikeTy]:
     ty = var.get_type()
-    if not isinstance(ty, TileTy) or ty.ndim != 0:
+    if not isinstance(ty, TensorLikeTy) or ty.tensor_shape() != ():
         raise _make_type_error(f"Expected a scalar value, but given value has type {ty}", var)
-    return ty
+    return var
+
+
+def require_scalar_type(var: Var) -> TensorLikeTy:
+    return ensure_scalar(var).get_type()
 
 
 def require_any_vector_type(var: Var) -> TileTy:

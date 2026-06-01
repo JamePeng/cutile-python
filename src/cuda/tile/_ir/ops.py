@@ -1655,19 +1655,6 @@ def range_(args: Tuple[Var, ...]) -> Var:
     return make_aggregate(agg_value, ty)
 
 
-def dtype_constructor(new_dtype: DType, x: Var) -> Var:
-    if x.is_constant():
-        pytype = datatype.numeric_dtype_category(new_dtype).pytype
-        try:
-            const_value = pytype(x.get_constant())
-        except (ValueError, TypeError):
-            raise TileTypeError(f"Invalid argument type for {new_dtype}")
-        return strictly_typed_const(const_value, ty=TileTy(new_dtype))
-
-    require_0d_tile_type(x)
-    return astype(x, new_dtype)
-
-
 @impl(float, fixed_args=[float])
 @impl(int, fixed_args=[int])
 @impl(bool, fixed_args=[bool])
