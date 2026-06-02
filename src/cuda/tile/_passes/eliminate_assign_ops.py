@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .._ir import ir
-from .._ir.ops import Assign
+from .._ir.core_ops import Assign
 
 
 def eliminate_assign_ops(root_block: ir.Block):

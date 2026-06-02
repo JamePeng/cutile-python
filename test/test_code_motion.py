@@ -10,7 +10,8 @@ import torch
 import cuda.tile as ct
 from cuda.tile.compilation import CallingConvention
 from cuda.tile._ir.ir import Operation
-from cuda.tile._ir.ops import Loop, Unary, IfElse, TileExtract
+from cuda.tile._ir.ops import Loop, IfElse, TileExtract
+from cuda.tile._ir.arithmetic_ops import Unary
 from cuda.tile._compile import compile_tile
 
 from util import assert_close

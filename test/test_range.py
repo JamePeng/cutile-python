@@ -87,7 +87,7 @@ def test_range_negative_step():
 
 def test_range_scalar_type_error():
     x = torch.zeros((10,), dtype=torch.int32, device='cuda')
-    with pytest.raises(TileTypeError, match='Expected a scalar or a 0D tile'):
+    with pytest.raises(TileTypeError, match='Expected a scalar'):
         ct.launch(torch.cuda.default_stream(), (1,), copy_range, (x, x))
 
 

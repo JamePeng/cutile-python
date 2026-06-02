@@ -11,19 +11,21 @@
 import math
 import operator
 from dataclasses import dataclass
-from typing import Sequence, Any
+from typing import Sequence, Any, Callable
 from typing_extensions import override
 
+from cuda.tile import _datatype as datatype
 from cuda.tile._datatype import numeric_dtype_category, DType, bool_, is_integral, is_boolean, \
     int8, get_signedness, is_float, is_arithmetic
 from cuda.tile._exception import TileTypeError
 from cuda.tile._numeric_semantics import RoundingMode
-from cuda.tile._ir.core_ops import loosely_typed_const, strictly_typed_const
+from cuda.tile._ir.core_ops import loosely_typed_const, strictly_typed_const, \
+    comparison_operator_impl
 from cuda.tile._ir.ir import operand, Operation, Var, add_operation, Builder, attribute
 from cuda.tile._ir.op_impl import ImplRegistry, ensure_scalar
 from cuda.tile._ir.ops_utils import is_shape_broadcastable_to, promote_types, \
     get_dtype, get_default_rounding_mode, rounding_mode_to_bytecode, \
-    reraise_tile_exception, check_rd_and_ftz, BINOP_REGISTRY
+    reraise_tile_exception, check_rd_and_ftz, BINOP_REGISTRY, UNARYOP_REGISTRY
 from cuda.tile._ir.type import TensorLikeTy, LooselyTypedScalar, Type
 from cuda.tile._ir2bytecode import BytecodeContext, convert_dtype, typeid
 import cuda.tile._bytecode as bc
@@ -46,16 +48,6 @@ def binop_propagate_constant(fn: str, x: Any, y: Any, type: Type | None) -> Var:
         return loosely_typed_const(res)
     else:
         return strictly_typed_const(res, type)
-
-
-def comparison_operator_impl(registry: ImplRegistry, lhs_ty: type[Type], rhs_ty: type[Type]):
-    def decorate(func):
-        for name in ("eq", "ne", "lt", "le", "gt", "ge"):
-            registry.impl(getattr(operator, name), fixed_args=[name],
-                          overload=(lhs_ty, rhs_ty))(func)
-        return func
-
-    return decorate
 
 
 @dataclass(eq=False)
@@ -593,3 +585,158 @@ def where(cond: Var[TensorLikeTy],
     x = promote_and_broadcast_to(x, res_ty)
     y = promote_and_broadcast_to(y, res_ty)
     return where_raw(cond, x, y)
+
+
+@dataclass(eq=False)
+class Unary(Operation, opcode="unaryop"):
+    fn: str = attribute()
+    rounding_mode: RoundingMode | None = attribute()
+    flush_to_zero: bool = attribute()
+    operand: Var = operand()
+
+    @override
+    def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
+        x = ctx.get_value(self.operand)
+        rm = (self.rounding_mode if self.rounding_mode is not None
+              else get_default_rounding_mode(self.fn))
+        rounding_mode = rounding_mode_to_bytecode[rm]
+        flush_to_zero = self.flush_to_zero
+        input_type = ctx.typeof(self.operand)
+        input_dtype = get_dtype(input_type)
+        flt = is_float(input_dtype)
+        res_type_id = ctx.typeid_of(self.result_var)
+
+        match self.fn, flt:
+            case "abs", True: return bc.encode_AbsFOp(ctx.builder, res_type_id, x)
+            case "abs", False: return bc.encode_AbsIOp(ctx.builder, res_type_id, x)
+            case "neg", True: return bc.encode_NegFOp(ctx.builder, res_type_id, x)
+            case "neg", False: return bc.encode_NegIOp(ctx.builder, res_type_id, x,
+                                                       bc.IntegerOverflow.NONE)
+            case "exp", True: return bc.encode_ExpOp(ctx.builder, res_type_id, x,
+                                                     rounding_mode=rounding_mode)
+            case "exp2", True: return bc.encode_Exp2Op(ctx.builder, res_type_id, x,
+                                                       flush_to_zero=flush_to_zero)
+            case "sin", True: return bc.encode_SinOp(ctx.builder, res_type_id, x)
+            case "cos", True: return bc.encode_CosOp(ctx.builder, res_type_id, x)
+            case "sinh", True: return bc.encode_SinHOp(ctx.builder, res_type_id, x)
+            case "cosh", True: return bc.encode_CosHOp(ctx.builder, res_type_id, x)
+            case "tan", True: return bc.encode_TanOp(ctx.builder, res_type_id, x)
+            case "tanh", True: return bc.encode_TanHOp(ctx.builder, res_type_id, x,
+                                                       rounding_mode=rounding_mode)
+            case "log", True: return bc.encode_LogOp(ctx.builder, res_type_id, x)
+            case "log2", True: return bc.encode_Log2Op(ctx.builder, res_type_id, x)
+            case "sqrt", True: return bc.encode_SqrtOp(ctx.builder, res_type_id, x,
+                                                       rounding_mode=rounding_mode,
+                                                       flush_to_zero=flush_to_zero)
+            case "rsqrt", True: return bc.encode_RsqrtOp(ctx.builder, res_type_id, x,
+                                                         flush_to_zero=flush_to_zero)
+            case "floor", True: return bc.encode_FloorOp(ctx.builder, res_type_id, x)
+            case "ceil", True: return bc.encode_CeilOp(ctx.builder, res_type_id, x)
+            case "invert" | "bitwise_not", False:
+                # ~tx == tx ^ ~0
+                all_ones = (-1 if datatype.is_signed(input_dtype)
+                            else ~(-1 << input_dtype.bitwidth))
+                all_ones_tile = ctx.constant(all_ones, input_type)
+                return bc.encode_XOrIOp(ctx.builder, res_type_id, x, all_ones_tile)
+            case _:
+                raise NotImplementedError(f"Missing implementation for unary op: {self.fn}")
+
+
+def _unary_promote_to_int(x):
+    return astype(x, datatype.default_int_type)
+
+
+def _unary_promote_to_float(x):
+    return astype(x, datatype.default_float_type)
+
+
+def _unary_preserve(x):
+    return x
+
+
+@dataclass
+class UnaryBehavior:
+    bool_handler: Callable[[Var], Var] | None
+    int_handler: Callable[[Var], Var] | None
+    float_handler: Callable[[Var], Var] | None
+
+
+def _unary_propagate_constant(fn: str, arg: Any) -> Any:
+    impl = UNARYOP_REGISTRY[fn].impl
+    with reraise_tile_exception():
+        return impl(arg)
+
+
+def unary(fn: str, behavior: UnaryBehavior, x: Var[TensorLikeTy],
+          rounding_mode: RoundingMode | None = None, flush_to_zero: bool = False) -> Var:
+    x_type = x.get_loose_type()
+    if isinstance(x_type, LooselyTypedScalar):
+        res = _unary_propagate_constant(fn, x_type.value)
+        return loosely_typed_const(res)
+
+    input_dtype = x_type.tensor_dtype()
+    if is_boolean(input_dtype):
+        if behavior.bool_handler is None:
+            raise TileTypeError("Boolean inputs are not supported")
+        x = behavior.bool_handler(x)
+    elif is_integral(input_dtype):
+        if behavior.int_handler is None:
+            raise TileTypeError("Integer inputs are not supported")
+        x = behavior.int_handler(x)
+    elif is_float(input_dtype):
+        if behavior.float_handler is None:
+            raise TileTypeError("Float inputs are not supported")
+        x = behavior.float_handler(x)
+    else:
+        raise TileTypeError(f"Unexpected input dtype {input_dtype}")
+
+    ty = x.get_type()
+    if x.is_constant():
+        res = _unary_propagate_constant(fn, x.get_constant())
+        return strictly_typed_const(res, ty)
+
+    # FIXME: remove cutile-specific check
+    check_rd_and_ftz(fn, rounding_mode, flush_to_zero, ty.tensor_dtype())
+
+    return add_operation(Unary, ty, fn=fn, operand=x,
+                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
+
+
+UNARY_FLOAT = UnaryBehavior(_unary_promote_to_float, _unary_promote_to_float, _unary_preserve)
+UNARY_STRICT_FLOAT = UnaryBehavior(None, None, _unary_preserve)
+UNARY_INT_FLOAT = UnaryBehavior(_unary_promote_to_int, _unary_preserve, _unary_preserve)
+UNARY_BOOL_INT = UnaryBehavior(_unary_preserve, _unary_preserve, None)
+UNARY_ANYTHING = UnaryBehavior(_unary_preserve, _unary_preserve, _unary_preserve)
+
+
+@impl(operator.invert, fixed_args=["invert", UNARY_BOOL_INT], overload=(TensorLikeTy,))
+@impl(operator.neg, fixed_args=["neg", UNARY_INT_FLOAT], overload=(TensorLikeTy,))
+def _invert_neg_tensorlike_impl(fn: str, behavior: UnaryBehavior, x: Var) -> Var:
+    return unary(fn, behavior, x)
+
+
+@impl(operator.not_, overload=(TensorLikeTy,))
+def logical_not_impl(x: Var[TensorLikeTy]) -> Var[TensorLikeTy]:
+    ty = x.get_loose_type()
+    if isinstance(ty, LooselyTypedScalar):
+        return loosely_typed_const(not ty.value)
+
+    x = astype(x, datatype.bool_)
+    if x.is_constant():
+        return strictly_typed_const(not x.get_constant(), x.get_type())
+
+    return add_operation(Unary, x.get_type(), fn="invert", operand=x,
+                         rounding_mode=None, flush_to_zero=False)
+
+
+@impl(operator.pos, overload=(TensorLikeTy,))
+def pos_impl(x: Var[TensorLikeTy]):
+    ty = x.get_loose_type()
+
+    if isinstance(ty, LooselyTypedScalar):
+        return loosely_typed_const(+ty.value)
+
+    if ty.tensor_dtype() == datatype.bool_:
+        return astype(x, datatype.default_int_type)
+    else:
+        return x

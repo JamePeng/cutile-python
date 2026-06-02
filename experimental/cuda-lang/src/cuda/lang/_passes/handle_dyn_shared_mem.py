@@ -10,7 +10,8 @@ from cuda.lang._ir.ops import AllocDynSharedMemory, GetDynSharedMemoryBasePtr, \
 from cuda.lang._datatype import int32
 from cuda.lang._exception import TileTypeError
 from cuda.tile._datatype import PointerInfo
-from cuda.tile._ir.ops import assign, _is_power_of_2
+from cuda.tile._ir.ops import _is_power_of_2
+from cuda.tile._ir.core_ops import assign
 from cuda.tile._ir.type import TileTy
 
 

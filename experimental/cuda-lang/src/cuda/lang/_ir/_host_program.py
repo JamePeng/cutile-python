@@ -7,11 +7,15 @@ from dataclasses import dataclass
 from typing import Literal
 
 from cuda.lang._ir import ir
-from cuda.tile._ir.arithmetic_ops import binary_arithmetic_tensorlike_raw
-from cuda.tile._ir.core_ops import TypedConst
+from cuda.tile._ir.arithmetic_ops import (
+    binary_arithmetic_tensorlike_raw,
+    unary,
+    UNARY_BOOL_INT,
+    binary_bitwise_tensorlike_raw
+)
+from cuda.tile._ir.core_ops import TypedConst, Assign, loosely_typed_const, strictly_typed_const
 from cuda.tile._ir.ops import (
-    loosely_typed_const, strictly_typed_const, unary, _UNARY_BOOL_INT, AssumeBounded, AssumeDivBy,
-    Assign, binary_bitwise_tensorlike_raw
+    AssumeBounded, AssumeDivBy,
 )
 from cuda.tile._ir.typing_support import I32_TY, I64_TY
 
@@ -91,6 +95,6 @@ def _round_up_ir(value: ir.Var, alignment: int) -> ir.Var:
     value_ty = value.get_type()
     mask = strictly_typed_const(alignment - 1, value_ty)
     value_plus_mask = binary_arithmetic_tensorlike_raw("add", value, mask)
-    neg_mask = unary('neg', _UNARY_BOOL_INT, mask)
+    neg_mask = unary('neg', UNARY_BOOL_INT, mask)
     rounded = binary_bitwise_tensorlike_raw('and_', value_plus_mask, neg_mask)
     return rounded

@@ -1,13 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) <2025> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
-import builtins
 import enum
-import functools
 import math
 import operator
 from dataclasses import dataclass
-from types import BuiltinFunctionType, FunctionType
 from typing import (
     Literal, Sequence, Tuple, Optional, Any, List, Callable, Iterator, Iterable,
 )
@@ -17,7 +14,6 @@ from typing_extensions import override
 import cuda.tile._stub as ct
 from cuda.tile import _datatype as datatype
 from cuda.tile import RoundingMode, MemoryOrder, MemoryScope
-from cuda.tile._mutex import tile_mutex
 from cuda.tile._exception import TileInternalError, TileTypeError, TileSyntaxError, \
     TileValueError, TileUnsupportedFeatureError
 from cuda.tile._ir.ir import (
@@ -28,50 +24,44 @@ from cuda.tile._ir.ir import (
 from .arithmetic_ops import reshape, broadcast_to, astype, compare_tensorlike, \
     binary_bitwise_tensorlike, bitwise_shift_tensorlike, binary_arithmetic_tensorlike, \
     compare_tensorlike_raw, where, binary_bitwise_tensorlike_raw, where_raw, TileReshape, \
-    mod_tensorlike, promote_and_broadcast_to, arithmetic_impl_registry, binop_propagate_constant, \
-    comparison_operator_impl
+    mod_tensorlike, promote_and_broadcast_to, arithmetic_impl_registry, \
+    unary, UnaryBehavior, UNARY_INT_FLOAT, UNARY_ANYTHING, UNARY_BOOL_INT, \
+    UNARY_STRICT_FLOAT, UNARY_FLOAT
 from .cast_ops import implicit_cast
 from .core_ops import loosely_typed_const, strictly_typed_const, build_tuple, bind_method, \
-    sym2var, core_impl_registry
+    sym2var, core_impl_registry, store_var, store_invalid, print_impl, TilePrintf, tuple_item
 from .static_eval_ops import static_eval_impl_registry
 from .type import (
-    TupleValue, ArrayValue, DataclassValue,
-    RangeValue, ListValue, TiledViewValue, ClosureValue, FormattedStringValue, RawArrayMemoryValue,
+    TupleValue, ArrayValue, RangeValue, ListValue, TiledViewValue, RawArrayMemoryValue,
     IndexSliceValue
 )
 from . import hir, hir_stubs
-from .hir import ResolvedName
 from .op_impl import (
     ImplRegistry, is_0d_tile, require_constant_int, require_constant_int_tuple,
     require_signed_integer_0d_tile_type,
     require_tile_type, normalize_axis, require_dtype_spec,
     require_constant_bool, require_optional_constant_enum,
     require_constant_str, require_array_type, require_tiled_view_type, require_tuple_type,
-    require_constant_slice, require_list_type, require_0d_tile_type,
+    require_list_type, require_0d_tile_type,
     require_index_or_index_tuple_type, require_constant_shape, require_constant_axis_order,
     require_constant_enum, require_optional_constant_int, require_optional_constant_bool,
     require_optional_constant_str, PrintfValidator, require_tile_maybe_loose_type,
-    require_0d_tile_maybe_loose_type, require_bool, require_optional_range_type,
+    require_bool, require_optional_range_type,
     require_tile_or_tile_tuple_type, require_constant_scalar_tuple, require_constant_scalar,
     require_callable_type, require_raw_array_memory_type,
-    OverloadNotFoundError, WILDCARD, ensure_tile)
+    WILDCARD, ensure_tile)
 from .ops_utils import (
-    UNARYOP_REGISTRY,
     check_rd_and_ftz, PaddingMode, get_default_order,
     rounding_mode_to_bytecode, get_default_rounding_mode, get_dtype,
     memory_order_to_bytecode,
     memory_scope_to_bytecode, broadcast_shapes2, is_shape_broadcastable_to, BroadcastError,
-    promote_dtypes, validate_memory_order_and_scope, reraise_tile_exception,
+    promote_dtypes, validate_memory_order_and_scope,
 )
 from .scope import Scope, JumpInfo, ControlFlowInfo
 from .type import (
-    PartitionViewTy, StridedViewTy, GatherScatterViewTy, TupleTy, TileTy, NoneType,
-    ArrayTy,
-    ListTy, SliceType, RangeIterType, Type,
-    NONE, ModuleTy, TypeTy, LooselyTypedScalar, DTypeSpec, StringTy, InvalidType,
-    ClosureTy, LiveCapturedScope, TokenTy, TiledViewTy, FormattedStringTy,
-    StringFormat, FormattedPiece, RawArrayMemoryTy, DataclassTy, IndexSliceTy,
-    ContextManagerLifecycle, ContextManagerTy,
+    PartitionViewTy, StridedViewTy, GatherScatterViewTy, TupleTy, TileTy, NoneType, ArrayTy,
+    ListTy, Type, NONE, LooselyTypedScalar, InvalidType, TokenTy, TiledViewTy,
+    RawArrayMemoryTy, IndexSliceTy,
 )
 from cuda.tile._datatype import (
     DType, is_integral, is_float, is_signed, is_boolean, is_pointer_dtype, PointerInfo,
@@ -91,7 +81,10 @@ tile_impl_registry.update(core_impl_registry())
 tile_impl_registry.update(static_eval_impl_registry())
 tile_impl_registry.update(arithmetic_impl_registry())
 impl = tile_impl_registry.impl
-overload_dispatcher = tile_impl_registry.overload_dispatcher
+
+control_flow_impl_registry = ImplRegistry()
+array_impl_registry = ImplRegistry()
+
 
 # ================================================
 # Control flow operations
@@ -171,7 +164,7 @@ class Loop(Operation, opcode="loop"):
         return f"{header_str} (with {carried_vars_str})"
 
 
-@impl(hir_stubs.loop)
+@control_flow_impl_registry.impl(hir_stubs.loop)
 async def loop_impl(body: hir.Block, iterable: Var):
     from .._passes.hir2ir import dispatch_hir_block, retarget_loc
 
@@ -400,7 +393,7 @@ async def _flatten_branch(branch: hir.Block) -> Var | None:
         return None if len(jump.outputs) == 0 else jump.outputs[0]
 
 
-@impl(hir_stubs.if_else)
+@control_flow_impl_registry.impl(hir_stubs.if_else)
 async def if_else_impl(cond: Var, then_block: hir.Block, else_block: hir.Block) -> Var | None:
     from .._passes.hir2ir import dispatch_hir_block, retarget_loc
 
@@ -665,36 +658,6 @@ class FusedMulAddOperation(Operation, opcode="fma"):
                                self.flush_to_zero)
 
 
-@overload_dispatcher(operator.add, fixed_args=["+"])
-@overload_dispatcher(operator.sub, fixed_args=["-"])
-@overload_dispatcher(operator.mul, fixed_args=["*"])
-@overload_dispatcher(operator.floordiv, fixed_args=["//"])
-@overload_dispatcher(operator.truediv, fixed_args=["/"])
-@overload_dispatcher(operator.pow, fixed_args=["**"])
-@overload_dispatcher(operator.mod, fixed_args=["%"])
-@overload_dispatcher(operator.eq, fixed_args=["=="])
-@overload_dispatcher(operator.ne, fixed_args=["!="])
-@overload_dispatcher(operator.lt, fixed_args=["<"])
-@overload_dispatcher(operator.le, fixed_args=["<="])
-@overload_dispatcher(operator.gt, fixed_args=[">"])
-@overload_dispatcher(operator.ge, fixed_args=[">="])
-@overload_dispatcher(operator.and_, fixed_args=["&"])
-@overload_dispatcher(operator.or_, fixed_args=["|"])
-@overload_dispatcher(operator.xor, fixed_args=["^"])
-@overload_dispatcher(operator.lshift, fixed_args=["<<"])
-@overload_dispatcher(operator.rshift, fixed_args=[">>"])
-@overload_dispatcher(operator.matmul, fixed_args=["@"])
-@overload_dispatcher(min, fixed_args=["min"])
-@overload_dispatcher(max, fixed_args=["max"])
-def binop_overload_dispatcher(name: str, x: Var, y: Var):
-    x_ty = x.get_type()
-    y_ty = y.get_type()
-    try:
-        yield type(x_ty), type(y_ty)
-    except OverloadNotFoundError:
-        raise TileTypeError(f"Unsupported operand types for {name}: {x_ty} and {y_ty}")
-
-
 @impl(ct.equal, fixed_args=["eq"])
 @impl(ct.greater, fixed_args=["gt"])
 @impl(ct.not_equal, fixed_args=["ne"])
@@ -703,72 +666,6 @@ def binop_overload_dispatcher(name: str, x: Var, y: Var):
 @impl(ct.less_equal, fixed_args=["le"])
 def tile_comparison_function_impl(fn: str, x: Var, y: Var):
     return compare_tensorlike(fn, ensure_tile(x), ensure_tile(y))
-
-
-def _is_none_compare(x: Var, y: Var, *, negate: bool, op_name: str) -> Var:
-    x_is_none = x.get_type() is NONE
-    y_is_none = y.get_type() is NONE
-    if not (x_is_none or y_is_none):
-        raise TileTypeError(f"Operator '{op_name}' expects one of the operands to be None")
-    return loosely_typed_const((x_is_none == y_is_none) ^ negate)
-
-
-@impl(operator.is_)
-def operator_is_impl(x: Var, y: Var):
-    return _is_none_compare(x, y, negate=False, op_name="is")
-
-
-@impl(operator.is_not)
-def operator_is_not_impl(x: Var, y: Var):
-    return _is_none_compare(x, y, negate=True, op_name="is not")
-
-
-@comparison_operator_impl(tile_impl_registry, TupleTy, TupleTy)
-async def comparison_operator_tuple_impl(fn: str, x: Var, y: Var) -> Var:
-    if fn not in ("eq", "ne"):
-        raise TileTypeError(f"Operator '{fn}' is not supported for tuples")
-
-    x_ty = require_tuple_type(x)
-    y_ty = require_tuple_type(y)
-
-    if x.is_constant() and y.is_constant():
-        res = x.get_constant() == y.get_constant()
-        return loosely_typed_const(res if fn == "eq" else not res)
-
-    if len(x_ty) != len(y_ty):
-        return loosely_typed_const(fn == "ne")
-
-    x_items = x.get_aggregate().items
-    y_items = y.get_aggregate().items
-
-    for item in (*x_items, *y_items):
-        item_ty = item.get_type()
-        if isinstance(item_ty, TileTy) and item_ty.ndim > 0:
-            raise TileTypeError("Tuple comparison is not supported for N-D tile elements")
-        if not isinstance(item_ty, (TileTy, TupleTy, LooselyTypedScalar, DTypeSpec, StringTy)):
-            raise TileTypeError(
-                f"Tuple comparison is not supported for elements of type {item_ty}"
-            )
-
-    from cuda.tile._passes.hir2ir import call_function
-    elem_cmps = [await call_function(operator.eq, xi, yi) for xi, yi in zip(x_items, y_items)]
-    result = functools.reduce(lambda a, b: binary_bitwise_tensorlike("and_", a, b), elem_cmps,
-                              loosely_typed_const(True))
-
-    if fn == "ne":
-        result = logical_not_impl(result)
-
-    return result
-
-
-@comparison_operator_impl(tile_impl_registry, DTypeSpec, DTypeSpec)
-def comparison_dtype_spec_impl(fn: str, x: Var, y: Var):
-    return binop_propagate_constant(fn, x.get_type().dtype, y.get_type().dtype, None)
-
-
-@comparison_operator_impl(tile_impl_registry, StringTy, StringTy)
-def comparison_string_impl(fn: str, x: Var, y: Var):
-    return binop_propagate_constant(fn, x.get_type().value, y.get_type().value, None)
 
 
 @impl(ct.bitwise_and, fixed_args=["and_"])
@@ -834,64 +731,6 @@ def slice_impl(start: Var, stop: Var, step: Var) -> Var:
         raise TileTypeError("Non-constant slices are not supported")
     return loosely_typed_const(
         slice(start.get_constant(), stop.get_constant(), step.get_constant()))
-
-
-@overload_dispatcher(operator.getitem)
-def getitem_overload_dispatcher(object: Var, key: Var):
-    object_ty = object.get_type()
-    key_ty = key.get_type()
-    try:
-        yield type(object_ty), type(key_ty)
-    except OverloadNotFoundError as e:
-        if e.found_overload_matching_first_param:
-            raise TileTypeError(f"Object of type {object_ty} is not subscriptable with {key_ty}")
-        else:
-            raise TileTypeError(f"Object of type {object_ty} is not subscriptable")
-
-
-# ===========================================================================================
-# Tuple getitem
-# ===========================================================================================
-
-def tuple_item(tup: TupleValue, index: int) -> Var:
-    assert isinstance(tup, TupleValue)
-    try:
-        return tup.items[index]
-    except IndexError:
-        raise TileTypeError(
-                f"Index {index} is out of range for a tuple of length {len(tup.items)}")
-
-
-@impl(operator.getitem, overload=(TupleTy, TileTy))
-def getitem_tuple_item_impl(object: Var, key: Var) -> Var:
-    tuple_val = object.get_aggregate()
-    assert isinstance(tuple_val, TupleValue)
-
-    key_ty = key.get_type()
-    if key_ty.ndim != 0 or not is_integral(key_ty.dtype):
-        raise TileTypeError(f"Tuple indices must be integers or slices, not {key_ty}")
-
-    if not key.is_constant():
-        raise TileTypeError("Tuple indices must be constant")
-
-    idx = key.get_constant()
-    return tuple_item(tuple_val, idx)
-
-
-@impl(operator.getitem, overload=(TupleTy, SliceType))
-def getitem_tuple_slice_impl(object: Var, key: Var) -> Var:
-    tuple_val = object.get_aggregate()
-    assert isinstance(tuple_val, TupleValue)
-
-    slc = require_constant_slice(key)
-    items = tuple_val.items[slc]
-    return build_tuple(items)
-
-
-@impl(operator.getitem, overload=(TupleTy, WILDCARD))
-def getitem_tuple_fallback_impl(object: Var, key: Var) -> Var:
-    key_ty = key.get_type()
-    raise TileTypeError(f"Tuple indices must be integers or slices, not {key_ty}")
 
 
 # ===========================================================================================
@@ -1053,21 +892,6 @@ def getitem_array_impl(object: Var, key: Var) -> Var:
 
 # ===========================================================================================
 
-@overload_dispatcher(operator.setitem)
-def setitem_overload_dispatcher(object: Var, key: Var, value: Var):
-    object_ty = object.get_type()
-    key_ty = key.get_type()
-    value_ty = value.get_type()
-    try:
-        yield type(object_ty), type(key_ty), type(value_ty)
-    except OverloadNotFoundError as e:
-        if e.found_overload_matching_first_param:
-            raise TileTypeError(f"Object of type {object_ty} does not support"
-                                f" item assignment with key type {key_ty}"
-                                f" and value type {value_ty}")
-        else:
-            raise TileTypeError(f"Object of type {object_ty} does not support item assignment")
-
 
 @impl(operator.setitem, overload=(ArrayTy, WILDCARD, WILDCARD))
 def setitem_array_impl(object: Var, key: Var, value: Var):
@@ -1079,267 +903,50 @@ def setitem_tile_impl(object: Var, key: Var, value: Var):
     raise TileTypeError("Tiles are immutable: item assignment is not supported.")
 
 
-@impl(operator.setitem, overload=(TupleTy, WILDCARD, WILDCARD))
-def setitem_tuple_impl(object: Var, key: Var, value: Var):
-    raise TileTypeError("Tuples are immutable: item assignment is not supported.")
-
-
-@impl(len)
-def len_impl(x: Var) -> Var:
-    x_type = x.get_type()
-    if isinstance(x_type, TupleTy):
-        return loosely_typed_const(len(x_type))
-    require_list_type(x)
+@impl(len, overload=(ListTy,))
+def len_list_impl(x: Var[ListTy]) -> Var:
     list_val = x.get_aggregate()
     assert isinstance(list_val, ListValue)
     return list_val.length
 
 
-@impl(hir_stubs.build_formatted_string)
-def build_formatted_string_impl(format: StringFormat, values: tuple[Var, ...]) -> Var:
-    new_pieces = []
-    new_values = []
-    has_single_quote = False
-    has_double_quote = False
-
-    def _update_has_quote_flags(s: str):
-        nonlocal has_single_quote, has_double_quote
-        if "'" in s:
-            has_single_quote = True
-        if '"' in s:
-            has_double_quote = True
-
-    def _build_formatted_string(fmt: StringFormat, vals: tuple[Var, ...]):
-        for piece in fmt.pieces:
-            if isinstance(piece, str):
-                new_pieces.append(piece)
-                _update_has_quote_flags(piece)
-            else:
-                val_var = vals[piece.value_idx]
-                val_ty = val_var.get_type()
-                if isinstance(val_ty, FormattedStringTy):
-                    if piece.format_spec is not None:
-                        raise TileTypeError(
-                            "f-string: cannot apply format spec to a formatted string value",
-                            val_var.loc)
-                    inner_val = val_var.get_aggregate()
-                    assert isinstance(inner_val, FormattedStringValue)
-                    _build_formatted_string(val_ty.format, inner_val.values)
-                else:
-                    new_pieces.append(FormattedPiece(len(new_values), piece.format_spec))
-                    new_values.append(val_var)
-                    if isinstance(val_ty, StringTy):
-                        _update_has_quote_flags(val_ty.value)
-
-    _build_formatted_string(format, values)
-    new_fmt = StringFormat(tuple(new_pieces))
-    ty = FormattedStringTy(new_fmt, tuple(v.get_type() for v in new_values),
-                           has_single_quote, has_double_quote)
-    return make_aggregate(FormattedStringValue(new_fmt, tuple(new_values)), ty)
+@impl(ct.log, fixed_args=["log", UNARY_FLOAT])
+@impl(ct.log2, fixed_args=["log2", UNARY_FLOAT])
+@impl(ct.tan, fixed_args=["tan", UNARY_FLOAT])
+@impl(ct.sin, fixed_args=["sin", UNARY_FLOAT])
+@impl(ct.sinh, fixed_args=["sinh", UNARY_FLOAT])
+@impl(ct.cos, fixed_args=["cos", UNARY_FLOAT])
+@impl(ct.cosh, fixed_args=["cosh", UNARY_FLOAT])
+@impl(ct.bitwise_not, fixed_args=["bitwise_not", UNARY_BOOL_INT])
+@impl(ct.floor, fixed_args=["floor", UNARY_STRICT_FLOAT])
+@impl(ct.ceil, fixed_args=["ceil", UNARY_STRICT_FLOAT])
+@impl(ct.negative, fixed_args=["neg", UNARY_INT_FLOAT])
+@impl(ct.abs, fixed_args=["abs", UNARY_ANYTHING])
+@impl(abs, fixed_args=["abs", UNARY_ANYTHING])
+def unary_impl(fn: str, behavior: UnaryBehavior, x: Var) -> Var:
+    return unary(fn, behavior, ensure_tile(x))
 
 
-@impl(hir_stubs.unpack)
-def unpack_impl(iterable: Var, expected_len: Var) -> Var:
-    ty = iterable.get_type()
-    # Don't use the require_tuple_type() helper because we'd like to customize the error message
-    if not isinstance(ty, TupleTy):
-        raise TileTypeError("Expected a tuple", iterable.loc)
-    expected_len = require_constant_int(expected_len)
-    if len(ty.value_types) != expected_len:
-        few_many = "few" if len(ty.value_types) < expected_len else "many"
-        raise TileValueError(f"Too {few_many} values to unpack"
-                             f" (expected {expected_len}, got {len(ty.value_types)})")
-    # Return the input tuple. If we add support for additional iterables,
-    # the idea is to cast them to a tuple here.
-    return iterable
-
-
-@dataclass(eq=False)
-class Unary(Operation, opcode="unaryop"):
-    fn: str = attribute()
-    rounding_mode: Optional[RoundingMode] = attribute()
-    flush_to_zero: bool = attribute()
-    operand: Var = operand()
-
-    @override
-    def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
-        x = ctx.get_value(self.operand)
-        rm = (self.rounding_mode if self.rounding_mode is not None
-              else get_default_rounding_mode(self.fn))
-        rounding_mode = rounding_mode_to_bytecode[rm]
-        flush_to_zero = self.flush_to_zero
-        input_type = ctx.typeof(self.operand)
-        input_dtype = get_dtype(input_type)
-        flt = is_float(input_dtype)
-        res_type_id = ctx.typeid_of(self.result_var)
-
-        match self.fn, flt:
-            case "abs", True: return bc.encode_AbsFOp(ctx.builder, res_type_id, x)
-            case "abs", False: return bc.encode_AbsIOp(ctx.builder, res_type_id, x)
-            case "neg", True: return bc.encode_NegFOp(ctx.builder, res_type_id, x)
-            case "neg", False: return bc.encode_NegIOp(ctx.builder, res_type_id, x,
-                                                       bc.IntegerOverflow.NONE)
-            case "exp", True: return bc.encode_ExpOp(ctx.builder, res_type_id, x,
-                                                     rounding_mode=rounding_mode)
-            case "exp2", True: return bc.encode_Exp2Op(ctx.builder, res_type_id, x,
-                                                       flush_to_zero=flush_to_zero)
-            case "sin", True: return bc.encode_SinOp(ctx.builder, res_type_id, x)
-            case "cos", True: return bc.encode_CosOp(ctx.builder, res_type_id, x)
-            case "sinh", True: return bc.encode_SinHOp(ctx.builder, res_type_id, x)
-            case "cosh", True: return bc.encode_CosHOp(ctx.builder, res_type_id, x)
-            case "tan", True: return bc.encode_TanOp(ctx.builder, res_type_id, x)
-            case "tanh", True: return bc.encode_TanHOp(ctx.builder, res_type_id, x,
-                                                       rounding_mode=rounding_mode)
-            case "log", True: return bc.encode_LogOp(ctx.builder, res_type_id, x)
-            case "log2", True: return bc.encode_Log2Op(ctx.builder, res_type_id, x)
-            case "sqrt", True: return bc.encode_SqrtOp(ctx.builder, res_type_id, x,
-                                                       rounding_mode=rounding_mode,
-                                                       flush_to_zero=flush_to_zero)
-            case "rsqrt", True: return bc.encode_RsqrtOp(ctx.builder, res_type_id, x,
-                                                         flush_to_zero=flush_to_zero)
-            case "floor", True: return bc.encode_FloorOp(ctx.builder, res_type_id, x)
-            case "ceil", True: return bc.encode_CeilOp(ctx.builder, res_type_id, x)
-            case "invert" | "bitwise_not", False:
-                # ~tx == tx ^ ~0
-                all_ones = (-1 if datatype.is_signed(input_dtype)
-                            else ~(-1 << input_dtype.bitwidth))
-                all_ones_tile = ctx.constant(all_ones, input_type)
-                return bc.encode_XOrIOp(ctx.builder, res_type_id, x, all_ones_tile)
-            case _:
-                raise NotImplementedError(f"Missing implementation for unary op: {self.fn}")
-
-
-def _unary_promote_to_int(x):
-    return astype(x, datatype.default_int_type)
-
-
-def _unary_promote_to_float(x):
-    return astype(x, datatype.default_float_type)
-
-
-def _unary_preserve(x):
-    return x
-
-
-@dataclass
-class _UnaryBehavior:
-    bool_handler: Optional[Callable[[Var], Var]]
-    int_handler: Optional[Callable[[Var], Var]]
-    float_handler: Optional[Callable[[Var], Var]]
-
-
-def _unary_propagate_constant(fn: str, arg: Any) -> Any:
-    impl = UNARYOP_REGISTRY[fn].impl
-    with reraise_tile_exception():
-        return impl(arg)
-
-
-def unary(fn: str, behavior: _UnaryBehavior, x: Var,
-          rounding_mode: Optional[RoundingMode] = None, flush_to_zero: bool = False) -> Var:
-    x_type = require_tile_maybe_loose_type(x)
-    if isinstance(x_type, LooselyTypedScalar):
-        res = _unary_propagate_constant(fn, x_type.value)
-        return loosely_typed_const(res)
-
-    input_dtype = get_dtype(x_type)
-    if is_boolean(input_dtype):
-        if behavior.bool_handler is None:
-            raise TileTypeError("Boolean inputs are not supported")
-        x = behavior.bool_handler(x)
-    elif is_integral(input_dtype):
-        if behavior.int_handler is None:
-            raise TileTypeError("Integer inputs are not supported")
-        x = behavior.int_handler(x)
-    elif is_float(input_dtype):
-        if behavior.float_handler is None:
-            raise TileTypeError("Float inputs are not supported")
-        x = behavior.float_handler(x)
-    else:
-        raise TileTypeError(f"Unexpected input dtype {input_dtype}")
-
-    ty = x.get_type()
-    if x.is_constant():
-        res = _unary_propagate_constant(fn, x.get_constant())
-        return strictly_typed_const(res, ty)
-
-    check_rd_and_ftz(fn, rounding_mode, flush_to_zero, get_dtype(ty))
-
-    return add_operation(Unary, ty, fn=fn, operand=x,
-                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
-
-
-_UNARY_FLOAT = _UnaryBehavior(_unary_promote_to_float, _unary_promote_to_float, _unary_preserve)
-_UNARY_STRICT_FLOAT = _UnaryBehavior(None, None, _unary_preserve)
-_UNARY_INT_FLOAT = _UnaryBehavior(_unary_promote_to_int, _unary_preserve, _unary_preserve)
-_UNARY_BOOL_INT = _UnaryBehavior(_unary_preserve, _unary_preserve, None)
-_UNARY_ANYTHING = _UnaryBehavior(_unary_preserve, _unary_preserve, _unary_preserve)
-
-
-@impl(operator.not_)
-def logical_not_impl(x: Var) -> Var:
-    ty = require_0d_tile_maybe_loose_type(x)
-
-    if isinstance(ty, LooselyTypedScalar):
-        return loosely_typed_const(not ty.value)
-
-    x = astype(x, datatype.bool_)
-    if x.is_constant():
-        return strictly_typed_const(not x.get_constant(), x.get_type())
-
-    return add_operation(Unary, x.get_type(), fn="invert", operand=x,
-                         rounding_mode=None, flush_to_zero=False)
-
-
-@impl(operator.pos)
-def pos_impl(x: Var):
-    ty = require_tile_maybe_loose_type(x)
-
-    if isinstance(ty, LooselyTypedScalar):
-        return loosely_typed_const(+ty.value)
-
-    if get_dtype(ty) == datatype.bool_:
-        return astype(x, datatype.default_int_type)
-    else:
-        return x
-
-
-@impl(ct.log, fixed_args=["log", _UNARY_FLOAT])
-@impl(ct.log2, fixed_args=["log2", _UNARY_FLOAT])
-@impl(ct.tan, fixed_args=["tan", _UNARY_FLOAT])
-@impl(ct.sin, fixed_args=["sin", _UNARY_FLOAT])
-@impl(ct.sinh, fixed_args=["sinh", _UNARY_FLOAT])
-@impl(ct.cos, fixed_args=["cos", _UNARY_FLOAT])
-@impl(ct.cosh, fixed_args=["cosh", _UNARY_FLOAT])
-@impl(ct.bitwise_not, fixed_args=["bitwise_not", _UNARY_BOOL_INT])
-@impl(ct.floor, fixed_args=["floor", _UNARY_STRICT_FLOAT])
-@impl(ct.ceil, fixed_args=["ceil", _UNARY_STRICT_FLOAT])
-@impl(ct.negative, fixed_args=["neg", _UNARY_INT_FLOAT])
-@impl(ct.abs, fixed_args=["abs", _UNARY_ANYTHING])
-@impl(abs, fixed_args=["abs", _UNARY_ANYTHING])
-@impl(operator.invert, fixed_args=["invert", _UNARY_BOOL_INT])
-@impl(operator.neg, fixed_args=["neg", _UNARY_INT_FLOAT])
-def unary_impl(fn: str, behavior: _UnaryBehavior, x: Var) -> Var:
-    return unary(fn, behavior, x)
-
-
-@impl(ct.rsqrt, fixed_args=["rsqrt", _UNARY_FLOAT])
-@impl(ct.exp2, fixed_args=["exp2", _UNARY_FLOAT])
-def unary_impl_with_ftz(fn: str, behavior: _UnaryBehavior, x: Var, flush_to_zero: Var) -> Var:
+@impl(ct.rsqrt, fixed_args=["rsqrt", UNARY_FLOAT])
+@impl(ct.exp2, fixed_args=["exp2", UNARY_FLOAT])
+def unary_impl_with_ftz(fn: str, behavior: UnaryBehavior, x: Var, flush_to_zero: Var) -> Var:
     flush_to_zero = require_constant_bool(flush_to_zero)
-    return unary(fn, behavior, x, flush_to_zero=flush_to_zero)
+    return unary(fn, behavior, ensure_tile(x), flush_to_zero=flush_to_zero)
 
 
-@impl(ct.sqrt, fixed_args=["sqrt", _UNARY_FLOAT])
-def unary_impl_with_rd_and_ftz(fn: str, behavior: _UnaryBehavior,
+@impl(ct.sqrt, fixed_args=["sqrt", UNARY_FLOAT])
+def unary_impl_with_rd_and_ftz(fn: str, behavior: UnaryBehavior,
                                x: Var, rounding_mode: Var, flush_to_zero: Var) -> Var:
+    x = ensure_tile(x)
     rounding_mode = require_optional_constant_enum(rounding_mode, RoundingMode)
     flush_to_zero = require_constant_bool(flush_to_zero)
     return unary(fn, behavior, x, rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
 
 
-@impl(ct.tanh, fixed_args=["tanh", _UNARY_FLOAT])
-@impl(ct.exp, fixed_args=["exp", _UNARY_FLOAT])
-def unary_impl_with_rd(fn: str, behavior: _UnaryBehavior, x: Var, rounding_mode: Var) -> Var:
+@impl(ct.tanh, fixed_args=["tanh", UNARY_FLOAT])
+@impl(ct.exp, fixed_args=["exp", UNARY_FLOAT])
+def unary_impl_with_rd(fn: str, behavior: UnaryBehavior, x: Var, rounding_mode: Var) -> Var:
+    x = ensure_tile(x)
     rounding_mode = require_optional_constant_enum(rounding_mode, RoundingMode)
     return unary(fn, behavior, x, rounding_mode=rounding_mode)
 
@@ -1361,43 +968,33 @@ def isnan_impl(x: Var) -> Var:
     raise TileTypeError(f"Unexpected input type {x_type}")
 
 
-@overload_dispatcher(getattr)
-def getattr_overload_dispatcher(object: Var, name: Var):
-    ty = object.get_type()
-    attr_name = require_constant_str(name)
-    try:
-        yield type(ty), attr_name
-    except OverloadNotFoundError:
-        raise TileTypeError(f"No such attribute '{attr_name}' for object of type {ty}")
-
-
 # ===========================================================================================
 # Array attributes
 # ===========================================================================================
 
-@impl(getattr, overload=(ArrayTy, "dtype"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "dtype"))
 def getattr_array_dtype_impl(object: Var, name: Var):
     return loosely_typed_const(object.get_type().dtype)
 
 
-@impl(getattr, overload=(ArrayTy, "ndim"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "ndim"))
 def getattr_array_ndim_impl(object: Var, name: Var):
     return loosely_typed_const(object.get_type().ndim)
 
 
-@impl(getattr, overload=(ArrayTy, "shape"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "shape"))
 def getattr_array_shape_impl(object: Var, name: Var):
     return build_tuple(object.get_aggregate().shape)
 
 
-@impl(getattr, overload=(ArrayTy, "strides"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "strides"))
 def getattr_array_strides_impl(object: Var, name: Var):
     return build_tuple(object.get_aggregate().strides)
 
 
-@impl(getattr, overload=(ArrayTy, "slice"))
-@impl(getattr, overload=(ArrayTy, "tiled_view"))
-@impl(getattr, overload=(ArrayTy, "get_raw_memory"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "slice"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "tiled_view"))
+@array_impl_registry.impl(getattr, overload=(ArrayTy, "get_raw_memory"))
 def getattr_array_method(object: Var, name: Var):
     name = require_constant_str(name)
     unbound_func = getattr(ct.Array, name)
@@ -1492,135 +1089,6 @@ def getattr_raw_array_memory_method(object: Var, name: Var):
     name = require_constant_str(name)
     unbound_func = getattr(ct.RawArrayMemory, name)
     return bind_method(object, unbound_func)
-
-
-# ===========================================================================================
-# Module & class attributes
-# ===========================================================================================
-
-@impl(getattr, overload=(ModuleTy, WILDCARD))
-def getattr_module_impl(object: Var, name: Var):
-    ty = object.get_type()
-    attr_name = require_constant_str(name)
-    try:
-        return sym2var(getattr(ty.py_mod, attr_name), constant_only=True)
-    except AttributeError:
-        raise TileTypeError(f"Module '{ty.py_mod.__name__}' has no attribute '{attr_name}'")
-
-
-@impl(getattr, overload=(TypeTy, WILDCARD))
-def getattr_type_impl(object: Var, name: Var):
-    ty = object.get_type()
-    attr_name = require_constant_str(name)
-    try:
-        return sym2var(getattr(ty.ty, attr_name), constant_only=True)
-    except AttributeError:
-        raise TileTypeError(f"'{ty.ty.__name__}' object has no attribute '{attr_name}'")
-
-
-# ===========================================================================================
-# Dataclass attributes
-# ===========================================================================================
-
-@impl(getattr, overload=(DataclassTy, WILDCARD))
-async def getattr_dataclass_impl(object: Var, name: Var):
-    ty = object.get_type()
-    val = object.get_aggregate()
-    assert isinstance(val, DataclassValue)
-    attr_name = require_constant_str(name)
-    field_idx = val.info.field_name_to_idx.get(attr_name)
-    if field_idx is not None:
-        return val.items[field_idx]
-
-    cls = ty.cls
-    try:
-        cls_attr = getattr(cls, attr_name)
-    except AttributeError:
-        raise TileTypeError(f"'{cls.__name__}' object has no attribute '{attr_name}'")
-
-    if isinstance(cls_attr, FunctionType | BuiltinFunctionType):
-        return bind_method(object, cls_attr)
-    elif isinstance(cls_attr, property):
-        from .._passes.hir2ir import call
-        getter = loosely_typed_const(cls_attr.fget)
-        return await call(getter, (object,), {})
-    else:
-        return sym2var(cls_attr, constant_only=True)
-
-
-# ===========================================================================================
-
-
-@dataclass(eq=False)
-class Assign(Operation, opcode="assign"):
-    value: Var = operand()
-
-    @override
-    def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
-        # FIXME: Ideally, all Assign ops should be eliminated before the bytecode generation stage.
-        #        But keep this for now just in case.
-        return ctx.get_value(self.value)
-
-    @override
-    def _to_string_rhs(self) -> str:
-        return f"{self.value.name}"
-
-
-def assign(value: Var, res: Var) -> None:
-    Builder.get_current().append_verbatim(Assign(value=value, result_vars=(res,), loc=res.loc))
-    res.ctx.copy_type_information(value, res)
-
-
-@impl(hir_stubs.identity)
-def identity_impl(x: Var) -> Var:
-    if x.is_constant():
-        ty = x.get_type()
-        if ty.is_aggregate():
-            return make_aggregate(x.get_aggregate(), ty, x.get_loose_type())
-        else:
-            return loosely_typed_const(x.get_constant(), x.get_type(), x.get_loose_type())
-    else:
-        return x
-
-
-@impl(range)
-def range_(args: Tuple[Var, ...]) -> Var:
-    if not 1 <= len(args) <= 3:
-        raise TileTypeError(f"Invalid number of arguments: {len(args)}")
-    for arg in args:
-        require_signed_integer_0d_tile_type(arg)
-
-    if len(args) == 1:
-        start = strictly_typed_const(0, TileTy(datatype.default_int_type))
-        stop = args[0]
-        step = strictly_typed_const(1, TileTy(datatype.default_int_type))
-    elif len(args) == 2:
-        start, stop = args[0], args[1]
-        step = strictly_typed_const(1, TileTy(datatype.default_int_type))
-    else:
-        start, stop, step = args[0], args[1], args[2]
-        # FIXME(Issue 314): Support negative step.
-        # Error out if step is constant and not positive.
-        if step.is_constant() and step.get_constant() <= 0:
-            raise TileTypeError(f"Step must be positive, got {step.get_constant()}")
-
-    agg_value = RangeValue(start, stop, step)
-    ty = RangeIterType(datatype.default_int_type)
-    return make_aggregate(agg_value, ty)
-
-
-@impl(float, fixed_args=[float])
-@impl(int, fixed_args=[int])
-@impl(bool, fixed_args=[bool])
-def builtin_numeric_ctor_impl(ctor_obj: Any, x: Var) -> Var:
-    if not x.is_constant():
-        raise TileTypeError(f"{ctor_obj.__name__}() expects a constant argument")
-    const = x.get_constant()
-    try:
-        value = ctor_obj(const)
-    except (ValueError, TypeError, OverflowError):
-        raise TileTypeError(f"Invalid argument for {ctor_obj.__name__}({const})")
-    return loosely_typed_const(value)
 
 
 # ================================================
@@ -1875,7 +1343,7 @@ def num_blocks(axis: Var) -> Var:
     return add_operation(TileNumBlocks, TileTy(datatype.default_int_type), axis=axis)
 
 
-@impl(ct.Array.slice)
+@array_impl_registry.impl(ct.Array.slice)
 def array_slice_impl(self: Var, axis: Var, start: Var, stop: Var) -> Var:
     array_ty = require_array_type(self)
     const_axis = normalize_axis(require_constant_int(axis), array_ty.ndim)
@@ -3855,24 +3323,6 @@ def tile_where_function_impl(cond, x, y):
     return where(ensure_tile(cond), ensure_tile(x), ensure_tile(y))
 
 
-@dataclass(eq=False)
-class TilePrintf(Operation, opcode="tile_printf", memory_effect=MemoryEffect.STORE):
-    format: str = attribute()
-    args: Tuple[Var, ...] = operand()
-
-    @override
-    def generate_bytecode(self, ctx: BytecodeContext):
-        arg_vars = [ctx.get_value(arg) for arg in self.args]
-        if ctx.builder.version >= bc.BytecodeVersion.V_13_2:
-            result_typeid = ctx.type_table.Token
-            bc.encode_PrintTkoOp(ctx.builder, result_typeid, arg_vars, None, self.format)
-        else:
-            with tile_mutex("print_mutex", ctx):
-                result_typeid = None
-                bc.encode_PrintTkoOp(ctx.builder, result_typeid, arg_vars, None, self.format)
-        return []
-
-
 @impl(ct.printf)
 def printf_impl(format: Var, args: Tuple[Var, ...]) -> None:
     format_str = require_constant_str(format)
@@ -3882,72 +3332,8 @@ def printf_impl(format: Var, args: Tuple[Var, ...]) -> None:
 
 
 @impl(ct.print)
-@impl(builtins.print)
-def print_impl(args: Tuple[Var, ...], sep: Var, end: Var) -> None:
-    format_parts = []
-    leaf_vars = []
-
-    def _get_string_quotes(has_single_quote: bool, has_double_quote: bool) -> str:
-        return "'" if not has_single_quote or has_double_quote else '"'
-
-    def _expand_var(var: Var | str, format_spec: str | None = None,
-                    is_tuple_element: bool = False, escape_in_str: str | None = None):
-        if isinstance(var, str) or isinstance(ty := var.get_type(), StringTy):
-            str_val = var if isinstance(var, str) else ty.value
-            escaped = PrintfValidator.escape_str(str_val)
-            if is_tuple_element:
-                string_quote = _get_string_quotes("'" in escaped, '"' in escaped)
-                escaped = escaped.replace(string_quote, f"\\{string_quote}")
-                format_parts.append(f"{string_quote}{escaped}{string_quote}")
-            else:
-                if escape_in_str is not None:
-                    escaped = escaped.replace(escape_in_str, f"\\{escape_in_str}")
-                format_parts.append(escaped)
-        elif isinstance(ty, FormattedStringTy):
-            if is_tuple_element:
-                string_quote = _get_string_quotes(ty.has_single_quote, ty.has_double_quote)
-                format_parts.append(string_quote)
-            else:
-                string_quote = None
-            val = var.get_aggregate()
-            for piece in ty.format.pieces:
-                if isinstance(piece, str):
-                    _expand_var(piece, escape_in_str=string_quote)
-                else:
-                    _expand_var(val.values[piece.value_idx], piece.format_spec,
-                                escape_in_str=string_quote)
-            if is_tuple_element:
-                format_parts.append(string_quote)
-        elif isinstance(ty, TupleTy):
-            if format_spec is not None:
-                raise TileTypeError(
-                    "f-string: cannot apply format spec to a tuple value",
-                    var.loc)
-
-            agg = var.get_aggregate()
-            format_parts.append('(')
-            for i, item in enumerate(agg.items):
-                _expand_var(item, is_tuple_element=True)
-                if i < len(agg.items) - 1:
-                    format_parts.append(', ')
-            format_parts.append(',)' if len(agg.items) == 1 else ')')
-        else:
-            tile_ty = require_tile_type(var)
-            if format_spec is not None:
-                format_parts.append(PrintfValidator.apply_python_spec(
-                    format_spec, get_dtype(tile_ty)))
-            else:
-                format_parts.append(PrintfValidator.infer_format(get_dtype(tile_ty)))
-            leaf_vars.append(var)
-
-    for i, arg_var in enumerate(args):
-        if i > 0:
-            format_parts.append(PrintfValidator.escape_str(require_constant_str(sep)))
-        _expand_var(arg_var)
-    format_parts.append(PrintfValidator.escape_str(require_constant_str(end)))
-
-    final_format = ''.join(format_parts)
-    add_operation_variadic(TilePrintf, (), format=final_format, args=tuple(leaf_vars))
+def _tile_print_impl(args: tuple[Var, ...], sep: Var, end: Var) -> None:
+    return print_impl(args, sep, end)
 
 
 @dataclass(eq=False)
@@ -4535,99 +3921,13 @@ def store_advanced_impl(array: Var, indices: Var, tile: Var,
                   latency=latency_val, allow_tma=allow_tma_val)
 
 
-def store_var(local_idx: int, value: Var, loc: Loc | None = None):
-    scope = Scope.get_current()
-    new_var = scope.local.redefine(local_idx, loc or Builder.get_current().loc)
-    assign(value, new_var)
-
-
-def store_invalid(local_idx: int, ty: Type, loc: Loc | None = None):
-    assert isinstance(ty, InvalidType)
-    scope = Scope.get_current()
-    new_var = scope.local.redefine(local_idx, loc or Builder.get_current().loc)
-    new_var.set_type(ty)
-
-
-@impl(hir_stubs.store_var)
-def store_var_impl(name: Var, value: Var):
-    name = require_constant_str(name)
-    scope = Scope.get_current()
-    index = scope.get_local_index(name)
-    store_var(index, value)
-
-
-@impl(hir_stubs.load_var)
-def load_var_impl(name):
-    name = require_constant_str(name)
-    scope = Scope.get_current()
-    rn: ResolvedName = scope.func_hir.used_names[name]
-    if rn.depth >= 0:
-        ret = scope.local_scopes[rn.depth][rn.index]
-        ret.get_type()  # Trigger an InvalidType check
-        return ret
-    elif rn.index >= 0:
-        val = scope.func_hir.frozen_global_values[rn.index]
-        return sym2var(val, constant_only=True)
-    else:
-        raise TileSyntaxError(f"Undefined variable {name} used")
-
-
-@overload_dispatcher(hir_stubs.enter_context)
-def enter_context_overload_dispatcher(manager: Var):
-    ty = manager.get_type()
-    if not isinstance(ty, ContextManagerTy):
-        raise TileTypeError(f"Object of type {ty} cannot be used as a context manager")
-
-    state = ty.get_context_manager_state()
-    if state.lifecycle != ContextManagerLifecycle.FRESH:
-        raise TileTypeError("Context manager cannot be reused")
-    state.lifecycle = ContextManagerLifecycle.ENTERED
-    Scope.get_current().context_stack.append(state)
-
-    try:
-        yield (type(ty),)
-    except OverloadNotFoundError:
-        raise TileTypeError(f"Object of type {ty} cannot be used as a context manager")
-
-
-@impl(hir_stubs.pop_context)
-def pop_context_impl():
-    ctx_state = Scope.get_current().context_stack.pop()
-    ctx_state.lifecycle = ContextManagerLifecycle.EXITED
-    ctx_state.exit_callback()
-
-
-@impl(hir_stubs.make_closure)
-def make_closure_impl(func_hir: hir.Function, default_values: tuple[Var, ...]):
-    default_value_types = tuple(v.get_type() for v in default_values)
-
-    frozen_captures_by_depth = []
-    frozen_capture_types_by_depth = []
-    captured_scopes = []
-
-    builder = Builder.get_current()
-    scope = Scope.get_current()
-    for depth, (local_scope, captured_indices) in (enumerate(
-                zip(scope.local_scopes, func_hir.captures_by_depth, strict=True))):
-        if local_scope.frozen:
-            frozen_vars = tuple(local_scope.get(idx, builder.loc) for idx in captured_indices)
-            frozen_captures_by_depth.append(frozen_vars)
-            frozen_types = tuple(v.get_type_allow_invalid() for v in frozen_vars)
-            frozen_capture_types_by_depth.append(frozen_types)
-        else:
-            captured_scopes.append(LiveCapturedScope(depth, local_scope))
-            frozen_captures_by_depth.append(None)
-            frozen_capture_types_by_depth.append(None)
-
-    closure_ty = ClosureTy(func_hir, default_value_types, tuple(captured_scopes),
-                           tuple(frozen_capture_types_by_depth))
-    closure_val = ClosureValue(default_values, tuple(frozen_captures_by_depth))
-    return make_aggregate(closure_val, closure_ty)
-
-
 def _add_dummy_op_to_invalid_vars(vars: Sequence[Var],
                                   actual_types: Sequence[Type]) -> tuple[Var, ...]:
     return tuple(add_operation(MakeDummy, actual)
                  if isinstance(v.get_type_allow_invalid(), InvalidType)
                  else v
                  for v, actual in zip(vars, actual_types, strict=True))
+
+
+tile_impl_registry.update(control_flow_impl_registry)
+tile_impl_registry.update(array_impl_registry)

@@ -22,11 +22,11 @@ from cuda.tile._ir.op_impl import (
     require_array_type,
     WILDCARD,
     require_tile_type, require_constant_bool, require_constant_pointer_info,
-    require_scalar_pointer_type,
+    require_scalar_pointer_type, ImplRegistry,
 )
 from cuda.tile._ir.type import TensorLikeTy
 from cuda.tile._ir.core_ops import (
-    TypedConst,
+    TypedConst, core_impl_registry,
 )
 from cuda.tile._ir.arithmetic_ops import (
     binary_arithmetic_tensorlike,
@@ -37,12 +37,14 @@ from cuda.tile._ir.arithmetic_ops import (
     RawBitwiseShiftOperation,
     TileAsType,
     RawWhereOperation,
+    Unary,
+    arithmetic_impl_registry,
 )
+from cuda.tile._ir.static_eval_ops import static_eval_impl_registry
 from cuda.tile._ir.ops import (
     tile_impl_registry,
     Return,
     return_,
-    Assign,
     AssumeBounded,
     AssumeDivBy,
     MakeTensorView,
@@ -55,12 +57,13 @@ from cuda.tile._ir.ops import (
     PointerOffset,
     TilePrintf,
     printf_impl,
-    Unary,
+    control_flow_impl_registry, array_impl_registry,
 )
 from cuda.tile._ir.arithmetic_ops import (
     astype,
 )
 from cuda.tile._ir.core_ops import (
+    Assign,
     bind_method,
     build_tuple,
     loosely_typed_const,
@@ -111,7 +114,12 @@ from .._stub import TensorMapSwizzle, MbarrierScope, foreign_function
 from cuda.tile._ir import hir_stubs
 from cuda.tile._ir.typing_support import I32_TY, U64_TY, BOOL_TY
 
-cuda_lang_impl_registry = tile_impl_registry.clone()
+cuda_lang_impl_registry = ImplRegistry()
+cuda_lang_impl_registry.update(core_impl_registry())
+cuda_lang_impl_registry.update(static_eval_impl_registry())
+cuda_lang_impl_registry.update(arithmetic_impl_registry())
+cuda_lang_impl_registry.update(control_flow_impl_registry)
+cuda_lang_impl_registry.update(array_impl_registry)
 impl = cuda_lang_impl_registry.impl
 overload_dispatcher = cuda_lang_impl_registry.overload_dispatcher
 

@@ -212,7 +212,7 @@ def test_tuple_compare_nd_tile_error():
         if (t,) == (t,):
             pass
 
-    with pytest.raises(TileTypeError, match="not supported for N-D tile elements"):
+    with pytest.raises(TileTypeError, match="not supported for non-scalar elements"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, ())
 
 

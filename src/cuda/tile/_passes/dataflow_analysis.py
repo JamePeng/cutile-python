@@ -14,10 +14,11 @@ from cuda.tile._ir.ir import Var, Block
 from cuda.tile._ir.arithmetic_ops import (
     TileBroadcast, TileAsType, RawBinaryArithmeticOperation
 )
-from cuda.tile._ir.core_ops import TypedConst
-from cuda.tile._ir.ops import Assign, GetArrayListItem, \
+from cuda.tile._ir.core_ops import TypedConst, Assign
+from cuda.tile._ir.arithmetic_ops import Unary
+from cuda.tile._ir.ops import GetArrayListItem, \
     Loop, IfElse, Continue, Break, EndBranch, PointerOffset, \
-    TileReshape, AssumeDivBy, TileReduce, TileScan, AssumeBounded, Unary
+    TileReshape, AssumeDivBy, TileReduce, TileScan, AssumeBounded
 from cuda.tile.compilation._signature import ParameterConstraint, \
     ArrayConstraint, ListConstraint, ScalarConstraint
 

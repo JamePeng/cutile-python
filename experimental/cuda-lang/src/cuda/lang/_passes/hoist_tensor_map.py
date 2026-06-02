@@ -12,7 +12,7 @@ from cuda.lang._ir.ops import CreateTensorMap
 from cuda.lang._ir.type import TensorMapTy
 from cuda.tile import TileTypeError
 from cuda.tile._ir.ir import Var
-from cuda.tile._ir.ops import assign
+from cuda.tile._ir.core_ops import assign
 from cuda.tile import _cext
 
 

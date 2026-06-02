@@ -75,11 +75,6 @@ class ImplRegistry:
         finally:
             _current_registry.impl_registry = old
 
-    def clone(self) -> "ImplRegistry":
-        ret = ImplRegistry()
-        ret.update(self)
-        return ret
-
     def update(self, source: "ImplRegistry"):
         self.op_implementations.update(source.op_implementations)
         for stub, overloads in source._overloaded_implementations.items():
@@ -248,13 +243,17 @@ def is_0d_tile(ty: Type, dtype_predicate: Callable[[DType], bool] = lambda _: Tr
     return isinstance(ty, TileTy) and ty.ndim == 0 and dtype_predicate(ty.dtype)
 
 
+def is_scalar(ty: Type, dtype_predicate: Callable[[DType], bool] = lambda _: True) -> bool:
+    return (isinstance(ty, TensorLikeTy) and ty.tensor_shape() == ()
+            and dtype_predicate(ty.tensor_dtype()))
+
+
 def require_constant_int(var: Var) -> int:
     if not var.is_constant():
         raise _make_type_error("Expected an integer constant, but given value is not constant", var)
     ty = var.get_type()
-    if not is_0d_tile(ty, is_integral):
-        raise _make_type_error(f"Expected an integer constant, but given value has type {ty}",
-                               var)
+    if not is_scalar(ty, is_integral):
+        raise _make_type_error(f"Expected an integer constant, but given value has type {ty}", var)
     return var.get_constant()
 
 
@@ -535,6 +534,14 @@ def require_integer_0d_tile_type(var: Var) -> TileTy:
 def require_signed_integer_0d_tile_type(var: Var) -> TileTy:
     ty = require_0d_tile_type(var)
     if not datatype.is_integral(ty.dtype) or not datatype.is_signed(ty.dtype):
+        raise _make_type_error(f"Expected a signed integer scalar, but got {ty}", var)
+    return ty
+
+
+def require_signed_integer_scalar_type(var: Var) -> TensorLikeTy:
+    ty = require_scalar_type(var)
+    dtype = ty.tensor_dtype()
+    if not datatype.is_integral(dtype) or not datatype.is_signed(dtype):
         raise _make_type_error(f"Expected a signed integer scalar, but got {ty}", var)
     return ty
 
