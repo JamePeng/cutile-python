@@ -6,9 +6,10 @@ from typing import Sequence, Set, Tuple, Dict, Any, Optional, List
 
 from cuda.tile._exception import Loc
 from cuda.tile._ir.ir import Block, Operation, IRContext, MemoryEffect, Var
-from cuda.tile._ir.ops import (
-    Loop, Continue, Break, EndBranch, IfElse, Return, TileReduce, TileScan, MakeDummy
+from cuda.tile._ir.control_flow_ops import (
+    Loop, Continue, Break, Return, MakeDummy, IfElse, EndBranch
 )
+from cuda.tile._ir.ops import TileReduce, TileScan
 
 
 def dead_code_elimination_pass(root_block: Block) -> None:

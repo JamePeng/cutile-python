@@ -12,9 +12,9 @@ from cuda.tile._ir.type import PartitionViewTy, TokenTy, ArrayValue
 from cuda.tile._memory_model import MemoryOrder
 from cuda.tile._exception import Loc, TileInternalError
 from cuda.tile._ir.ir import Block, IRContext, Var, Operation, MemoryEffect
+from cuda.tile._ir.control_flow_ops import Break, Continue, EndBranch, IfElse, Loop
 from cuda.tile._ir.ops import (
-    Break, Continue, EndBranch, IfElse,
-    JoinTokens, Loop, MakeToken,
+    JoinTokens, MakeToken,
     TileAtomicCAS, TileAtomicRMW, LoadPointer, TileAtomicRedView,
     TileLoad, StorePointer,
     TileStore, TileAssert, TilePrintf,

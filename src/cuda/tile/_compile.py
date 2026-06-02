@@ -35,7 +35,8 @@ from cuda.tile._exception import (
 )
 from cuda.tile._ir import ir, hir
 from cuda.tile._ir.ir import TypingHooks
-from cuda.tile._ir.ops import loosely_typed_const, flatten_block_parameters, tile_impl_registry
+from cuda.tile._ir.aggregate_support import flatten_block_parameters
+from cuda.tile._ir.ops import loosely_typed_const, tile_impl_registry
 from cuda.tile._ir.type import TileTy, ArrayTy, ListTy
 from cuda.tile._passes.ast2hir import get_function_hir
 from cuda.tile._passes.code_motion import hoist_loop_invariants

@@ -17,8 +17,10 @@ from .._execution import is_stub
 from .._ir import hir, ir
 from .._ir.ir import Var, IRContext
 from .._ir.op_impl import ImplRegistry
-from .._ir.ops import end_branch, return_, continue_, break_, store_var
-from .._ir.core_ops import loosely_typed_const, build_dataclass_instance, build_tuple, sym2var
+from .._ir.control_flow_ops import end_branch, return_, continue_, break_
+from .._ir.core_ops import (
+    loosely_typed_const, build_dataclass_instance, build_tuple, sym2var, store_var
+)
 from .._ir.arithmetic_ops import dtype_constructor
 from .._ir.scope import Scope, LocalScope, IntMap
 from .._ir.type import FunctionTy, BoundMethodTy, DTypeConstructor, ClosureTy, \

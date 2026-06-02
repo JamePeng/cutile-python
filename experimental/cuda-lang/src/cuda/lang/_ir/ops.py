@@ -43,21 +43,13 @@ from cuda.tile._ir.arithmetic_ops import (
 from cuda.tile._ir.static_eval_ops import static_eval_impl_registry
 from cuda.tile._ir.ops import (
     tile_impl_registry,
-    Return,
-    return_,
     AssumeBounded,
     AssumeDivBy,
     MakeTensorView,
-    MakeDummy,
-    IfElse,
-    EndBranch,
-    Loop,
-    Continue,
-    Break,
     PointerOffset,
     TilePrintf,
     printf_impl,
-    control_flow_impl_registry, array_impl_registry,
+    array_impl_registry,
 )
 from cuda.tile._ir.arithmetic_ops import (
     astype,
@@ -71,6 +63,17 @@ from cuda.tile._ir.core_ops import (
 )
 from cuda.tile._ir.cast_ops import (
     implicit_cast, address_space_cast, reinterpret_pointer, AddrSpaceCast, ReinterpretPointer,
+)
+from cuda.tile._ir.control_flow_ops import (
+    control_flow_impl_registry,
+    IfElse,
+    EndBranch,
+    Loop,
+    Continue,
+    Break,
+    Return,
+    return_,
+    MakeDummy,
 )
 from cuda.tile._ir.ir import MemoryEffect, make_aggregate, add_operation_variadic
 from cuda.lang._exception import TileCompilerError, TileTypeError
@@ -118,7 +121,7 @@ cuda_lang_impl_registry = ImplRegistry()
 cuda_lang_impl_registry.update(core_impl_registry())
 cuda_lang_impl_registry.update(static_eval_impl_registry())
 cuda_lang_impl_registry.update(arithmetic_impl_registry())
-cuda_lang_impl_registry.update(control_flow_impl_registry)
+cuda_lang_impl_registry.update(control_flow_impl_registry())
 cuda_lang_impl_registry.update(array_impl_registry)
 impl = cuda_lang_impl_registry.impl
 overload_dispatcher = cuda_lang_impl_registry.overload_dispatcher

@@ -13,7 +13,7 @@ from cuda.tile._bytecode.debug_info import DebugAttrTable
 from cuda.tile._cext import CallingConvention
 from cuda.tile._compile import compile_tile
 from cuda.tile._exception import FunctionDesc, Loc
-from cuda.tile._ir.ops import Return
+from cuda.tile._ir.control_flow_ops import Return
 from cuda.tile._ir2bytecode import DebugAttrMap, create_synthetic_linkage_name
 from cuda.tile.compilation import ArrayConstraint, KernelSignature
 

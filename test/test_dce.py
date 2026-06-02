@@ -5,7 +5,7 @@
 import cuda.tile as ct
 from cuda.tile._cext import CallingConvention
 from cuda.tile._compile import compile_tile
-from cuda.tile._ir.ops import Loop, Continue, Break, MakeDummy
+from cuda.tile._ir.control_flow_ops import Loop, Continue, Break, MakeDummy
 from cuda.tile._ir import ir
 from cuda.tile.compilation import ArrayConstraint, KernelSignature
 

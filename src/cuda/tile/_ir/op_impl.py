@@ -568,9 +568,9 @@ def require_scalar_pointer_type(var: Var) -> TileTy:
     return ty
 
 
-def require_bool(var: Var) -> TileTy:
+def require_bool_scalar_type(var: Var) -> TensorLikeTy:
     ty = var.get_type()
-    if not is_0d_tile(ty, is_boolean):
+    if not is_scalar(ty, is_boolean):
         raise _make_type_error(f"Expected a bool, but given value has type {ty}", var)
     return ty
 

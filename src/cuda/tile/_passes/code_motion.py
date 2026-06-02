@@ -4,7 +4,8 @@
 
 
 from cuda.tile._ir.ir import Block, MemoryEffect
-from cuda.tile._ir.ops import Loop, IfElse, Continue, Break, EndBranch, Return, TileReduce, TileScan
+from cuda.tile._ir.ops import TileReduce, TileScan
+from cuda.tile._ir.control_flow_ops import Loop, IfElse, Continue, Break, EndBranch, Return
 
 from dataclasses import dataclass
 import enum

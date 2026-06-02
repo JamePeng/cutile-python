@@ -17,8 +17,9 @@ from cuda.tile._ir.arithmetic_ops import (
 from cuda.tile._ir.core_ops import TypedConst, Assign
 from cuda.tile._ir.arithmetic_ops import Unary
 from cuda.tile._ir.ops import GetArrayListItem, \
-    Loop, IfElse, Continue, Break, EndBranch, PointerOffset, \
+    EndBranch, PointerOffset, \
     TileReshape, AssumeDivBy, TileReduce, TileScan, AssumeBounded
+from cuda.tile._ir.control_flow_ops import Loop, IfElse, Continue, Break
 from cuda.tile.compilation._signature import ParameterConstraint, \
     ArrayConstraint, ListConstraint, ScalarConstraint
 
