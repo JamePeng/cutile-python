@@ -267,6 +267,85 @@ def test_tuple_compare_constant_args():
     assert x.item() == -1
 
 
+def test_element_in_tuple():
+    @ct.kernel
+    def kernel(x):
+        if 2 in (1, 2, 3):      # True
+            ct.scatter(x, 0, 1)
+        if 5 in (1, 2, 3):      # False
+            ct.scatter(x, 1, 1)
+        if 1 in ():              # False (empty)
+            ct.scatter(x, 2, 1)
+        if 5 not in (1, 2, 3):  # True
+            ct.scatter(x, 3, 1)
+
+    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
+    assert x.tolist() == [1, 0, 0, 1]
+
+
+def test_element_in_tuple_runtime():
+    @ct.kernel
+    def kernel(x):
+        a = ct.bid(0)
+        if a in (0, 2):
+            ct.scatter(x, (a,), 1)
+
+    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (4,), kernel, (x,))
+    assert x.tolist() == [1, 0, 1, 0]
+
+
+def test_element_in_tuple_shortcircuit():
+    @ct.kernel
+    def kernel(x):
+        t = ct.ones((4,), dtype=ct.int32)
+        if 2 in (2, t):       # match at pos 0
+            ct.scatter(x, 0, 1)
+        if 2 in (1, 2, t):    # match at pos 1 after a false
+            ct.scatter(x, 1, 1)
+        if 2 not in (2, t):   # short-circuit → False
+            ct.scatter(x, 2, 1)
+
+    x = torch.zeros(3, dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
+    assert x.tolist() == [1, 1, 0]
+
+
+def test_element_in_tuple_tensor_raises():
+    # tensor as needle; tensor before match; tensor in middle after a false
+    @ct.kernel
+    def k_needle():
+        ct.ones((4,), dtype=ct.int32) in (1, 2)
+
+    @ct.kernel
+    def k_tensor_first():
+        2 in (ct.ones((4,), dtype=ct.int32), 2)
+
+    @ct.kernel
+    def k_tensor_middle():
+        2 in (1, ct.ones((4,), dtype=ct.int32), 2)
+
+    stream = torch.cuda.current_stream()
+    for k in (k_needle, k_tensor_first, k_tensor_middle):
+        with pytest.raises(TileTypeError, match="'in' requires scalar operands"):
+            ct.launch(stream, (1,), k, ())
+
+
+def test_tuple_in_tuple_nested():
+    @ct.kernel
+    def kernel(x):
+        a = ct.bid(0)
+        if (a, 1) in ((0, 1), (2, 1)):
+            ct.scatter(x, (a,), 1)
+        else:
+            ct.scatter(x, (a,), -1)
+
+    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (4,), kernel, (x,))
+    assert x.tolist() == [1, -1, 1, -1]
+
+
 def test_tuple_global_capture():
     tup = (100, (101, 102), (103, (104, 105)))
 

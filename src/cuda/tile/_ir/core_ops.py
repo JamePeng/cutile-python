@@ -354,6 +354,28 @@ def len_tuple_impl(x: Var[TupleTy]) -> Var:
     return loosely_typed_const(len(x.get_type()))
 
 
+@impl(hir_stubs.is_contained_in, overload=(WILDCARD, TupleTy))
+async def is_contained_in_tuple_impl(x: Var, y: Var[TupleTy]) -> Var:
+    from cuda.tile._passes.hir2ir import call_function
+    from cuda.tile._ir.arithmetic_ops import binary_bitwise_tensorlike
+
+    tuple_val = y.get_aggregate()
+    assert isinstance(tuple_val, TupleValue)
+    items = tuple_val.items
+
+    result = None
+    for item in items:
+        cmp = await call_function(operator.eq, x, item)
+        cmp_ty = cmp.get_type()
+        if isinstance(cmp_ty, TensorLikeTy) and cmp_ty.tensor_shape() != ():
+            raise TileTypeError(
+                f"'in' requires scalar operands, but got shape {cmp_ty.tensor_shape()}")
+        if cmp.is_constant() and cmp.get_constant():
+            return cmp
+        result = cmp if result is None else binary_bitwise_tensorlike("or_", result, cmp)
+    return loosely_typed_const(False) if result is None else result
+
+
 # ===========================================================================================
 # Dictionary
 # ===========================================================================================
