@@ -9,7 +9,7 @@ from cuda.tile._stub import (
     Array as TileArray,
     static_eval,
 )
-from cuda.tile._memory_model import MemoryScope, MemorySpace
+from cuda.tile._memory_model import MemoryOrder, MemoryScope, MemorySpace
 from cuda.lang._datatype import DType, int32
 from .types import Pointer, Scalar
 from cuda.tile._exception import TileTypeError
@@ -387,11 +387,21 @@ def ptx_comment(comment: str):
 
 
 @stub
-def atomic_add(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_add(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] += val`.
+    Perform atomic `ptr.store(ptr.load() + val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
+    ``float16``, ``bfloat16``, ``float32``, and ``float64``.
 
     Examples:
 
@@ -399,7 +409,8 @@ def atomic_add(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
             :template: kernel_2d_array_wrapper.py
 
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_add(array, (2, 3), 1)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_add(ptr, 1)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -411,11 +422,21 @@ def atomic_add(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_sub(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_sub(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] -= val`.
+    Perform atomic `ptr.store(ptr.load() - val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
+    ``float32``, and ``float64``.
 
     Examples:
 
@@ -423,7 +444,8 @@ def atomic_sub(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
             :template: kernel_2d_array_wrapper.py
 
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_sub(array, (2, 3), 1)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_sub(ptr, 1)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -435,11 +457,20 @@ def atomic_sub(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_and(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_and(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] &= val`.
+    Perform atomic `ptr.store(ptr.load() & val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
 
     Examples:
 
@@ -448,7 +479,8 @@ def atomic_and(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 14  # 0b1110
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_and(array, (2, 3), 11)  # 0b1011
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_and(ptr, 11)  # 0b1011
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -460,11 +492,20 @@ def atomic_and(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_or(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_or(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] |= val`.
+    Perform atomic `ptr.store(ptr.load() | val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
 
     Examples:
 
@@ -473,7 +514,8 @@ def atomic_or(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 12  # 0b1100
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_or(array, (2, 3), 3)  # 0b0011
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_or(ptr, 3)  # 0b0011
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -485,11 +527,20 @@ def atomic_or(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_xor(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_xor(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] ^= val`.
+    Perform atomic `ptr.store(ptr.load() ^ val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
 
     Examples:
 
@@ -498,7 +549,8 @@ def atomic_xor(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 12  # 0b1100
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_xor(array, (2, 3), 10)  # 0b1010
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_xor(ptr, 10)  # 0b1010
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -510,12 +562,21 @@ def atomic_xor(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_min(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_min(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] = min(A[idx], val)`.
+    Perform atomic `ptr.store(min(ptr.load(), val))`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
 
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
+    ``float32``, and ``float64``.
     Examples:
 
         .. testcode::
@@ -523,7 +584,8 @@ def atomic_min(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_min(array, (2, 3), 3)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_min(ptr, 3)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -535,12 +597,21 @@ def atomic_min(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_max(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_max(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic `A[idx] = max(A[idx], val)`.
+    Perform atomic `ptr.store(max(ptr.load(), val))`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
 
+    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
+    ``float32``, and ``float64``.
     Examples:
 
         .. testcode::
@@ -548,7 +619,8 @@ def atomic_max(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_max(array, (2, 3), 11)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_max(ptr, 11)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -560,14 +632,21 @@ def atomic_max(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_inc(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_inc(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic increment of `A[idx]` with wrap at `val`.
+    Perform atomic increment at `ptr` with wrap at `val`.
 
-    This behaves as `A[idx] = 0 if A[idx] >= val else A[idx] + 1`.
-    Supports uint32, and uint64 only.
+    This behaves as `ptr.store(0 if ptr.load() >= val else ptr.load() + 1)`.
+    Supported ``T``: ``uint32`` only.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
 
     Examples:
 
@@ -576,7 +655,8 @@ def atomic_inc(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_inc(array, (2, 3), 7)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_inc(ptr, 7)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -588,14 +668,21 @@ def atomic_inc(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_dec(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_dec(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic decrement of `A[idx]` with wrap at `val`.
+    Perform atomic decrement at `ptr` with wrap at `val`.
 
-    This behaves as `A[idx] = val if (A[idx] == 0) or (A[idx] > val) else A[idx] - 1`.
-    Supports uint32, and uint64 only.
+    This behaves as `ptr.store(val if (ptr.load() == 0) or (ptr.load() > val) else ptr.load() - 1)`.
+    Supported ``T``: ``uint32`` only.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
 
     Examples:
 
@@ -604,7 +691,8 @@ def atomic_dec(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 0
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_dec(array, (2, 3), 7)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_dec(ptr, 7)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -616,11 +704,21 @@ def atomic_dec(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_exch(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
+def atomic_xchg(
+    ptr: Pointer[T],
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic exchange `A[idx] = val`.
+    Perform atomic exchange `ptr.store(val)`.
 
-    Returns the old value at the index location as if it is loaded atomically.
+    Returns the old value at the address as if it is loaded atomically.
+
+    Supported ``T``: ``int32``, ``uint32``, ``float32``, ``int64``,
+    ``uint64``, and ``float64``.
 
     Examples:
 
@@ -629,7 +727,8 @@ def atomic_exch(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_exch(array, (2, 3), 4)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_xchg(ptr, 4)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
@@ -641,12 +740,23 @@ def atomic_exch(A: Array[T], idx: int | tuple[int, ...], val: T) -> T:
 
 
 @stub
-def atomic_cas(A: Array[T], idx: int | tuple[int, ...], old: T, val: T) -> T:
+def atomic_cas(
+    ptr: Pointer[T],
+    old: T,
+    val: T,
+    /,
+    *,
+    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
+    memory_scope: MemoryScope = MemoryScope.DEVICE,
+) -> T:
     """
-    Perform atomic compare-and-swap on `A[idx]`.
+    Perform atomic compare-and-swap at `ptr`.
 
     If the current value equals `old`, store `val`. Returns the old value at the
-    index location as if it is loaded atomically.
+    address as if it is loaded atomically.
+
+    Supported ``T``: ``int16``, ``uint16``, ``int32``, ``uint32``,
+    ``int64``, and ``uint64``.
 
     Examples:
 
@@ -655,7 +765,8 @@ def atomic_cas(A: Array[T], idx: int | tuple[int, ...], old: T, val: T) -> T:
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            prev_val = cl.atomic_cas(array, (2, 3), 7, 4)
+            ptr = array.get_element_pointer((2, 3))
+            prev_val = cl.atomic_cas(ptr, 7, 4)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::

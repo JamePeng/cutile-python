@@ -9,7 +9,7 @@ from enum import Enum, auto
 from typing import Optional
 
 from cuda.tile._ir.ops_utils import promote_types
-from cuda.tile._memory_model import MemoryOrder
+from cuda.tile._memory_model import MemoryOrder, MemoryScope
 from cuda.tile._ir.op_impl import (
     require_optional_constant_int,
     require_tuple_type,
@@ -88,6 +88,15 @@ from cuda.tile._datatype import (
 )
 from cuda.tile._exception import TileValueError
 import cuda.lang._mlir as mlir
+from .atomics_support import (
+    ATOMIC_CAS_DTYPES,
+    ATOMIC_XCHG_DTYPES,
+    AtomicRMWKind,
+    atomic_rmw_op_name,
+    require_atomic_dtype,
+    require_atomic_memory_order_and_scope,
+    require_atomic_rmw_value,
+)
 from .type_checking_helpers import (
     require_array_indices,
     require_scalar_or_vector_float_type,
@@ -399,16 +408,28 @@ def array_setitem(object: Var, key: Var, value: Var):
     )
 
 
-class AtomicRMWKind(Enum):
-    ADD = auto()
-    SUB = auto()
-    AND = auto()
-    OR = auto()
-    XOR = auto()
-    MIN = auto()
-    MAX = auto()
-    INC = auto()
-    DEC = auto()
+def _atomic_rmw_dispatch(
+    kind: AtomicRMWKind,
+    ptr: Var,
+    val: Var,
+    memory_order: Var,
+    memory_scope: Var,
+) -> Var:
+    op_name = atomic_rmw_op_name(kind)
+    ptr_ty = require_pointer_type(ptr)
+    val, result_ty = require_atomic_rmw_value(kind, ptr_ty, val)
+    memory_order, memory_scope = require_atomic_memory_order_and_scope(
+        op_name, memory_order, memory_scope
+    )
+    return add_operation(
+        AtomicRMW,
+        result_ty,
+        kind=kind,
+        pointer=ptr,
+        value=val,
+        memory_order=memory_order,
+        memory_scope=memory_scope,
+    )
 
 
 @dataclass(eq=False)
@@ -416,14 +437,16 @@ class AtomicRMW(Operation, opcode="atomic_rmw", memory_effect=MemoryEffect.STORE
     kind: AtomicRMWKind = attribute()
     pointer: Var = operand()
     value: Var = operand()
-    memory_order: int = attribute()
+    memory_order: MemoryOrder = attribute()
+    memory_scope: MemoryScope = attribute()
 
 
 @dataclass(eq=False)
-class AtomicExchange(Operation, opcode="atomic_exch", memory_effect=MemoryEffect.STORE):
+class AtomicExchange(Operation, opcode="atomic_xchg", memory_effect=MemoryEffect.STORE):
     pointer: Var = operand()
     value: Var = operand()
-    memory_order: int = attribute()
+    memory_order: MemoryOrder = attribute()
+    memory_scope: MemoryScope = attribute()
 
 
 @dataclass(eq=False)
@@ -431,8 +454,8 @@ class AtomicCAS(Operation, opcode="atomic_cas", memory_effect=MemoryEffect.STORE
     pointer: Var = operand()
     compare: Var = operand()
     value: Var = operand()
-    success_memory_order: int = attribute()
-    failure_memory_order: int = attribute()
+    memory_order: MemoryOrder = attribute()
+    memory_scope: MemoryScope = attribute()
 
 
 @impl(core_api.atomic_add, fixed_args=[AtomicRMWKind.ADD])
@@ -444,65 +467,65 @@ class AtomicCAS(Operation, opcode="atomic_cas", memory_effect=MemoryEffect.STORE
 @impl(core_api.atomic_max, fixed_args=[AtomicRMWKind.MAX])
 @impl(core_api.atomic_inc, fixed_args=[AtomicRMWKind.INC])
 @impl(core_api.atomic_dec, fixed_args=[AtomicRMWKind.DEC])
-def atomic_rmw_dispatch_impl(kind: AtomicRMWKind, A: Var, idx: Var, val: Var) -> Var:
-    array_ty = require_array_type(A)
+def atomic_rmw_dispatch_impl(
+    kind: AtomicRMWKind,
+    ptr: Var,
+    val: Var,
+    memory_order: Var,
+    memory_scope: Var,
+) -> Var:
+    return _atomic_rmw_dispatch(kind, ptr, val, memory_order, memory_scope)
+
+
+@impl(core_api.atomic_xchg)
+def atomic_xchg_impl(
+    ptr: Var, val: Var, memory_order: Var, memory_scope: Var
+) -> Var:
+    ptr_ty = require_pointer_type(ptr)
+    dtype = ptr_ty.pointee_dtype
+    require_atomic_dtype("atomic_xchg", dtype, ATOMIC_XCHG_DTYPES)
     require_scalar_type(val)
-    val = astype(val, array_ty.dtype)
-    indices = require_array_indices(A, idx)
-    pointer = _array_get_element_pointer(A, indices)
-    result_ty = ScalarTy(array_ty.dtype)
-    memory_order = mlir.llvm.AtomicOrdering.acq_rel
-    return add_operation(
-        AtomicRMW,
-        result_ty,
-        kind=kind,
-        pointer=pointer,
-        value=val,
-        memory_order=memory_order,
+    val = astype(val, dtype)
+    result_ty = ScalarTy(dtype)
+    memory_order, memory_scope = require_atomic_memory_order_and_scope(
+        "atomic_xchg", memory_order, memory_scope
     )
-
-
-@impl(core_api.atomic_exch)
-def atomic_exch_impl(A: Var, idx: Var, val: Var) -> Var:
-    array_ty = require_array_type(A)
-    require_scalar_type(val)
-    val = astype(val, array_ty.dtype)
-    indices = require_array_indices(A, idx)
-    pointer = _array_get_element_pointer(A, indices)
-    result_ty = ScalarTy(array_ty.dtype)
-    memory_order = mlir.llvm.AtomicOrdering.acq_rel
     return add_operation(
         AtomicExchange,
         result_ty,
-        pointer=pointer,
+        pointer=ptr,
         value=val,
         memory_order=memory_order,
+        memory_scope=memory_scope,
     )
 
 
 @impl(core_api.atomic_cas)
-def atomic_cas_impl(A: Var, idx: Var, old: Var, val: Var) -> Var:
-    array_ty = require_array_type(A)
+def atomic_cas_impl(
+    ptr: Var, old: Var, val: Var, memory_order: Var, memory_scope: Var
+) -> Var:
+    ptr_ty = require_pointer_type(ptr)
+    dtype = ptr_ty.pointee_dtype
+    require_atomic_dtype("atomic_cas", dtype, ATOMIC_CAS_DTYPES)
     require_scalar_type(val)
-    val = astype(val, array_ty.dtype)
+    val = astype(val, dtype)
     compare_ty = require_scalar_type(old)
-    if array_ty.dtype != compare_ty.dtype:
+    if dtype != compare_ty.dtype:
         raise TileTypeError(
-            f"Expected atomic compare value of type {array_ty.dtype}, got {compare_ty.dtype}"
+            f"Expected atomic compare value of type {dtype}, got {compare_ty.dtype}"
         )
-    indices = require_array_indices(A, idx)
-    pointer = _array_get_element_pointer(A, indices)
-    result_ty = ScalarTy(array_ty.dtype)
-    success_memory_order = mlir.llvm.AtomicOrdering.acq_rel
-    failure_memory_order = mlir.llvm.AtomicOrdering.monotonic
+    result_ty = ScalarTy(dtype)
+    memory_order, memory_scope = require_atomic_memory_order_and_scope(
+        "atomic_cas", memory_order, memory_scope
+    )
     return add_operation(
         AtomicCAS,
         result_ty,
-        pointer=pointer,
+        pointer=ptr,
         compare=old,
         value=val,
-        success_memory_order=success_memory_order,
-        failure_memory_order=failure_memory_order,
+        memory_order=memory_order,
+        memory_scope=memory_scope,
     )
 
 

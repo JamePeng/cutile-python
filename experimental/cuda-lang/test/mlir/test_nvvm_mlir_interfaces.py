@@ -5,12 +5,11 @@
 
 import pytest
 import cuda.lang as cl
-from cuda.lang._exception import TileCompilerExecutionError, TileTypeError
+from cuda.lang._exception import TileCompilerExecutionError, TileTypeError, TileValueError
 from cuda.lang._compile import compile_simt, KernelSignature
 import cuda.lang._stub.nvvm_mlir_interfaces as nvvm
 import torch
 
-from cuda.tile._exception import TileValueError
 from ..util import require_hopper_or_newer, filecheck
 
 
@@ -154,7 +153,7 @@ def test_memory_scope_enum_mappings(enum, expect):
             match="Expected one of MemoryScope.BLOCK, MemoryScope.DEVICE, "
             "MemoryScope.SYS, got MemoryScope.NONE",
         ):
-            result = compile_simt(kernel, [KernelSignature(())])
+            compile_simt(kernel, [KernelSignature(())])
     else:
         result = compile_simt(kernel, [KernelSignature(())])
         filecheck(

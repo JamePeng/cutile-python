@@ -104,7 +104,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
             break
 
         if tx == 0:
-            cl.atomic_add(stolen, 0, 1)
+            cl.atomic_add(stolen.get_element_pointer(0), 1)
         bx = cl.clusterlaunchcontrol_get_first_block_idx(tok, axis=0)
         cl.nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
 
@@ -157,7 +157,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
             break  # no more work to steal
 
         if local_block == 0 and tx == 0:
-            cl.atomic_add(stolen, 0, 1)
+            cl.atomic_add(stolen.get_element_pointer(0), 1)
 
         bx = cl.clusterlaunchcontrol_get_first_block_idx(token, axis=0) + local_block
         cl.nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()

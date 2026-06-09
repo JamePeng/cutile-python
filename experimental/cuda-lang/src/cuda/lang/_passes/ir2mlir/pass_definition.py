@@ -11,7 +11,7 @@ from typing import Sequence
 
 from cuda.lang._ir import ir, ops
 from cuda.lang import _mlir as mlir
-from cuda.tile._memory_model import MemoryOrder
+from cuda.tile._memory_model import MemoryOrder, MemoryScope
 from cuda.lang._mlir._builtins import _Cursor
 import cuda.lang._mlir.extras.types as T
 import cuda.lang._ir.type as ir_type
@@ -51,6 +51,28 @@ def _get_llvm_memory_ordering(mo: None | MemoryOrder):
             return mlir.llvm.AtomicOrdering.release
 
     raise NotImplementedError(f'Unhandled {mo=}')
+
+
+def _get_llvm_syncscope(memory_scope: MemoryScope) -> str | None:
+    match memory_scope:
+        case MemoryScope.BLOCK:
+            return "block"
+        case MemoryScope.DEVICE:
+            return "device"
+        case MemoryScope.SYS:
+            return None
+
+    raise NotImplementedError(f"Unhandled {memory_scope=}")
+
+
+def _get_llvm_cmpxchg_failure_ordering(memory_order: MemoryOrder):
+    match memory_order:
+        case MemoryOrder.ACQUIRE | MemoryOrder.ACQ_REL:
+            return mlir.llvm.AtomicOrdering.acquire
+        case MemoryOrder.RELAXED | MemoryOrder.RELEASE:
+            return mlir.llvm.AtomicOrdering.monotonic
+        case _:
+            raise NotImplementedError(f"Unhandled {memory_order=}")
 
 
 def _get_llvm_atomic_binop(
@@ -608,7 +630,8 @@ class IR2MLIR:
             bin_op=bin_op,
             ptr=pointer,
             val=value,
-            ordering=operation.memory_order,
+            ordering=_get_llvm_memory_ordering(operation.memory_order),
+            syncscope=_get_llvm_syncscope(operation.memory_scope),
         )
         return [result]
 
@@ -622,7 +645,8 @@ class IR2MLIR:
             bin_op=mlir.llvm.AtomicBinOp.xchg,
             ptr=pointer,
             val=value,
-            ordering=operation.memory_order,
+            ordering=_get_llvm_memory_ordering(operation.memory_order),
+            syncscope=_get_llvm_syncscope(operation.memory_scope),
         )
         return [result]
 
@@ -635,8 +659,11 @@ class IR2MLIR:
             ptr=pointer,
             cmp=compare,
             val=value,
-            success_ordering=operation.success_memory_order,
-            failure_ordering=operation.failure_memory_order,
+            success_ordering=_get_llvm_memory_ordering(operation.memory_order),
+            failure_ordering=_get_llvm_cmpxchg_failure_ordering(
+                operation.memory_order
+            ),
+            syncscope=_get_llvm_syncscope(operation.memory_scope),
         )
 
         # llvm.cmpxchg returns {old_value, success_flag}, we want the old value.
