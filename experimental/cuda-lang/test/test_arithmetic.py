@@ -6,7 +6,7 @@ import pytest
 import torch
 import operator
 import cuda.lang as cl
-from cuda.lang._datatype import is_integral, is_signed
+from cuda.lang._datatype import is_integral, is_signed, to_torch_dtype
 from cuda.tile._datatype import numeric_dtype_category
 
 
@@ -90,6 +90,70 @@ def test_arithmetic(dtype, operation):
     c = torch.tensor([0], dtype=torch_dtype, device="cuda")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(operation(10, 2))
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [operator.add, operator.sub, operator.mul, operator.truediv],
+)
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "vector_dtype, scalar_dtype, result_dtype",
+    [
+        (cl.float32, cl.float32, cl.float32),
+        (cl.float32, cl.float64, cl.float64),
+        (cl.float64, cl.float32, cl.float64),
+    ],
+)
+def test_arithmetic_vector_scalar(
+    operation, reverse, vector_dtype, scalar_dtype, result_dtype
+):
+    vector_values = (0.5, 1.5, 2.5, 3.5)
+    scalar_value = 2.0
+
+    if reverse:
+        _operation = operation
+
+        def operation(x, y):
+            return _operation(y, x)
+
+    @cl.kernel
+    def kernel(inp, out):
+        with cl.local_array(4, vector_dtype) as arr:
+            arr[0] = vector_values[0]
+            arr[1] = vector_values[1]
+            arr[2] = vector_values[2]
+            arr[3] = vector_values[3]
+            v = arr.get_base_pointer().load(count=4)
+            s = scalar_dtype(inp[0])
+            result = operation(s, v)
+            out.get_base_pointer().store(result)
+
+    scalar_torch_dtype = to_torch_dtype(scalar_dtype)
+    result_torch_dtype = to_torch_dtype(result_dtype)
+    inp = torch.tensor([scalar_value], dtype=scalar_torch_dtype, device="cuda")
+    out = torch.zeros(4, dtype=result_torch_dtype, device="cuda")
+    vector = torch.tensor(vector_values, dtype=result_torch_dtype)
+    scalar = torch.tensor(scalar_value, dtype=result_torch_dtype)
+    expected = operation(scalar, vector)
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
+    torch.testing.assert_close(out.cpu(), expected)
+
+
+@pytest.mark.parametrize(
+    "op", (operator.eq, operator.ne, operator.ge, operator.gt, operator.le, operator.lt)
+)
+def test_arithmetic_vector_comparison(op):
+    @cl.kernel
+    def kernel(inp, out):
+        v1 = inp.get_base_pointer().load(count=4)
+        v2 = inp.get_element_pointer(4).load(count=4)
+        out.get_base_pointer().store(op(v1, v2))
+
+    inp = torch.ones(8, dtype=torch.int32).cuda()
+    out = torch.zeros(4, dtype=torch.bool).cuda()
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
+    assert all(out.cpu() == op(0, 0))
 
 
 @pytest.mark.parametrize(
