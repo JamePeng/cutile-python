@@ -69,7 +69,6 @@ from ._stub.core_api import (
     shfl_xor_sync,
     syncthreads,
     syncwarp,
-    nvvm,
     nanosleep,
     griddepcontrol_wait,
     griddepcontrol_launch_dependents,
@@ -79,7 +78,8 @@ from cuda.tile._stub import (
     Constant
 )
 
-from cuda.lang._stub import libdevice
+from cuda.lang._stub import libdevice as _libdevice  # noqa: F401
+from cuda.lang._stub import nvvm as _nvvm  # noqa: F401
 
 from cuda.lang._stub.tensor_map import (
     TensorMapSwizzle,
@@ -206,8 +206,6 @@ __all__ = (
     "Pointer",
     "Scalar",
     "Vector",
-    "nvvm",
-    "libdevice",
     "MemorySpace",
     "MemoryScope",
     "MemoryOrder",

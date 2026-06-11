@@ -83,7 +83,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
         cl.syncthreads()
 
         if tx == 0:
-            cl.nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()
+            cl._nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()
             cl.clusterlaunchcontrol_try_cancel(clc_resp, mbar)
             cl.mbarrier_arrive_expect_tx(
                 mbar,
@@ -106,7 +106,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
         if tx == 0:
             cl.atomic_add(stolen.get_element_pointer(0), 1)
         bx = cl.clusterlaunchcontrol_get_first_block_idx(tok, axis=0)
-        cl.nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
+        cl._nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
 
 
 @cl.kernel
@@ -122,16 +122,16 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
 
     if tx == 0:
         cl.mbarrier_init(mbar, 1)
-        cl.nvvm.fence_mbarrier_init_release_cluster()
+        cl._nvvm.fence_mbarrier_init_release_cluster()
 
     alpha = compute()
 
     while True:
-        cl.nvvm.barrier_cluster_arrive_aligned()
-        cl.nvvm.barrier_cluster_wait_aligned()
+        cl._nvvm.barrier_cluster_arrive_aligned()
+        cl._nvvm.barrier_cluster_wait_aligned()
 
         if local_block == 0 and tx == 0:
-            cl.nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()
+            cl._nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()
             cl.clusterlaunchcontrol_try_cancel(clc_resp, mbar, multicast=True)
 
         if tx == 0:
@@ -160,7 +160,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
             cl.atomic_add(stolen.get_element_pointer(0), 1)
 
         bx = cl.clusterlaunchcontrol_get_first_block_idx(token, axis=0) + local_block
-        cl.nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
+        cl._nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
 
 
 def launch_configs():

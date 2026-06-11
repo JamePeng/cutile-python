@@ -22,7 +22,7 @@ def test_mbar_manager():
         cl.syncthreads()
         if cl.elect_sync():
             # TODO: proper cp.async API
-            cl.nvvm.cp_async_bulk_tensor_g2s_cta_tile_2d(
+            cl._nvvm.cp_async_bulk_tensor_g2s_cta_tile_2d(
                 smem.get_base_pointer(),
                 mbar,
                 x_tm.as_opaque_ptr(),
@@ -65,12 +65,12 @@ def test_tensor_map_tiled():
         x_tm = cl.tensor_map_tiled(x, (W, H))
 
         if cl.thread_idx(0) == 0:
-            cl.nvvm.mbarrier_init_shared(barrier.get_base_pointer(), cl.block_dim(0))
+            cl._nvvm.mbarrier_init_shared(barrier.get_base_pointer(), cl.block_dim(0))
 
         cl.syncthreads()
         if cl.elect_sync():
             # TODO: proper cp.async API
-            cl.nvvm.cp_async_bulk_tensor_g2s_cta_tile_2d(
+            cl._nvvm.cp_async_bulk_tensor_g2s_cta_tile_2d(
                 smem.get_base_pointer(),
                 barrier.get_base_pointer(),
                 x_tm.as_opaque_ptr(),
@@ -79,19 +79,19 @@ def test_tensor_map_tiled():
                 0,
                 False,
             )
-            tok = cl.nvvm.mbarrier_arrive_expect_tx_scope_cta_space_cta(
+            tok = cl._nvvm.mbarrier_arrive_expect_tx_scope_cta_space_cta(
                 barrier.get_base_pointer(), W * H * 4
             )
         else:
-            tok = cl.nvvm.mbarrier_arrive_scope_cta_space_cta(
+            tok = cl._nvvm.mbarrier_arrive_scope_cta_space_cta(
                 barrier.get_base_pointer(), 1
             )
 
-        while not cl.nvvm.mbarrier_try_wait_scope_cta_space_cta(
+        while not cl._nvvm.mbarrier_try_wait_scope_cta_space_cta(
             barrier.get_base_pointer(), tok
         ):
             # TODO: back off (see __cccl_thread_poll_with_backoff in CUDA C++ stdlib)
-            cl.nvvm.nanosleep(10000)
+            cl._nvvm.nanosleep(10000)
 
         y[cl.thread_idx(0)] = smem[cl.thread_idx(0)]
 

@@ -14,7 +14,7 @@ from .util import require_blackwell_or_newer
 def test_float_intrinsic(src_dtype):
     @cl.kernel
     def kern(x, y):
-        res = cl.nvvm.add_rz_f(x[0], x[1])
+        res = cl._nvvm.add_rz_f(x[0], x[1])
         static_assert(cl.dtype_of(res) == cl.float32)
         y[()] = res
 
@@ -27,7 +27,7 @@ def test_float_intrinsic(src_dtype):
 def test_float_intrinsic_invalid_implicit_cast():
     @cl.kernel
     def kern(x, y):
-        res = cl.nvvm.add_rz_f(x[0], x[1])
+        res = cl._nvvm.add_rz_f(x[0], x[1])
         static_assert(res.dtype == cl.float32)
         y[()] = res
 
@@ -43,7 +43,7 @@ def test_float_intrinsic_invalid_implicit_cast():
 def test_integer_arg_intrinsic(src_dtype):
     @cl.kernel
     def kern(x, y):
-        res = cl.nvvm.i2f_rn(x[()])
+        res = cl._nvvm.i2f_rn(x[()])
         y[()] = res
 
     x = torch.tensor(17, dtype=src_dtype, device="cuda")
@@ -58,7 +58,7 @@ def test_any_pointer_arg_intrinsic():
         smem = cl.shared_array(64, dtype=cl.int16, alignment=16)
         smem[cl.thread_idx(0)] = x[cl.thread_idx(0)]
         smem[cl.thread_idx(0) + 32] = x[cl.thread_idx(0) + 32]
-        r = cl.nvvm.ldmatrix_sync_aligned_m8n8_x1_b16(
+        r = cl._nvvm.ldmatrix_sync_aligned_m8n8_x1_b16(
             smem.get_element_pointer(cl.thread_idx(0) * 8))
         y[cl.thread_idx(0)] = r
 
@@ -75,7 +75,7 @@ def test_smem_pointer_arg_intrinsic():
     @cl.kernel
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
-        p = cl.nvvm.mapa_shared_cluster(smem.get_base_pointer(), 0)
+        p = cl._nvvm.mapa_shared_cluster(smem.get_base_pointer(), 0)
         a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
         a[0] = 13
         y[0] = smem[0]
@@ -90,7 +90,7 @@ def test_generic_pointer_arg_intrinsic():
     @cl.kernel
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
-        p = cl.nvvm.mapa(smem.get_base_pointer(), 0)
+        p = cl._nvvm.mapa(smem.get_base_pointer(), 0)
         a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
         a[0] = 13
         y[0] = smem[0]

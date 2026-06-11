@@ -14,7 +14,7 @@ from cuda.tile import DType
 ENTRYPOINTS = tuple(
     filter(
         lambda x: not x.startswith("__nv_"),
-        cl.libdevice.__all__,
+        cl._libdevice.__all__,
     )
 )
 
@@ -100,7 +100,7 @@ def make_kernel(func, dtypes: tuple) -> cl.kernel:
 
 @pytest.mark.parametrize("function_name", ENTRYPOINTS)
 def test_libdevice_functions(function_name):
-    func = getattr(cl.libdevice, function_name)
+    func = getattr(cl._libdevice, function_name)
     params = inspect.signature(func).parameters
     dtypes = tuple(_dtype_from_annotation(p.annotation) for p in params.values())
     kernel = make_kernel(func, dtypes)

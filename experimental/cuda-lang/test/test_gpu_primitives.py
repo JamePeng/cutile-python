@@ -511,7 +511,7 @@ class TestBarrierSync:
             shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
 
             shmem[lane] = lane * 2
-            cl.nvvm.barrier_cta_sync_all(cl.int32(0))
+            cl._nvvm.barrier_cta_sync_all(cl.int32(0))
 
             if lane < 16:
                 out[lane] = shmem[lane + 16]
@@ -535,7 +535,7 @@ class TestBarrierSync:
 
             if lane < 32:
                 shmem[lane] = lane + 100
-                cl.nvvm.barrier_cta_sync_count(1, 32)
+                cl._nvvm.barrier_cta_sync_count(1, 32)
                 out[lane] = shmem[lane ^ 1]
             else:
                 out[lane] = -1
@@ -570,7 +570,7 @@ class TestVoteSync:
             else:
                 pred = lane < 16
 
-            if cl.nvvm.vote_all_sync(mask, pred):
+            if cl._nvvm.vote_all_sync(mask, pred):
                 out[tid] = 1
             else:
                 out[tid] = 0
@@ -592,7 +592,7 @@ class TestVoteSync:
             else:
                 pred = lane == 0
 
-            if cl.nvvm.vote_any_sync(mask, pred):
+            if cl._nvvm.vote_any_sync(mask, pred):
                 out[tid] = 1
             else:
                 out[tid] = 0
@@ -616,7 +616,7 @@ class TestVoteSync:
             else:
                 pred = lane < 16
 
-            if cl.nvvm.vote_uni_sync(mask, pred):
+            if cl._nvvm.vote_uni_sync(mask, pred):
                 out[tid] = 1
             else:
                 out[tid] = 0
@@ -638,7 +638,7 @@ class TestVoteSync:
             else:
                 pred = (lane % 2) == 0
 
-            out[tid] = cl.nvvm.vote_ballot_sync(mask, pred)
+            out[tid] = cl._nvvm.vote_ballot_sync(mask, pred)
 
         out = torch.zeros(64, dtype=torch.int32, device="cuda")
         cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))

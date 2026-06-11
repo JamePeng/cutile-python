@@ -7,8 +7,6 @@ import re
 import sys
 import cuda.lang  # noqa: F401
 
-cuda.lang._nvvm = cuda.lang.nvvm
-
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -93,8 +91,8 @@ with open(os.path.join(generated_includes_dir, "nvvm_intrinsics.rst"), "w") as f
 
 with open(os.path.join(generated_includes_dir, "libdevice_functions.rst"), "w") as f:
     f.write(_generate_rst_function_index(
-        cuda.lang.libdevice,
-        "cuda.lang.libdevice",
+        cuda.lang._libdevice,
+        "cuda.lang._libdevice",
         "libdevice functions",
     ))
 

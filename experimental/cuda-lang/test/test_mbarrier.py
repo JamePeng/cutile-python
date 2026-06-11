@@ -31,10 +31,10 @@ def test_cluster_barriers():
         if tx == 0:
             cl.mbarrier_init(mbar, cdx * bdx)
 
-        cl.nvvm.fence_mbarrier_init_release_cluster()
+        cl._nvvm.fence_mbarrier_init_release_cluster()
         cl.syncthreads()
-        cl.nvvm.barrier_cluster_arrive_aligned()
-        cl.nvvm.barrier_cluster_wait_aligned()
+        cl._nvvm.barrier_cluster_arrive_aligned()
+        cl._nvvm.barrier_cluster_wait_aligned()
 
         mbar0 = cl.map_shared_to_cluster(mbar, 0)
         cl.mbarrier_arrive(mbar0, scope=cl.MbarrierScope.CLUSTER)

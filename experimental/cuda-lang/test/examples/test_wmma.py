@@ -197,7 +197,7 @@ def _find_load_intrinsic(spec, memory_layout):
         else spec.layout.value
     )
     name = f"wmma_{op.shape_name}_load_{use}_{layout}_stride_{_dtype_name(spec.dtype)}"
-    return getattr(cl.nvvm, name)
+    return getattr(cl._nvvm, name)
 
 
 def _find_mma_intrinsic(a_spec, b_spec, c_spec, satf):
@@ -207,7 +207,7 @@ def _find_mma_intrinsic(a_spec, b_spec, c_spec, satf):
     name = f"wmma_{op.shape_name}_mma_{a_layout}_{b_layout}_{op.mma_suffix}"
     if satf:
         name += "_satfinite"
-    return getattr(cl.nvvm, name), (op.a_regs, op.b_regs, op.c_regs)
+    return getattr(cl._nvvm, name), (op.a_regs, op.b_regs, op.c_regs)
 
 
 def _to_tuple(v):
@@ -248,7 +248,7 @@ def store_matrix_sync(ptr, frag, ldm, layout):
     layout_name = static_eval(layout.value)
     fn = static_eval(
         getattr(
-            cl.nvvm, f"wmma_{op.shape_name}_store_d_{layout_name}_stride_{dtype_name}"
+            cl._nvvm, f"wmma_{op.shape_name}_store_d_{layout_name}_stride_{dtype_name}"
         )
     )
     static_assert(
@@ -465,7 +465,7 @@ def has_satfinite(op, a_layout, b_layout):
         f"{a_layout.value}_{b_layout.value}_"
         f"{op.mma_suffix}_satfinite"
     )
-    return hasattr(cl.nvvm, name)
+    return hasattr(cl._nvvm, name)
 
 
 def all_test_cases():

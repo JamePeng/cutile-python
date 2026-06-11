@@ -24,11 +24,11 @@ See `the official libdevice documentation here <LIBDEVICE_>`_.
         :template: kernel_wrapper.py
 
         # __nv_sincosf takes pointers but sincosf returns a tuple:
-        sin, cos = cl.libdevice.sincosf(5.0)
+        sin, cos = cl._libdevice.sincosf(5.0)
 
         # __nv_abs and abs are aliases:
-        abs_x = cl.libdevice.abs(-5)
-        abs_x = cl.libdevice.__nv_abs(-5)
+        abs_x = cl._libdevice.abs(-5)
+        abs_x = cl._libdevice.__nv_abs(-5)
 
 .. _LIBDEVICE: https://docs.nvidia.com/cuda/libdevice-users-guide/
 
