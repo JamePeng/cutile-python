@@ -16,6 +16,7 @@ from cuda.tile._ir.op_impl import (
     require_constant_enum,
     require_array_type,
     require_constant_bool,
+    require_constant_axis_order,
     ImplRegistry,
 )
 from cuda.tile._ir.type import TensorLikeTy
@@ -849,12 +850,13 @@ class CreateTensorMap(Operation, opcode="create_tensor_map"):
 
 
 @impl(tensor_map.tensor_map_tiled)
-def tensor_map_tiled_impl(array: Var, tile_shape: Var, swizzle: Var) -> Var:
+def tensor_map_tiled_impl(array: Var, tile_shape: Var, order: Var, swizzle: Var) -> Var:
     array_ty = require_array_type(array)
     array_val = array.get_aggregate()
     assert isinstance(array_val, ArrayValue)
 
     tile_shape = require_constant_int_tuple(tile_shape, allow_single_int=True)
+    order = require_constant_axis_order(order, array_ty.ndim)
     swizzle = require_constant_enum(swizzle, TensorMapSwizzle)
     data_type = dtype_to_tensor_map_type(array_ty.dtype)
     map_ty = TensorMapTy(data_type=data_type,
@@ -862,8 +864,8 @@ def tensor_map_tiled_impl(array: Var, tile_shape: Var, swizzle: Var) -> Var:
                          swizzle=swizzle)
     return add_operation(CreateTensorMap, map_ty,
                          base_ptr=array_val.base_ptr,
-                         array_shape=array_val.shape,
-                         array_strides=array_val.strides)
+                         array_shape=tuple(array_val.shape[i] for i in order),
+                         array_strides=tuple(array_val.strides[i] for i in order))
 
 
 @dataclass

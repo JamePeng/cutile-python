@@ -12,7 +12,7 @@ from .util import require_hopper_or_newer
 def test_mbar_manager():
     @cl.kernel()
     def kernel(x, y, i, j, W: cl.Constant[int], H: cl.Constant[int]):
-        x_tm = cl.tensor_map_tiled(x, (W, H))
+        x_tm = cl.tensor_map_tiled(x, (H, W), order="F")
         mbar = cl.shared_array(shape=(), dtype=cl.mbarrier, alignment=8).get_base_pointer()
         smem = cl.shared_array(shape=(W * H,), dtype=cl.int32, alignment=512)
 
@@ -62,7 +62,7 @@ def test_tensor_map_tiled():
         # TODO: barrier API
         barrier = cl.shared_array(shape=(), dtype=cl.uint64)
         smem = cl.shared_array(shape=(W * H,), dtype=cl.int32, alignment=512)
-        x_tm = cl.tensor_map_tiled(x, (W, H))
+        x_tm = cl.tensor_map_tiled(x, (H, W), order="F")
 
         if cl.thread_idx(0) == 0:
             cl._nvvm.mbarrier_init_shared(barrier.get_base_pointer(), cl.block_dim(0))

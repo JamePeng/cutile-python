@@ -42,7 +42,7 @@ def test_mlir_interface_results():
 def test_cp_async_bulk_tensor_mlir_interface():
     @cl.kernel
     def kernel(src, dst):
-        tma_descriptor = cl.tensor_map_tiled(src, (8, 8)).as_opaque_ptr()
+        tma_descriptor = cl.tensor_map_tiled(src, (8, 8), order="F").as_opaque_ptr()
         mbar = cl.shared_array(1, dtype=cl.mbarrier).get_base_pointer()
         smem = cl.shared_array(64, dtype=cl.int32, alignment=512)
 

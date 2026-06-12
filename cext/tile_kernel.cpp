@@ -1700,8 +1700,8 @@ static Result<HoistedTensorMap> hoisted_tensor_map_parse(PyObject* map_pyobj) {
         return raise(PyExc_TypeError, "Size of HoistedTensorMap.tile_shape doesn't match rank");
     for (long i = 0; i < rank; ++i) {
         PyObject* py_dim = PyTuple_GET_ITEM(py_tile_shape.get(), i);
-        ret.traversal_steps[rank - 1 - i] = 1;
-        ret.box_dim[rank - 1 - i] = pylong_as<uint32_t>(py_dim);
+        ret.traversal_steps[i] = 1;
+        ret.box_dim[i] = pylong_as<uint32_t>(py_dim);
         if (PyErr_Occurred()) return ErrorRaised;
     }
 

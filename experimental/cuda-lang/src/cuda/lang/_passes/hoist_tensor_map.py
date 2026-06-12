@@ -57,9 +57,9 @@ def hoist_tensor_maps(kernel_body: ir.Block,
             new_params.append(new_param)
 
             shape_stride_program = HostProgram()
-            for x in reversed(op.array_shape):
+            for x in op.array_shape:
                 var_to_host_program(x, shape_stride_program)
-            for x in reversed(op.array_strides):
+            for x in op.array_strides:
                 var_to_host_program(x, shape_stride_program)
 
             hoisted_maps.append(HoistedTensorMap(
