@@ -96,7 +96,12 @@ from .atomics_support import (
     require_atomic_memory_order_and_scope,
     require_atomic_rmw_value,
 )
-from .op_defs import RawNVVMIntrinsic, RawMLIROperation  # noqa: F401
+from .op_defs import (
+    RawNVVMIntrinsic,
+    RawMLIROperation,
+    ForeignFunction,
+    VectorGetItem,
+)
 from .type_checking_helpers import (
     require_array_indices,
     require_scalar_type,
@@ -257,12 +262,6 @@ class LoadPointer(Operation, opcode="load_pointer", memory_effect=MemoryEffect.L
         MemoryOrder.RELAXED,
         MemoryOrder.ACQUIRE,
     )
-
-
-@dataclass(eq=False)
-class VectorGetItem(Operation, opcode="vector_getitem", memory_effect=MemoryEffect.LOAD):
-    x: Var = operand()
-    index: Var = operand()
 
 
 @dataclass(eq=False)
@@ -1371,12 +1370,6 @@ def clusterlaunchcontrol_get_first_block_idx_impl(token: Var, axis: Var) -> Var:
     return build_tuple(cta_ids) if axis is None else cta_ids[axis]
 
 
-@dataclass(eq=False)
-class ForeignFunction(Operation, opcode="foreign_function", memory_effect=MemoryEffect.STORE):
-    function_name: str = attribute()
-    operands_: tuple[Var, ...] = operand()
-
-
 @impl(foreign_function._call_foreign_function)
 def _call_foreign_function_impl(func: Var, return_type: Var, parameters: Var):
     function_name = require_constant_str(func)
@@ -1701,4 +1694,8 @@ __all__ = (
     "StorePointer",
     "RawWhereOperation",
     "Unary",
+    "RawNVVMIntrinsic",
+    "RawMLIROperation",
+    "ForeignFunction",
+    "VectorGetItem",
 )

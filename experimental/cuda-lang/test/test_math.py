@@ -14,6 +14,7 @@ from cuda.lang._stub import math as device_math
 from cuda.lang.compilation import KernelSignature
 from cuda.lang._exception import TileTypeError
 from cuda.lang._fp_utils import _FLOAT_SMALLEST_NORMAL, isnormal
+from .util import filecheck, make_symbolic_tensor
 
 
 rng = torch.Generator().manual_seed(0)
@@ -168,9 +169,11 @@ def test_pow(lhs_dt, rhs_dt, result_dt, vector):
         if vector:
             lhs_v = lhs.get_base_pointer().load(count=4)
             rhs_v = rhs.get_base_pointer().load(count=4)
-            out.get_base_pointer().store(device_math.pow(lhs_v, rhs_v))
+            v = device_math.pow(lhs_v, rhs_v)
+            for i in range(4):
+                out[i] = out.dtype(v[i])
         else:
-            out[0] = device_math.pow(lhs[0], rhs[0])
+            out[0] = out.dtype(device_math.pow(lhs[0], rhs[0]))
 
     lhs_torch_dt = datatype.to_torch_dtype(lhs_dt)
     rhs_torch_dt = datatype.to_torch_dtype(rhs_dt)
@@ -190,6 +193,41 @@ def test_pow(lhs_dt, rhs_dt, result_dt, vector):
         assert_close_float(out.cpu(), expected, result_dt)
     else:
         torch.testing.assert_close(out.cpu(), expected, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize(
+    "lhs_dt, rhs_dt, entrypoint",
+    (
+        # fpowf no promotion
+        (datatype.float32, datatype.float32, "__nv_powf"),
+        (datatype.float64, datatype.float64, "__nv_pow"),
+
+        # fpowi no promotion
+        (datatype.float32, datatype.int32, "__nv_powif"),
+        (datatype.float64, datatype.int32, "__nv_powi"),
+
+        # fpowi integer exponent cast to i32
+        (datatype.float64, datatype.int8, "__nv_powi"),
+        (datatype.float64, datatype.int16, "__nv_powi"),
+        (datatype.float64, datatype.int64, "__nv_powi"),
+
+        # promote floats to same type
+        (datatype.float32, datatype.float64, "__nv_pow"),
+        (datatype.float64, datatype.float32, "__nv_pow"),
+
+        # half precision promotion
+        (datatype.float16, datatype.float16, "__nv_powf"),
+    ),
+)
+def test_pow_libdevice_entrypoints(lhs_dt, rhs_dt, entrypoint):
+    def kernel(lhs, rhs, out):
+        out[0] = out.dtype(device_math.pow(lhs[0], rhs[0]))
+
+    lhs = make_symbolic_tensor([1], lhs_dt)
+    rhs = make_symbolic_tensor([1], rhs_dt)
+    out = make_symbolic_tensor([1], lhs_dt)
+    cres = cl.compile_simt(kernel, [KernelSignature([lhs, rhs, out])])
+    filecheck(cres.mlir, "CHECK: llvm.call{{.+}}callee = @" + entrypoint)
 
 
 @pytest.mark.skipif(

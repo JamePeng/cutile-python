@@ -23,3 +23,15 @@ class RawMLIROperation(Operation, opcode="mlir.operation",
     op_name: str = attribute()
     operands_: tuple[Var, ...] = operand()
     mlir_attributes: tuple[tuple[str, mlir.Attribute], ...] = attribute(default=())
+
+
+@dataclass(eq=False)
+class ForeignFunction(Operation, opcode="foreign_function", memory_effect=MemoryEffect.STORE):
+    function_name: str = attribute()
+    operands_: tuple[Var, ...] = operand()
+
+
+@dataclass(eq=False)
+class VectorGetItem(Operation, opcode="vector_getitem", memory_effect=MemoryEffect.LOAD):
+    x: Var = operand()
+    index: Var = operand()

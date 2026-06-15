@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from cuda.tile._ir.ops_utils import promote_dtypes
+
 import cuda.lang._datatype as datatype
 from cuda.lang._exception import TileTypeError
 from cuda.lang._ir.ir import Var, add_operation
@@ -9,8 +11,14 @@ from cuda.lang._ir.type import (
     ScalarTy,
     VectorTy,
 )
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic, RawMLIROperation
+from cuda.lang._ir.op_defs import (
+    RawNVVMIntrinsic,
+    RawMLIROperation,
+    ForeignFunction,
+    VectorGetItem,
+)
 from cuda.lang._ir.type_checking_helpers import (
+    broadcast_to_same_shape,
     common_type,
     require_scalar_or_vector_float_type,
     require_scalar_or_vector_type,
@@ -96,41 +104,96 @@ def math_float_fpclass_impl(op_name: str, x: Var):
     )
 
 
+def get_libdevice_pow_function(base_dt, exp_dt):
+    match base_dt, exp_dt:
+        case datatype.float32, datatype.float32:
+            return lambda x, y: add_operation(
+                ForeignFunction,
+                ScalarTy(base_dt),
+                function_name="__nv_powf",
+                operands_=(x, y),
+            )
+        case datatype.float64, datatype.float64:
+            return lambda x, y: add_operation(
+                ForeignFunction,
+                ScalarTy(base_dt),
+                function_name="__nv_pow",
+                operands_=(x, y),
+            )
+        case datatype.float32, datatype.int32:
+            return lambda x, y: add_operation(
+                ForeignFunction,
+                ScalarTy(base_dt),
+                function_name="__nv_powif",
+                operands_=(x, y),
+            )
+        case datatype.float64, datatype.int32:
+            return lambda x, y: add_operation(
+                ForeignFunction,
+                ScalarTy(base_dt),
+                function_name="__nv_powi",
+                operands_=(x, y),
+            )
+        case _:
+            raise TileTypeError(
+                f"pow is not valid for the given datatypes: {base_dt=} {exp_dt=}"
+            )
+
+
 @impl(cl_math.pow)
 def math_pow_impl(x: Var, y: Var):
     x_ty, y_ty = x.get_type(), y.get_type()
     base_dt, exp_dt = x_ty.tensor_dtype(), y_ty.tensor_dtype()
 
-    def smallest_float_dtype(dtype):
-        if is_float(dtype):
-            return dtype
-        if is_integral(dtype):
-            return datatype.float32 if dtype.bitwidth <= 32 else datatype.float64
-        raise TileTypeError(f"math.pow expects arithmetic operands, got {dtype}")
+    # int32 is the only valid integral exponent dtype
+    if is_integral(exp_dt):
+        exp_dt = datatype.int32
 
-    x = astype(x, smallest_float_dtype(base_dt))
-    y = astype(y, smallest_float_dtype(exp_dt))
-    common_ty = common_type(x, y)
-    x = promote_and_broadcast_to(x, common_ty)
-    y = promote_and_broadcast_to(y, common_ty)
-    result_ty = common_ty
-    cast_down_to_float16 = result_ty.tensor_dtype() == datatype.float16 or (
-        base_dt == datatype.float16 and is_integral(exp_dt)
+    # integral base is promoted to float
+    if is_integral(base_dt):
+        # 8b-32b ints are promoted to single-precision floats
+        if base_dt.bitwidth <= 32:
+            base_dt = datatype.float32
+        else:
+            base_dt = datatype.float64
+
+    # if either operand is half precision float, promote to single
+    if base_dt == datatype.float16:
+        base_dt = datatype.float32
+    if exp_dt == datatype.float16:
+        exp_dt = datatype.float32
+
+    # if both operands are floats, promote to the larger one
+    if is_float(base_dt) and is_float(exp_dt) and base_dt.bitwidth != exp_dt.bitwidth:
+        base_dt = exp_dt = promote_dtypes(base_dt, exp_dt)
+
+    x = astype(x, base_dt)
+    y = astype(y, exp_dt)
+    x, y = broadcast_to_same_shape(x, y)
+
+    scalar_fn = get_libdevice_pow_function(base_dt, exp_dt)
+    if isinstance(x.get_type(), ScalarTy):
+        return scalar_fn(x, y)
+
+    res_ty = x.get_type()
+    assert isinstance(res_ty, VectorTy)
+
+    res = add_operation(
+        RawMLIROperation, res_ty, op_name="llvm.mlir.undef", operands_=()
     )
-    if cast_down_to_float16:
-        # NOTE: powi with a f16 base fails in ISEL; convert to f32 and back
-        x = astype(x, datatype.float32)
-        y = astype(y, datatype.float32)
-        result_ty = x.get_type()
-    result = add_operation(
-        RawMLIROperation,
-        result_ty,
-        op_name="math.powf",
-        operands_=(x, y),
-    )
-    if cast_down_to_float16:
-        return astype(result, datatype.float16)
-    return result
+    for i in range(res_ty.length):
+        index = strictly_typed_const(i, ScalarTy(datatype.int32))
+        x_i = add_operation(VectorGetItem, ScalarTy(base_dt), x=x, index=index)
+        y_i = add_operation(VectorGetItem, ScalarTy(exp_dt), x=y, index=index)
+        element = scalar_fn(x_i, y_i)
+        res = add_operation(
+            RawMLIROperation,
+            res_ty,
+            op_name="llvm.insertelement",
+            operands_=(res, element, index),
+        )
+
+    return res
 
 
 @impl(cl_math.atan2, fixed_args=["math.atan2"])
