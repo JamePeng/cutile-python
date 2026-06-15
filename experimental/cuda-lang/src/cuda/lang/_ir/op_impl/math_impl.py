@@ -7,6 +7,7 @@ from cuda.tile._ir.ops_utils import promote_dtypes
 import cuda.lang._datatype as datatype
 from cuda.lang._exception import TileTypeError
 from cuda.lang._ir.ir import Var, add_operation
+from .vector_impl import vector_elementwise_apply
 from cuda.lang._ir.type import (
     ScalarTy,
     VectorTy,
@@ -15,7 +16,6 @@ from cuda.lang._ir.op_defs import (
     RawNVVMIntrinsic,
     RawMLIROperation,
     ForeignFunction,
-    VectorGetItem,
 )
 from cuda.lang._ir.type_checking_helpers import (
     broadcast_to_same_shape,
@@ -107,37 +107,23 @@ def math_float_fpclass_impl(op_name: str, x: Var):
 def get_libdevice_pow_function(base_dt, exp_dt):
     match base_dt, exp_dt:
         case datatype.float32, datatype.float32:
-            return lambda x, y: add_operation(
-                ForeignFunction,
-                ScalarTy(base_dt),
-                function_name="__nv_powf",
-                operands_=(x, y),
-            )
+            entrypoint = "__nv_powf"
         case datatype.float64, datatype.float64:
-            return lambda x, y: add_operation(
-                ForeignFunction,
-                ScalarTy(base_dt),
-                function_name="__nv_pow",
-                operands_=(x, y),
-            )
+            entrypoint = "__nv_pow"
         case datatype.float32, datatype.int32:
-            return lambda x, y: add_operation(
-                ForeignFunction,
-                ScalarTy(base_dt),
-                function_name="__nv_powif",
-                operands_=(x, y),
-            )
+            entrypoint = "__nv_powif"
         case datatype.float64, datatype.int32:
-            return lambda x, y: add_operation(
-                ForeignFunction,
-                ScalarTy(base_dt),
-                function_name="__nv_powi",
-                operands_=(x, y),
-            )
+            entrypoint = "__nv_powi"
         case _:
             raise TileTypeError(
                 f"pow is not valid for the given datatypes: {base_dt=} {exp_dt=}"
             )
+    return lambda x, y: add_operation(
+        ForeignFunction,
+        ScalarTy(base_dt),
+        function_name=entrypoint,
+        operands_=(x, y),
+    )
 
 
 @impl(cl_math.pow)
@@ -175,25 +161,7 @@ def math_pow_impl(x: Var, y: Var):
     if isinstance(x.get_type(), ScalarTy):
         return scalar_fn(x, y)
 
-    res_ty = x.get_type()
-    assert isinstance(res_ty, VectorTy)
-
-    res = add_operation(
-        RawMLIROperation, res_ty, op_name="llvm.mlir.undef", operands_=()
-    )
-    for i in range(res_ty.length):
-        index = strictly_typed_const(i, ScalarTy(datatype.int32))
-        x_i = add_operation(VectorGetItem, ScalarTy(base_dt), x=x, index=index)
-        y_i = add_operation(VectorGetItem, ScalarTy(exp_dt), x=y, index=index)
-        element = scalar_fn(x_i, y_i)
-        res = add_operation(
-            RawMLIROperation,
-            res_ty,
-            op_name="llvm.insertelement",
-            operands_=(res, element, index),
-        )
-
-    return res
+    return vector_elementwise_apply(scalar_fn, x, y)
 
 
 @impl(cl_math.atan2, fixed_args=["math.atan2"])

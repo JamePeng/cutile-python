@@ -147,6 +147,7 @@ from cuda.tile._ir import hir_stubs
 
 from .op_impl.tcgen05_impl import tcgen05_impl_registry
 from .op_impl.math_impl import math_impl_registry
+from .op_impl.vector_impl import vector_impl_registry
 
 cuda_lang_impl_registry = ImplRegistry()
 cuda_lang_impl_registry.update(core_impl_registry())
@@ -156,6 +157,7 @@ cuda_lang_impl_registry.update(control_flow_impl_registry())
 cuda_lang_impl_registry.update(array_impl_registry)
 cuda_lang_impl_registry.update(tcgen05_impl_registry())
 cuda_lang_impl_registry.update(math_impl_registry())
+cuda_lang_impl_registry.update(vector_impl_registry())
 impl = cuda_lang_impl_registry.impl
 
 
@@ -348,23 +350,6 @@ def _m_array_get_base_pointer_impl(self: Var) -> Var:
 @impl(Array.get_element_pointer)
 def _m_array_get_element_pointer_impl(self: Var, indices: Var) -> Var:
     return _array_get_element_pointer(self, require_array_indices(self, indices))
-
-
-@impl(operator.setitem, overload=(VectorTy, WILDCARD, WILDCARD))
-def vector_setitem(object: Var[VectorTy], key: Var, value: Var):
-    raise TileTypeError("Vectors are immutable: item assignment is not supported")
-
-
-@impl(operator.getitem, overload=(VectorTy, WILDCARD))
-def vector_getitem(object: Var[VectorTy], key: Var) -> Var:
-    result_dtype = object.get_type().element_dtype
-    index = implicit_cast(key, datatype.int32, "vector getitem index")
-    return add_operation(
-        VectorGetItem,
-        ScalarTy(result_dtype),
-        x=object,
-        index=index,
-    )
 
 
 @impl(operator.getitem, overload=(ArrayTy, WILDCARD))
