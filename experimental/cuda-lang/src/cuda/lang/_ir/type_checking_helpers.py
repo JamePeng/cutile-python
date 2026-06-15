@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import cuda.lang._datatype as datatype
 from cuda.lang._ir.type import MemorySpace, ScalarTy, VectorTy, PointerTy
 from cuda.tile import TileTypeError, DType
 from cuda.tile._ir.ir import Var
 from cuda.tile._ir.op_impl import require_array_type
-from cuda.tile._ir.ops import implicit_cast
+from cuda.tile._ir.ops import broadcast_to, implicit_cast
+from cuda.tile._ir.ops_utils import promote_types
 from cuda.tile._ir.type import TupleTy, TupleValue
 from cuda.tile._datatype import is_integral, is_signed
 from cuda.lang._datatype import clusterlaunchcontrol_token, is_float, mbarrier
@@ -137,6 +139,37 @@ def require_scalar_or_vector_type(var: Var, dtype_predicate=None) -> VectorTy | 
 
 def require_scalar_or_vector_float_type(var: Var) -> VectorTy | ScalarTy:
     return require_scalar_or_vector_type(var, is_float)
+
+
+def broadcast_to_same_shape(x: Var, y: Var) -> tuple[Var, Var]:
+    x_ty = require_scalar_or_vector_type(x)
+    y_ty = require_scalar_or_vector_type(y)
+    match x_ty, y_ty:
+        case ScalarTy(), VectorTy() as vt:
+            x = broadcast_to(x, vt.tensor_shape())
+        case VectorTy() as vt, ScalarTy():
+            y = broadcast_to(y, vt.tensor_shape())
+        case VectorTy() as vt1, VectorTy() as vt2 if vt1.length != vt2.length:
+            raise TileTypeError(
+                f"Expected scalar and vector with compatible shape but got {vt1} and {vt2}",
+            )
+    return x, y
+
+
+def common_type(x: Var, y: Var):
+    x_ty = x.get_loose_type()
+    y_ty = y.get_loose_type()
+
+    if not datatype.is_arithmetic(x_ty.tensor_dtype()):
+        raise TileTypeError(
+            f"Left-hand side has non-arithmetic dtype {x_ty.tensor_dtype()}"
+        )
+    if not datatype.is_arithmetic(y_ty.tensor_dtype()):
+        raise TileTypeError(
+            f"Right-hand side has non-arithmetic dtype {y_ty.tensor_dtype()}"
+        )
+
+    return promote_types(x_ty, y_ty, x.ctx.typing_hooks)
 
 
 def make_type_checking_error(message: str, culprit: Var | None = None):
