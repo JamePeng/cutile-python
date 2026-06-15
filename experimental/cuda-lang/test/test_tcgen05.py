@@ -7,18 +7,12 @@ import pytest
 import cuda.lang as cl
 from cuda.lang._compile import KernelSignature, get_compute_capability
 from cuda.lang._exception import TileTypeError, TileValueError
-from cuda.lang._logging import get_log_flags
 
 
 cc = get_compute_capability()
 
 if cc.major != 10:
     pytest.skip(reason="Blackwell only", allow_module_level=True)
-
-
-@pytest.fixture
-def log_ptx():
-    get_log_flags().log_ptx = True
 
 
 @pytest.mark.parametrize(
@@ -49,7 +43,8 @@ def test_commit(log_ptx, mc_mask, cta_group, expect):
         cl.tcgen05_commit(mbar, multicast_mask=mc_mask, cta_group=cta_group)
 
     compiled = cl.compile_simt(kernel, [KernelSignature([])])
-    ptx = compiled.compiler_stderr.decode()
+    ptx = compiled.ptx
+    assert ptx is not None
     assert expect in ptx
 
 
@@ -73,7 +68,8 @@ def test_alloc(log_ptx, cta_group, expect):
         cl.tcgen05_alloc(p3, 5, cta_group=cta_group)
 
     compiled = cl.compile_simt(kernel, [KernelSignature([])])
-    ptx = compiled.compiler_stderr.decode()
+    ptx = compiled.ptx
+    assert ptx is not None
     assert expect in ptx, ptx
 
 
@@ -114,7 +110,8 @@ def test_dealloc(log_ptx, cta_group, expect):
         cl.tcgen05_dealloc(tmem_ptr, 128, cta_group=cta_group)
 
     compiled = cl.compile_simt(kernel, [KernelSignature([])])
-    ptx = compiled.compiler_stderr.decode()
+    ptx = compiled.ptx
+    assert ptx is not None
     assert expect in ptx, ptx
 
 
@@ -134,7 +131,8 @@ def test_ld(log_ptx, shape, count, pack, offset):
 
     def do_compile():
         compiled = cl.compile_simt(kernel, [KernelSignature([])])
-        ptx = compiled.compiler_stderr.decode()
+        ptx = compiled.ptx
+        assert ptx is not None
         assert "tcgen05.ld.sync.aligned" in ptx and shape.value in ptx, ptx
 
     bad_args = offset is not None and shape is not cl.Tcgen05LdStShape.SHAPE_16X32BX2

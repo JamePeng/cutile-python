@@ -4,6 +4,7 @@
 
 from functools import total_ordering
 import sys
+import tempfile
 from typing import Sequence
 from dataclasses import dataclass
 import os.path
@@ -37,37 +38,50 @@ from cuda.lang.compilation import (
 from ._execution import kernel
 from cuda.lang._ir.ops import cuda_lang_impl_registry
 from ._ir._host_program import HostProgram, get_host_programs_by_var
+import contextlib
 
 
-def mlir2cubin(mlir_text: str, gpu_name: str, arch: str) -> tuple[bytes, bytes]:
+@dataclass(frozen=True)
+class MLIR2CubinResult:
+    cubin: bytes
+    stderr: bytes
+    ptx: str | None
+
+
+def mlir2cubin(mlir_text: str, gpu_name: str, arch: str) -> MLIR2CubinResult:
     executable = get_compiler_binary_path()
     argv = [executable, "-", "-o", "-", f"--gpu-name={gpu_name}", f"--arch={arch}"]
     custom_flags = os.environ.get("CUDA_LANG_MLIR2CUBIN_FLAGS", None)
+
     if custom_flags is not None:
         argv.extend(custom_flags.split())
 
-    log_flags = get_log_flags()
-    if log_flags.log_ptx:
-        argv.extend(['--dump-ptx'])
+    with contextlib.ExitStack() as ec:
+        log_flags = get_log_flags()
+        ptx_file, ptx_src = None, None
 
-    try:
-        completed = subprocess.run(
-            argv, input=mlir_text.encode(), capture_output=True, check=True
-        )
-    except subprocess.CalledProcessError as e:
-        raise TileCompilerExecutionError(
-            return_code=e.returncode,
-            stderr=e.stderr.decode(),
-            compiler_flags=argv,
-            compiler_version=None,
-        )
-    if custom_flags is not None or log_flags.log_ptx:
-        compiler_stderr = completed.stderr.decode()
-        if len(compiler_stderr) > 0:
-            print("==== mlir2cubin stderr: ====", file=sys.stderr)
-            print(compiler_stderr, file=sys.stderr)
-            print("^^^^ End of mlir2cubin stderr ^^^^", file=sys.stderr)
-    return completed.stdout, completed.stderr
+        if log_flags.log_ptx:
+            ptx_file = ec.enter_context(tempfile.NamedTemporaryFile(mode='w+t'))
+            argv.extend(['--dump-ptx=' + ptx_file.name])
+
+        try:
+            completed = subprocess.run(
+                argv, input=mlir_text.encode(), capture_output=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            raise TileCompilerExecutionError(
+                return_code=e.returncode,
+                stderr=e.stderr.decode(),
+                compiler_flags=argv,
+                compiler_version=None,
+            )
+
+        if log_flags.log_ptx:
+            assert ptx_file is not None
+            ptx_file.seek(0)
+            ptx_src = ptx_file.read()
+
+    return MLIR2CubinResult(completed.stdout, completed.stderr, ptx_src)
 
 
 def get_compiler_binary_path() -> str:
@@ -115,7 +129,8 @@ class CompilationResult:
     hoisted_tensor_maps: list[HoistedTensorMap]
     final_ir: ir.Region | None = None
     mlir: str | None = None
-    compiler_stderr: bytes | None = None
+    stderr: bytes | None = None
+    ptx: str | None = None
     cubin: bytes | None = None
 
 
@@ -214,7 +229,7 @@ def compile_simt(
         gpu_name = gpu_name or cc.gpu_name + suffix
         arch = arch or cc.arch + suffix
 
-    cubin, err = mlir2cubin(str(mlir_module), gpu_name=gpu_name, arch=arch)
+    compiled = mlir2cubin(str(mlir_module), gpu_name=gpu_name, arch=arch)
 
     return CompilationResult(
         kernel_signatures=[signature],
@@ -222,8 +237,9 @@ def compile_simt(
         hoisted_tensor_maps=hoisted_tensor_maps,
         final_ir=flattened_ir,
         mlir=str(mlir_module),
-        compiler_stderr=err,
-        cubin=cubin,
+        stderr=compiled.stderr,
+        ptx=compiled.ptx,
+        cubin=compiled.cubin,
     )
 
 

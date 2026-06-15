@@ -5,3 +5,5 @@
 import pytest
 
 pytest.importorskip("cuda.lang", reason="Skipping cuda-lang test: module not found")
+
+from .util import log_ptx as log_ptx  # noqa: E402,F401

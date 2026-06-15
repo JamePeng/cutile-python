@@ -5,6 +5,7 @@
 import pytest
 
 from cuda.lang._compile import get_compute_capability
+from cuda.lang._logging import get_log_flags
 
 from .filecheck_utils import filecheck, get_source
 from .ir_utils import (
@@ -29,6 +30,17 @@ def require_hopper_or_newer():
     )
 
 
+@pytest.fixture
+def log_ptx():
+    log_flags = get_log_flags()
+    old_log_ptx = log_flags.log_ptx
+    log_flags.log_ptx = True
+    try:
+        yield
+    finally:
+        log_flags.log_ptx = old_log_ptx
+
+
 __all__ = (
     "filecheck",
     "get_source",
@@ -36,6 +48,7 @@ __all__ = (
     "make_symbolic_scalar",
     "make_symbolic_tensor",
     "compile_for_arguments",
+    "log_ptx",
     "require_hopper_or_newer",
     "require_blackwell_or_newer",
 )

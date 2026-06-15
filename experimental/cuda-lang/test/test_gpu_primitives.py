@@ -7,7 +7,12 @@ from cuda.lang._exception import TileCompilerExecutionError
 import torch
 import pytest
 
-from .util import require_blackwell_or_newer, require_hopper_or_newer
+from .util import (
+    compile_for_arguments,
+    make_symbolic_tensor,
+    require_blackwell_or_newer,
+    require_hopper_or_newer,
+)
 
 
 def test_arch_specific_kernel_failure():
@@ -259,7 +264,7 @@ def test_elect_sync(capsys):
     assert sum(out.cpu().ravel().tolist()) == 1
 
 
-def test_warp_size_full_mask_and_ptx_comment(capsys):
+def test_warp_size_full_mask_and_ptx_comment(log_ptx):
     ptx_comment = 'FOOBARBAZ'
 
     @cl.kernel
@@ -271,13 +276,13 @@ def test_warp_size_full_mask_and_ptx_comment(capsys):
             out[0] = cl.warp_size()
             out[1] = value
 
-    from cuda.lang._logging import get_log_flags
-    get_log_flags().log_ptx = True
+    compiled = compile_for_arguments(kernel, [make_symbolic_tensor((2,), cl.int32)])
+    assert compiled.ptx is not None
+    assert ptx_comment in compiled.ptx
+
     out = torch.zeros(2, dtype=torch.int32, device="cuda")
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
     assert (out.cpu() == torch.tensor([32, 7], dtype=torch.int32)).all()
-    captured = capsys.readouterr().err
-    assert ptx_comment in captured
 
 
 def test_lane_idx():
