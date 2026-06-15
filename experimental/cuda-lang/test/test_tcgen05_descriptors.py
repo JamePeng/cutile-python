@@ -1,0 +1,117 @@
+# SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+import pytest
+import torch
+
+import cuda.lang as cl
+
+
+def encode_tcgen05_instruction_descriptor():
+    return cl.Tcgen05InstructionDescriptor(
+        sparsity_selector=3,
+        sparse=True,
+        saturate=True,
+        d_type=cl.Tcgen05InstructionDescriptor.DType.S32,
+        a_type=cl.Tcgen05InstructionDescriptor.I8Type.S8,
+        b_type=cl.Tcgen05InstructionDescriptor.I8Type.U8,
+        negate_a=True,
+        negate_b=False,
+        transpose_a=True,
+        transpose_b=False,
+        n=248,
+        m=240,
+        max_shift=cl.Tcgen05InstructionDescriptor.MaxShift.MaxShift16,
+    ).encode()
+
+
+def encode_tcgen05_mxf8f6f4_instruction_descriptor():
+    return cl.Tcgen05Mxf8f6f4InstructionDescriptor(
+        sparse=True,
+        b_scale_id=3,
+        a_type=cl.Tcgen05Mxf8f6f4InstructionDescriptor.Type.E2M1,
+        b_type=cl.Tcgen05Mxf8f6f4InstructionDescriptor.Type.E3M2,
+        negate_a=True,
+        negate_b=False,
+        transpose_a=False,
+        transpose_b=True,
+        n=128,
+        scale_format=cl.Tcgen05Mxf8f6f4InstructionDescriptor.ScaleFormat.UE8M0,
+        m=256,
+        a_scale_id=2,
+    ).encode()
+
+
+def encode_tcgen05_mxf4_instruction_descriptor():
+    return cl.Tcgen05Mxf4InstructionDescriptor(
+        sparse=True,
+        b_scale_id=2,
+        a_type=cl.Tcgen05Mxf4InstructionDescriptor.Type.E2M1,
+        b_type=cl.Tcgen05Mxf4InstructionDescriptor.Type.E2M1,
+        negate_a=False,
+        negate_b=True,
+        transpose_a=True,
+        transpose_b=False,
+        n=64,
+        scale_format=cl.Tcgen05Mxf4InstructionDescriptor.ScaleFormat.UE4M3,
+        m=128,
+        a_scale_id=2,
+        k_dimension=cl.Tcgen05Mxf4InstructionDescriptor.KDimension.DenseK96,
+    ).encode()
+
+
+@pytest.mark.parametrize(
+    "encode_descriptor,expected",
+    [
+        (
+            encode_tcgen05_instruction_descriptor,
+            (3 << 0)
+            | (1 << 2)
+            | (1 << 3)
+            | (2 << 4)
+            | (1 << 7)
+            | (0 << 10)
+            | (1 << 13)
+            | (1 << 15)
+            | ((248 >> 3) << 17)
+            | ((240 >> 4) << 24)
+            | (2 << 30),
+        ),
+        (
+            encode_tcgen05_mxf8f6f4_instruction_descriptor,
+            (1 << 2)
+            | (3 << 4)
+            | (5 << 7)
+            | (4 << 10)
+            | (1 << 13)
+            | (1 << 16)
+            | ((128 >> 3) << 17)
+            | (1 << 23)
+            | ((256 >> 7) << 27)
+            | (2 << 29),
+        ),
+        (
+            encode_tcgen05_mxf4_instruction_descriptor,
+            (1 << 2)
+            | (2 << 4)
+            | (1 << 7)
+            | (1 << 10)
+            | (1 << 14)
+            | (1 << 15)
+            | ((64 >> 3) << 17)
+            | (0 << 23)
+            | ((128 >> 7) << 27)
+            | (2 << 29)
+            | (1 << 31),
+        ),
+    ],
+)
+def test_tcgen05_instruction_descriptor_encode_on_gpu(encode_descriptor, expected):
+    @cl.kernel
+    def kernel(out):
+        out[0] = encode_descriptor()
+
+    out = torch.zeros(1, dtype=torch.int64, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
+    assert out.cpu().item() == expected
