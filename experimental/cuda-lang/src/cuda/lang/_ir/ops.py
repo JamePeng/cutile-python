@@ -775,9 +775,23 @@ def shfl_sync_impl(mode: str, mask: Var, value: Var, lane_mask: Var, width: Var)
 
     See also Clang's lowering in __clang_cuda_intrinsics.h.
     """
-    value_ty = require_scalar_type(value, (datatype.int32, datatype.uint32, datatype.float32))
-    require_scalar_type(mask, (datatype.int32, datatype.uint32))
-    require_scalar_type(lane_mask, (datatype.int32, datatype.uint32))
+    valid_value_dtypes = (datatype.int32, datatype.uint32, datatype.float32)
+    valid_mask_dtypes = (datatype.int32, datatype.uint32)
+    value_ty = require_scalar_type(
+        value,
+        lambda dtype: dtype in valid_value_dtypes,
+        f"Expected shuffle value dtype to be one of {valid_value_dtypes}",
+    )
+    require_scalar_type(
+        mask,
+        lambda dtype: dtype in valid_mask_dtypes,
+        f"Expected shuffle mask dtype to be one of {valid_mask_dtypes}",
+    )
+    require_scalar_type(
+        lane_mask,
+        lambda dtype: dtype in valid_mask_dtypes,
+        f"Expected shuffle lane mask dtype to be one of {valid_mask_dtypes}",
+    )
     width = require_constant_int(width)
     if width not in (1, 2, 4, 8, 16, 32):
         raise TileTypeError(f"Expected shuffle width to be a power of two in [1, 32], got {width}")

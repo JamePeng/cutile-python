@@ -152,7 +152,11 @@ def tcgen05_ld_impl(
     if is_none(pack):
         operands.append(strictly_typed_const(False, ScalarTy(datatype.bool_)))
     else:
-        require_scalar_type(pack, (datatype.bool_,))
+        require_scalar_type(
+            pack,
+            lambda dtype: dtype is datatype.bool_,
+            f"Expected pack dtype to be {datatype.bool_}",
+        )
         operands.append(pack)
 
     intrinsic = f"llvm.nvvm.tcgen05.ld.{shape_value.value}.x{count_value}"

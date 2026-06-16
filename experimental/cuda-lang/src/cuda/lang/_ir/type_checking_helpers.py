@@ -2,6 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Callable
+
 import cuda.lang._datatype as datatype
 from cuda.lang._ir.op_defs import LoadPointer, StorePointer
 from cuda.lang._ir.type import MemorySpace, ScalarTy, VectorTy, PointerTy
@@ -54,20 +56,23 @@ def require_signed_int_scalar_or_tuple(var: Var) -> tuple[Var, ...]:
             raise make_type_checking_error(
                 f"Expected a signed integer, but {what} has type {item_ty}")
 
-    return var.get_aggregate().items if have_tuple else (var,)
+    if have_tuple:
+        tuple_value = var.get_aggregate()
+        assert isinstance(tuple_value, TupleValue)
+        return tuple_value.items
+    return (var,)
 
 
 def require_scalar_type(var: Var,
-                        valid_dtypes: tuple[DType, ...] = ()) -> ScalarTy:
+                        predicate: Callable[[DType], bool] | None = None,
+                        message: str | None = None) -> ScalarTy:
     ty = var.get_type()
     if not isinstance(ty, ScalarTy):
         raise make_type_checking_error(f"Expected a scalar, but given value has type {ty}", var)
-    if valid_dtypes and ty.dtype not in valid_dtypes:
-        if len(valid_dtypes) == 1:
-            message = f"Expected {valid_dtypes[0]}, but given value has dtype {ty.dtype}"
-        else:
-            message = (f"Expected dtype to be one of {valid_dtypes},"
-                       f" but given value has dtype {ty.dtype}")
+    if predicate is not None and not predicate(ty.dtype):
+        if message is None:
+            message = f"Predicate {predicate} failed"
+        message += f", but given value has dtype {ty.dtype}"
         raise make_type_checking_error(message, var)
 
     return ty
