@@ -51,9 +51,7 @@ from cuda.tile._ir.ops import (
     TilePrintf,
     array_impl_registry,
 )
-from cuda.tile._ir.arithmetic_ops import (
-    astype,
-)
+from cuda.tile._ir.arithmetic_ops import astype
 from cuda.tile._ir.core_ops import (
     Assign,
     bind_method,
@@ -101,6 +99,7 @@ from .op_defs import (
     RawMLIROperation,
     ForeignFunction,
     VectorGetItem,
+    BitCast,
 )
 from .type_checking_helpers import (
     require_array_indices,
@@ -114,7 +113,7 @@ from .type_checking_helpers import (
 )
 
 from .type import (
-    LocalArrayContextManagerTy, ContextManagerState, TensorMapTy,
+    DTypeConstructor, LocalArrayContextManagerTy, ContextManagerState, TensorMapTy,
     dtype_to_tensor_map_type, ArrayValue, PointerInfoTy,
     MemorySpace,
     Type,
@@ -123,7 +122,7 @@ from .type import (
     PointerTy,
     VectorTy,
     TupleTy,
-    TupleValue
+    TupleValue, type_bitwidth
 )
 
 from .ir import (
@@ -1639,6 +1638,66 @@ def map_shared_to_cluster_impl(ptr: Var, rank: Var):
         intrinsic="llvm.nvvm.mapa.shared.cluster",
         operands_=(ptr, rank),
     )
+
+
+def bitcast(x: Var[ScalarTy | PointerTy | VectorTy], dtype: datatype.DType):
+    x_ty = x.get_type()
+    x_dtype = x_ty.tensor_dtype()
+    if isinstance(dtype, VectorTy):
+        # dead code for now - users have no way to construct vector dtypes
+        raise TileTypeError("bitcast to vector is not supported")
+    if datatype.bool_ in (dtype, x_dtype):
+        raise TileTypeError("bitcast to or from bool is not supported")
+    x_bitwidth = type_bitwidth(x_ty)
+    if x_bitwidth != dtype.bitwidth:
+        raise TileTypeError(
+            "bitcast requires input value's type and output type to have the "
+            f"same bitwidth, but input type is {x_bitwidth} bits and output "
+            f"dtype has {dtype.bitwidth} bits"
+        )
+
+    # at the mlir level, we only have bitcast, inttoptr, and ptrtoint. If we
+    # have a pointer, cast it to an int first then to the real dst type.
+    # If we are casting *to* a pointer, first cast to int then the real dst
+    # type. If both src and dst are pointer types, use a regular bitcast.
+    # ir2mlir will use an address space cast.
+
+    src_dtype, dst_dtype = x_dtype, dtype
+    src_is_ptr = is_pointer_dtype(src_dtype)
+    dst_is_ptr = is_pointer_dtype(dst_dtype)
+    src_is_int_scalar = isinstance(x_ty, ScalarTy) and datatype.is_integral(src_dtype)
+    dst_is_int_scalar = datatype.is_integral(dst_dtype)
+
+    def direct_bitcast():
+        res_ty = PointerTy(dtype) if is_pointer_dtype(dtype) else ScalarTy(dtype)
+        return add_operation(BitCast, res_ty, x=x)
+
+    def bitcast_through_int():
+        intermediate_type = getattr(datatype, f'int{x_bitwidth}')
+        first = bitcast(x, intermediate_type)
+        return bitcast(first, dtype)
+
+    if src_is_ptr and dst_is_ptr:
+        return direct_bitcast()
+
+    if src_is_ptr:
+        if dst_is_int_scalar:
+            return direct_bitcast()
+        return bitcast_through_int()
+
+    if dst_is_ptr:
+        if src_is_int_scalar:
+            return direct_bitcast()
+        return bitcast_through_int()
+
+    # no pointer involved: direct bitcast
+    return direct_bitcast()
+
+
+@impl(core_api.bitcast)
+def bitcast_impl(x: Var[ScalarTy | PointerTy | VectorTy], dtype: Var[DTypeConstructor]):
+    dtype = require_dtype_spec(dtype)
+    return bitcast(x, dtype)
 
 
 __all__ = (

@@ -19,6 +19,8 @@ def make_symbolic_scalar(dtype):
 
 
 def make_symbolic_tensor(shape, dtype):
+    if isinstance(shape, int):
+        shape = [shape]
     return ArrayConstraint(
         dtype=dtype,
         ndim=len(shape),

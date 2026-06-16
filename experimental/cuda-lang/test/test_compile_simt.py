@@ -7,7 +7,7 @@ from cuda.lang._ir import ir
 from cuda.lang.compilation import KernelSignature
 
 
-def test_compile_simt_no_ptx():
+def test_compile_simt_no_ptx(no_log_ptx):
     def kernel():
         pass
 

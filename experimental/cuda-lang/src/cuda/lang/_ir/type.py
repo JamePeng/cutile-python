@@ -17,6 +17,7 @@ from cuda.tile._ir.type import (
     StringTy,
     FunctionTy,
     DTypeConstructor,
+    DTypeSpec,
     NoneType,
     ModuleTy,
     TokenTy,
@@ -226,6 +227,25 @@ class LangTypingHooks(TypingHooks):
             case _: assert False, "cuda.lang does not support N-dimensional tensors"
 
 
+def type_bitwidth(x: Type):
+    match x:
+        case TensorMapTy():
+            return 128
+        case PointerTy() as pt:
+            info = PointerInfo(pt.pointer_dtype)
+            return (
+                32
+                if info.memory_space
+                in (MemorySpace.SHARED, MemorySpace.SHARED_CLUSTER, MemorySpace.TENSOR)
+                else 64
+            )
+        case ScalarTy() as st:
+            return st.dtype.bitwidth
+        case VectorTy() as vt:
+            return vt.element_dtype.bitwidth * vt.length
+    raise TileTypeError(f"Cannot access bitwidth of type '{x}'")
+
+
 __all__ = (
     "Type",
     "TupleTy",
@@ -236,6 +256,7 @@ __all__ = (
     "StringTy",
     "FunctionTy",
     "DTypeConstructor",
+    "DTypeSpec",
     "NoneType",
     "ModuleTy",
     "TokenTy",

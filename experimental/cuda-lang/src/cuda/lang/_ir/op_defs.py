@@ -5,8 +5,9 @@
 from dataclasses import dataclass
 
 import cuda.lang._mlir as mlir
-from cuda.lang._ir.ir import Operation, Var, attribute, operand
 from cuda.tile._ir.ir import MemoryEffect
+from .ir import Operation, Var, attribute, operand
+from .type import VectorTy, ScalarTy
 
 
 @dataclass(eq=False)
@@ -33,5 +34,10 @@ class ForeignFunction(Operation, opcode="foreign_function", memory_effect=Memory
 
 @dataclass(eq=False)
 class VectorGetItem(Operation, opcode="vector_getitem", memory_effect=MemoryEffect.LOAD):
+    x: Var[VectorTy] = operand()
+    index: Var[ScalarTy] = operand()
+
+
+@dataclass(eq=False)
+class BitCast(Operation, opcode="bitcast"):
     x: Var = operand()
-    index: Var = operand()

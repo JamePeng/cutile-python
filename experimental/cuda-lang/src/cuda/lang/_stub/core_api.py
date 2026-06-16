@@ -1053,6 +1053,13 @@ def griddepcontrol_launch_dependents() -> None:
     )
 
 
+@stub
+def bitcast(x, dtype):
+    """
+    Cast a value to another type of the same bitwidth.
+    """
+
+
 # Need these imports at the end in order to overcome the circular import problem
 from . import nvvm  # noqa: E402
 from . import nvvm_mlir_interfaces  # noqa: E402

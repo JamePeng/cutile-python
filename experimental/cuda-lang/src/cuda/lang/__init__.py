@@ -73,6 +73,7 @@ from ._stub.core_api import (
     griddepcontrol_wait,
     griddepcontrol_launch_dependents,
     memory_barrier,
+    bitcast,
 )
 from cuda.tile._stub import (
     Constant
@@ -247,4 +248,5 @@ __all__ = (
     "memory_barrier",
     "griddepcontrol_wait",
     "griddepcontrol_launch_dependents",
+    "bitcast",
 )

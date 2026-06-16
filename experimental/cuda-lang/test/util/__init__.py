@@ -41,6 +41,17 @@ def log_ptx():
         log_flags.log_ptx = old_log_ptx
 
 
+@pytest.fixture
+def no_log_ptx():
+    log_flags = get_log_flags()
+    old_log_ptx = log_flags.log_ptx
+    log_flags.log_ptx = False
+    try:
+        yield
+    finally:
+        log_flags.log_ptx = old_log_ptx
+
+
 __all__ = (
     "filecheck",
     "get_source",

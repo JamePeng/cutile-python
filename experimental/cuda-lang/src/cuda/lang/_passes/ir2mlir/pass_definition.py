@@ -18,7 +18,7 @@ import cuda.lang._ir.type as ir_type
 from cuda.lang.compilation import KernelSignature
 import cuda.lang._datatype as datatype
 from cuda.tile._datatype import PointerInfo
-from cuda.lang._exception import TileCompilerError, TileTypeError
+from cuda.lang._exception import TileCompilerError, TileInternalError, TileTypeError
 from .type_conversion import (
     ir_type_to_mlir_type,
     mlir_constant_of_type,
@@ -1197,6 +1197,40 @@ class IR2MLIR:
             op_bundle_sizes=(),
         )
         return [call] if has_result else []
+
+    @lower_operation.register
+    def lower_bitcast(
+        self, operation: ops.BitCast
+    ) -> Sequence[mlir.Value]:
+        x = self.get_var(operation.x)
+        src_ty, dst_ty = operation.x.get_type(), operation.result_var.get_type()
+        src_mlir_ty, dst_mlir_ty = (
+            ir_type_to_mlir_type(src_ty),
+            ir_type_to_mlir_type(dst_ty),
+        )
+        if src_mlir_ty == dst_mlir_ty:
+            return [x]
+        match src_ty, dst_ty:
+            case ir_type.PointerTy(), ir_type.PointerTy():
+                res = mlir.llvm.add_AddrSpaceCastOp(res_type=dst_mlir_ty, arg=x)
+                return [res]
+            case ir_type.ScalarTy() as st, ir_type.PointerTy():
+                if not datatype.is_integral(st.dtype):
+                    raise TileInternalError(
+                        "bitcast to or from pointer must go through integer"
+                    )
+                res = mlir.llvm.add_IntToPtrOp(res_type=dst_mlir_ty, arg=x)
+                return [res]
+            case ir_type.PointerTy(), ir_type.ScalarTy() as st:
+                if not datatype.is_integral(st.dtype):
+                    raise TileInternalError(
+                        "bitcast to or from pointer must go through integer"
+                    )
+                res = mlir.llvm.add_PtrToIntOp(res_type=dst_mlir_ty, arg=x)
+                return [res]
+            case _:
+                res = mlir.llvm.add_BitcastOp(res_type=dst_mlir_ty, arg=x)
+                return [res]
 
 
 def ir2mlir(
