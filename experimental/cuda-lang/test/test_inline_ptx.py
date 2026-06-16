@@ -13,7 +13,7 @@ from .util import compile_for_arguments
 def test_inline_ptx_multiple_outputs_runtime():
     @cl.kernel
     def kernel(out):
-        res0, res1 = cl.inline_ptx(
+        res0, res1 = cl._inline_ptx(
             """
             add.u32 %0, %2, %3;
             sub.u32 %1, %2, %3;
@@ -34,7 +34,7 @@ def test_inline_ptx_multiple_outputs_runtime():
 def test_inline_ptx_write_only_placeholders_runtime():
     @cl.kernel
     def kernel(out):
-        res0, res1 = cl.inline_ptx(
+        res0, res1 = cl._inline_ptx(
             """
             add.u32 %0, %2, %3;
             sub.u32 %1, %2, %3;
@@ -56,7 +56,7 @@ def test_inline_ptx_pointer_load():
     @cl.kernel
     def kernel(inp, out):
         inp_ptr = inp.get_base_pointer()
-        (value,) = cl.inline_ptx(
+        (value,) = cl._inline_ptx(
             "ld.global.u32 %0, [%1];",
             ("=r", cl.int32),
             ("C", inp_ptr),
@@ -73,14 +73,14 @@ class TestInlinePTXErrors:
 
     def test_invalid_type_constraint(self):
         def kernel():
-            cl.inline_ptx("add.u32 %0, %1, %1;", ("=x", cl.int32), ("r", 2))
+            cl._inline_ptx("add.u32 %0, %1, %1;", ("=x", cl.int32), ("r", 2))
 
         with pytest.raises(TileTypeError, match="Unknown constraint dtype 'x'"):
             compile_for_arguments(kernel, [])
 
     def test_invalid_rmw_constraint(self):
         def kernel():
-            cl.inline_ptx(
+            cl._inline_ptx(
                 "add.u32 %0, %1, %1;",
                 ("@r", cl.int32),
                 ("r", 2),

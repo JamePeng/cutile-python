@@ -1139,7 +1139,7 @@ def require_inline_ptx_constraint_pairs(ptx_code: str, constraint_pairs: tuple) 
     )
 
 
-@impl(core_api.inline_ptx)
+@impl(core_api._inline_ptx)
 def inline_ptx_impl(ptx_code: Var, constraint_pairs: tuple) -> Var[TupleTy]:
     ptx_code = require_constant_str(ptx_code)
     mlir_ptx_code, ro_args, rw_args, wo_args = require_inline_ptx_constraint_pairs(

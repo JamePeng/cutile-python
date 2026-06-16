@@ -67,7 +67,7 @@ class TestOpsSurviveDCE:
     def test_inline_ptx_without_used_results_is_kept(self):
         @ir_wrapper
         def kernel(A, n):
-            cl.inline_ptx("bar.sync 0;")
+            cl._inline_ptx("bar.sync 0;")
 
         assert kernel.has_op(InlinePTX)
 

@@ -343,11 +343,11 @@ def elect_sync(membermask: int = FULL_MASK, /) -> bool:
 
 
 @stub
-def inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
+def _inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
     """Execute inline PTX.
 
     The API mirrors CUDA C++'s device-side `asm` statement:
-    `cl.inline_ptx(ptx_code, (constraint1, value1), (constraint2, value2), ...)`.
+    `cl._inline_ptx(ptx_code, (constraint1, value1), (constraint2, value2), ...)`.
 
     Args:
 
@@ -386,7 +386,7 @@ def inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
             # CUDA C++ would use:
             # asm("add.s32 %0, %1, %2;" : "=r"(result) : "r"(i), "r"(j));
 
-            (result,) = cl.inline_ptx(
+            (result,) = cl._inline_ptx(
                 "add.s32 %0, %1, %2;",
                 ("=r", cl.int32),
                 ("r", i),
@@ -414,7 +414,7 @@ def inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
 
 @function
 def ptx_comment(comment: str):
-    inline_ptx(static_eval("// " + comment))
+    _inline_ptx(static_eval("// " + comment))
 
 
 @stub
