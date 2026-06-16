@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum
 from typing import Any, Literal
 
+from .._datatype import uint32, uint64
 from cuda.lang._execution import stub
-from .bits import set_bit, set_bits
+from .bits import set_bit32, set_bit64, set_bits32, set_bits64
 from .nvvm import P3, P6
 
 
@@ -155,20 +156,20 @@ class Tcgen05InstructionDescriptor:
     max_shift: MaxShift = MaxShift.NoShift
 
     def encode(self) -> int:
-        desc = 0
-        desc = set_bits(desc, self.sparsity_selector, 0, 2)
-        desc = set_bit(desc, 2, self.sparse)
-        desc = set_bit(desc, 3, self.saturate)
-        desc = set_bits(desc, self.d_type, 4, 2)
-        desc = set_bits(desc, self.a_type, 7, 3)
-        desc = set_bits(desc, self.b_type, 10, 3)
-        desc = set_bit(desc, 13, self.negate_a)
-        desc = set_bit(desc, 14, self.negate_b)
-        desc = set_bit(desc, 15, self.transpose_a)
-        desc = set_bit(desc, 16, self.transpose_b)
-        desc = set_bits(desc, self.n >> 3, 17, 6)
-        desc = set_bits(desc, self.m >> 4, 24, 5)
-        desc = set_bits(desc, self.max_shift, 30, 2)
+        desc = uint32(0x0000_0000)
+        desc = set_bits32(desc, self.sparsity_selector, 0, 2)
+        desc = set_bit32(desc, 2, self.sparse)
+        desc = set_bit32(desc, 3, self.saturate)
+        desc = set_bits32(desc, self.d_type, 4, 2)
+        desc = set_bits32(desc, self.a_type, 7, 3)
+        desc = set_bits32(desc, self.b_type, 10, 3)
+        desc = set_bit32(desc, 13, self.negate_a)
+        desc = set_bit32(desc, 14, self.negate_b)
+        desc = set_bit32(desc, 15, self.transpose_a)
+        desc = set_bit32(desc, 16, self.transpose_b)
+        desc = set_bits32(desc, self.n >> 3, 17, 6)
+        desc = set_bits32(desc, self.m >> 4, 24, 5)
+        desc = set_bits32(desc, self.max_shift, 30, 2)
         return desc
 
 
@@ -193,19 +194,19 @@ class Tcgen05Mxf8f6f4InstructionDescriptor:
     a_scale_id: Literal[0, 1, 2, 3] = 0
 
     def encode(self) -> int:
-        desc = 0
-        desc = set_bit(desc, 2, self.sparse)
-        desc = set_bits(desc, self.b_scale_id, 4, 2)
-        desc = set_bits(desc, self.a_type, 7, 3)
-        desc = set_bits(desc, self.b_type, 10, 3)
-        desc = set_bit(desc, 13, self.negate_a)
-        desc = set_bit(desc, 14, self.negate_b)
-        desc = set_bit(desc, 15, self.transpose_a)
-        desc = set_bit(desc, 16, self.transpose_b)
-        desc = set_bits(desc, self.n >> 3, 17, 6)
-        desc = set_bit(desc, 23, self.scale_format)
-        desc = set_bits(desc, self.m >> 7, 27, 2)
-        desc = set_bits(desc, self.a_scale_id, 29, 2)
+        desc = uint32(0x0000_0000)
+        desc = set_bit32(desc, 2, self.sparse)
+        desc = set_bits32(desc, self.b_scale_id, 4, 2)
+        desc = set_bits32(desc, self.a_type, 7, 3)
+        desc = set_bits32(desc, self.b_type, 10, 3)
+        desc = set_bit32(desc, 13, self.negate_a)
+        desc = set_bit32(desc, 14, self.negate_b)
+        desc = set_bit32(desc, 15, self.transpose_a)
+        desc = set_bit32(desc, 16, self.transpose_b)
+        desc = set_bits32(desc, self.n >> 3, 17, 6)
+        desc = set_bit32(desc, 23, self.scale_format)
+        desc = set_bits32(desc, self.m >> 7, 27, 2)
+        desc = set_bits32(desc, self.a_scale_id, 29, 2)
         return desc
 
 
@@ -232,20 +233,52 @@ class Tcgen05Mxf4InstructionDescriptor:
     k_dimension: KDimension = KDimension.DenseK64OrSparseK128
 
     def encode(self) -> int:
-        desc = 0
-        desc = set_bit(desc, 2, self.sparse)
-        desc = set_bits(desc, self.b_scale_id, 4, 2)
-        desc = set_bits(desc, self.a_type, 7, 3)
-        desc = set_bits(desc, self.b_type, 10, 2)
-        desc = set_bit(desc, 13, self.negate_a)
-        desc = set_bit(desc, 14, self.negate_b)
-        desc = set_bit(desc, 15, self.transpose_a)
-        desc = set_bit(desc, 16, self.transpose_b)
-        desc = set_bits(desc, self.n >> 3, 17, 6)
-        desc = set_bit(desc, 23, self.scale_format)
-        desc = set_bits(desc, self.m >> 7, 27, 2)
-        desc = set_bits(desc, self.a_scale_id, 29, 2)
-        desc = set_bit(desc, 31, self.k_dimension)
+        desc = uint32(0x0000_0000)
+        desc = set_bit32(desc, 2, self.sparse)
+        desc = set_bits32(desc, self.b_scale_id, 4, 2)
+        desc = set_bits32(desc, self.a_type, 7, 3)
+        desc = set_bits32(desc, self.b_type, 10, 2)
+        desc = set_bit32(desc, 13, self.negate_a)
+        desc = set_bit32(desc, 14, self.negate_b)
+        desc = set_bit32(desc, 15, self.transpose_a)
+        desc = set_bit32(desc, 16, self.transpose_b)
+        desc = set_bits32(desc, self.n >> 3, 17, 6)
+        desc = set_bit32(desc, 23, self.scale_format)
+        desc = set_bits32(desc, self.m >> 7, 27, 2)
+        desc = set_bits32(desc, self.a_scale_id, 29, 2)
+        desc = set_bit32(desc, 31, self.k_dimension)
+        return desc
+
+
+@dataclass(frozen=True)
+class Tcgen05SharedMemoryDescriptor:
+    class LeadingDimMode(IntEnum):
+        ByteOffsetRelative = 0
+        ByteAddressAbsolute = 1
+
+    class SwizzleMode(IntEnum):
+        NoSwizzling = 0
+        Swizzle128B32BAtomic = 1
+        Swizzle128B = 2
+        Swizzle64B = 4
+        Swizzle32B = 6
+
+    matrix_start_address: int
+    leading_dim_offset: int
+    stride_dim_offset: int
+    base_offset: int = 0
+    leading_dim_mode: LeadingDimMode = LeadingDimMode.ByteOffsetRelative
+    swizzle_mode: SwizzleMode = SwizzleMode.NoSwizzling
+
+    def encode(self) -> int:
+        desc = uint64(0x0000_0000_0000_0000)
+        desc = set_bits64(desc, (self.matrix_start_address & 0x3FFFF) >> 4, 0, 14)
+        desc = set_bits64(desc, (self.leading_dim_offset & 0x3FFFF) >> 4, 16, 14)
+        desc = set_bits64(desc, (self.stride_dim_offset & 0x3FFFF) >> 4, 32, 14)
+        desc = set_bits64(desc, 0b001, 46, 3)
+        desc = set_bits64(desc, self.base_offset, 49, 3)
+        desc = set_bit64(desc, 52, self.leading_dim_mode)
+        desc = set_bits64(desc, self.swizzle_mode, 61, 3)
         return desc
 
 
@@ -255,6 +288,7 @@ __all__ = (
     "Tcgen05InstructionDescriptor",
     "Tcgen05Mxf8f6f4InstructionDescriptor",
     "Tcgen05Mxf4InstructionDescriptor",
+    "Tcgen05SharedMemoryDescriptor",
     "tcgen05_alloc",
     "tcgen05_dealloc",
     "tcgen05_commit",

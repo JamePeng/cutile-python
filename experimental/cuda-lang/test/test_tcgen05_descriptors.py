@@ -61,6 +61,17 @@ def encode_tcgen05_mxf4_instruction_descriptor():
     ).encode()
 
 
+def encode_tcgen05_shared_memory_descriptor():
+    return cl.Tcgen05SharedMemoryDescriptor(
+        matrix_start_address=0x12340,
+        leading_dim_offset=0x23450,
+        stride_dim_offset=0x34560,
+        base_offset=5,
+        leading_dim_mode=cl.Tcgen05SharedMemoryDescriptor.LeadingDimMode.ByteAddressAbsolute,
+        swizzle_mode=cl.Tcgen05SharedMemoryDescriptor.SwizzleMode.Swizzle128B,
+    ).encode()
+
+
 @pytest.mark.parametrize(
     "encode_descriptor,expected",
     [
@@ -104,6 +115,16 @@ def encode_tcgen05_mxf4_instruction_descriptor():
             | ((128 >> 7) << 27)
             | (2 << 29)
             | (1 << 31),
+        ),
+        (
+            encode_tcgen05_shared_memory_descriptor,
+            (((0x12340 & 0x3FFFF) >> 4) << 0)
+            | (((0x23450 & 0x3FFFF) >> 4) << 16)
+            | (((0x34560 & 0x3FFFF) >> 4) << 32)
+            | (0b001 << 46)
+            | (5 << 49)
+            | (1 << 52)
+            | (2 << 61),
         ),
     ],
 )
