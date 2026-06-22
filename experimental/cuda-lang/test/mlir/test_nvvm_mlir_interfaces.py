@@ -46,8 +46,8 @@ def test_cp_async_bulk_tensor_mlir_interface():
         mbar = cl.shared_array(1, dtype=cl.mbarrier).get_base_pointer()
         smem = cl.shared_array(64, dtype=cl.int32, alignment=512)
 
-        if cl.thread_idx(0) == 0:
-            cl.mbarrier_init(mbar, cl.block_dim(0))
+        if cl.thread_index(0) == 0:
+            cl.mbarrier_init(mbar, cl.thread_count(0))
 
         cl.syncthreads()
         if cl.elect_sync():
@@ -67,7 +67,7 @@ def test_cp_async_bulk_tensor_mlir_interface():
         while not cl.mbarrier_try_wait(mbar, token, time_hint=10_000):
             pass
 
-        dst[cl.thread_idx(0)] = smem[cl.thread_idx(0)]
+        dst[cl.thread_index(0)] = smem[cl.thread_index(0)]
 
     src = torch.arange(64, dtype=torch.int32).cuda().reshape((8, 8)).contiguous()
     dst = torch.zeros(64, dtype=torch.int32, device="cuda")

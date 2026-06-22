@@ -56,11 +56,11 @@ def test_any_pointer_arg_intrinsic():
     @cl.kernel
     def kern(x, y):
         smem = cl.shared_array(64, dtype=cl.int16, alignment=16)
-        smem[cl.thread_idx(0)] = x[cl.thread_idx(0)]
-        smem[cl.thread_idx(0) + 32] = x[cl.thread_idx(0) + 32]
+        smem[cl.thread_index(0)] = x[cl.thread_index(0)]
+        smem[cl.thread_index(0) + 32] = x[cl.thread_index(0) + 32]
         r = cl._nvvm.ldmatrix_sync_aligned_m8n8_x1_b16(
-            smem.get_element_pointer(cl.thread_idx(0) * 8))
-        y[cl.thread_idx(0)] = r
+            smem.get_element_pointer(cl.thread_index(0) * 8))
+        y[cl.thread_index(0)] = r
 
     x = torch.arange(64, dtype=torch.int16, device="cuda")
     y = torch.zeros(32, dtype=torch.int32, device="cuda")

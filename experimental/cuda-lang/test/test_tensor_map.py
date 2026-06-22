@@ -16,8 +16,8 @@ def test_mbar_manager():
         mbar = cl.shared_array(shape=(), dtype=cl.mbarrier, alignment=8).get_base_pointer()
         smem = cl.shared_array(shape=(W * H,), dtype=cl.int32, alignment=512)
 
-        if cl.thread_idx(0) == 0:
-            cl.mbarrier_init(mbar, cl.block_dim(0))
+        if cl.thread_index(0) == 0:
+            cl.mbarrier_init(mbar, cl.thread_count(0))
 
         cl.syncthreads()
         if cl.elect_sync():
@@ -31,7 +31,7 @@ def test_mbar_manager():
         while not cl.mbarrier_try_wait(mbar, tok, time_hint=10_000):
             pass
 
-        y[cl.thread_idx(0)] = smem[cl.thread_idx(0)]
+        y[cl.thread_index(0)] = smem[cl.thread_index(0)]
 
     x = (
         torch.arange(37 * 48, dtype=torch.int32, device="cuda")
@@ -56,8 +56,8 @@ def test_tensor_map_tiled():
         smem = cl.shared_array(shape=(W * H,), dtype=cl.int32, alignment=512)
         x_tm = cl.tensor_map_tiled(x, (W, H), order="F")
 
-        if cl.thread_idx(0) == 0:
-            cl.mbarrier_init(barrier.get_base_pointer(), cl.block_dim(0))
+        if cl.thread_index(0) == 0:
+            cl.mbarrier_init(barrier.get_base_pointer(), cl.thread_count(0))
 
         cl.syncthreads()
         if cl.elect_sync():
@@ -75,7 +75,7 @@ def test_tensor_map_tiled():
             # TODO: back off (see __cccl_thread_poll_with_backoff in CUDA C++ stdlib)
             cl._nvvm.nanosleep(10000)
 
-        y[cl.thread_idx(0)] = smem[cl.thread_idx(0)]
+        y[cl.thread_index(0)] = smem[cl.thread_index(0)]
 
     x = (
         torch.arange(37 * 48, dtype=torch.int32, device="cuda")

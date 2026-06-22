@@ -42,7 +42,7 @@ def test_single_1d_array():
     def kern(x, n):
         smem = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
 
-        i = cl.thread_idx(0)
+        i = cl.thread_index(0)
         smem[i] = x[i]
         x[i] = smem[i] + 12
 
@@ -59,7 +59,7 @@ def test_single_1d_array_with_constant_shape():
     def kern(x):
         smem = cl.shared_array(shape=(33,), dtype=cl.int32, dynamic=True)
 
-        i = cl.thread_idx(0)
+        i = cl.thread_index(0)
         smem[i] = x[i]
         x[i] = smem[i] + 12
 
@@ -193,7 +193,7 @@ def test_dynamic_1d_array_and_static_1d_array():
         smem = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
         smem_static = cl.shared_array(shape=(32,), dtype=cl.int32)
 
-        i = cl.thread_idx(0)
+        i = cl.thread_index(0)
         smem[i] = x[i]
         smem_static[i] = smem[i] + 1
         x[i] = smem_static[i] + 12
@@ -212,7 +212,7 @@ def test_two_1d_arrays_in_order():
         smem1 = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
         smem2 = cl.shared_array(shape=(m,), dtype=cl.int8, dynamic=True)
 
-        i = cl.thread_idx(0)
+        i = cl.thread_index(0)
 
         smem1[i] = x[i]
         x[i] = smem1[i] + 12
@@ -236,7 +236,7 @@ def test_two_1d_arrays_out_of_order():
         smem2 = cl.shared_array(shape=(m,), dtype=cl.int8, dynamic=True)
         smem1 = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
 
-        i = cl.thread_idx(0)
+        i = cl.thread_index(0)
 
         smem1[i] = x[i]
         smem2[i] = y[i]
@@ -258,7 +258,7 @@ def test_single_2d_array():
     def kern(x, n, m):
         smem = cl.shared_array(shape=(n, m), dtype=cl.int32, dynamic=True)
 
-        i, j, _ = cl.thread_idx()
+        i, j = cl.thread_index(0), cl.thread_index(1)
         smem[i, j] = x[i, j]
         x[i, j] = smem[i, j] + 10 * i + 1000 * j
 
@@ -280,7 +280,7 @@ def test_two_2d_arrays_out_of_order():
         smem2 = cl.shared_array(shape=(m, n), dtype=cl.int16, dynamic=True)
         smem1 = cl.shared_array(shape=(n, m), dtype=cl.int32, dynamic=True)
 
-        i, j, _ = cl.thread_idx()
+        i, j = cl.thread_index(0), cl.thread_index(1)
 
         smem1[i, j] = x[i, j]
         x[i, j] = smem1[i, j] + 10 * i + 1000 * j
@@ -311,7 +311,7 @@ def test_single_2d_array_static_second_dim():
         static_assert(smem.strides[0] == 11)
         static_assert(smem.strides[1] == 1)
 
-        i, j, _ = cl.thread_idx()
+        i, j = cl.thread_index(0), cl.thread_index(1)
         smem[i, j] = x[i, j]
         x[i, j] = smem[i, j] + 10 * i + 1000 * j
 
@@ -340,7 +340,7 @@ def test_dynamic_kwarg_is_required():
 def test_arbitrary_expression_is_not_allowed():
     @cl.kernel
     def kern(n):
-        cl.shared_array(shape=(n + cl.block_dim(0),), dtype=cl.int32, dynamic=True)
+        cl.shared_array(shape=(n + cl.thread_count(0),), dtype=cl.int32, dynamic=True)
 
     with pytest.raises(TileTypeError,
                        match="Size of shared array must be either"

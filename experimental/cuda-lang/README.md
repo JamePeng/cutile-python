@@ -15,7 +15,7 @@ def saxpy(
     a: cl.Constant[float],
     X, Y
 ):
-    idx = cl.thread_idx(0) + cl.block_idx(0) * cl.block_dim(0)
+    idx = cl.thread_index(0) + cl.block_index(0) * cl.thread_count(0)
     if idx < N:
         Y[idx] = a * X[idx] + Y[idx]
 

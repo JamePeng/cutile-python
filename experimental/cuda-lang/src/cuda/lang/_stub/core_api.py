@@ -62,12 +62,6 @@ def dtype_of(value, /) -> DType:
                             f" got {type(value)}")
 
 
-@function
-def warp_size() -> int32:
-    """Return the number of lanes in a warp."""
-    return int32(32)
-
-
 FULL_MASK = 0xFFFFFFFF
 
 
@@ -77,111 +71,118 @@ def full_mask() -> int32:
     return int32(FULL_MASK)
 
 
-def _maybe_axis(axis: int | None, *possible_values) -> tuple[int, int, int] | int:
-    return possible_values if axis is None else possible_values[axis]
+@stub
+def thread_index(axis: int, /) -> int:
+    """Gets the index of the current thread in a block.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+
+    For each `axis`, the returned value is an ``int32`` guaranteed to satisfy
+
+        0 <= thread_index(axis) < thread_count(axis).
+    """
+
+
+@stub
+def thread_count(axis: int, /) -> int:
+    """Gets the number of threads in a block.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+    Returns an ``int32``.
+    """
+
+
+@stub
+def block_index(axis: int, /) -> int:
+    """Gets the index of the current block in the grid.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+
+    For each `axis`, the returned value is an ``int32`` guaranteed to satisfy
+
+        0 <= block_index(axis) < block_count(axis).
+    """
+
+
+@stub
+def block_count(axis: int, /) -> int:
+    """Gets the total number of blocks in the grid.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+    Returns an ``int32``.
+    """
 
 
 @function
-def thread_idx(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current thread indices."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_tid_x(),
-        nvvm.read_ptx_sreg_tid_y(),
-        nvvm.read_ptx_sreg_tid_z(),
-    )
+def lane_index() -> int:
+    """
+    Gets the index of the current thread within its warp.
 
+    The returned value is an ``int32`` guaranteed to satisfy
 
-@function
-def block_idx(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current block indices."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_ctaid_x(),
-        nvvm.read_ptx_sreg_ctaid_y(),
-        nvvm.read_ptx_sreg_ctaid_z(),
-    )
-
-
-@function
-def block_dim(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current block dimensions."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_ntid_x(),
-        nvvm.read_ptx_sreg_ntid_y(),
-        nvvm.read_ptx_sreg_ntid_z(),
-    )
-
-
-@function
-def grid_dim(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current grid dimensions."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_nctaid_x(),
-        nvvm.read_ptx_sreg_nctaid_y(),
-        nvvm.read_ptx_sreg_nctaid_z(),
-    )
-
-
-@function
-def lane_idx() -> int:
-    """Return the caller's lane index within its warp."""
+        0 <= lane_index() < lane_count().
+    """
     return nvvm.read_ptx_sreg_laneid()
 
 
 @function
-def warp_idx() -> int:
-    """Return the caller's warp index within its thread block."""
-    tx, ty, tz = thread_idx()
-    bdx, bdy, _ = block_dim()
+def lane_count() -> int:
+    """Gets the number of threads in a warp (also known as warp size).
+
+    Returns a loosely typed constant.
+    """
+    return 32
+
+
+@function
+def warp_index() -> int:
+    """Gets the current virtual warp index within its thread block."""
+    tx, ty, tz = thread_index(0), thread_index(1), thread_index(2)
+    bdx, bdy = thread_count(0), thread_count(1)
     tid = tx + ty * bdx + tz * bdx * bdy
-    return tid // warp_size()
+    return tid // lane_count()
 
 
-@function
-def cluster_idx(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current cluster indices."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_clusterid_x(),
-        nvvm.read_ptx_sreg_clusterid_y(),
-        nvvm.read_ptx_sreg_clusterid_z(),
-    )
+@stub
+def cluster_index(axis: int, /) -> int:
+    """Gets the index of the current cluster in the grid.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+
+    For each `axis`, the returned value is an ``int32`` guaranteed to satisfy
+
+        0 <= cluster_index(axis) < cluster_count(axis).
+    """
 
 
-@function
-def cluster_dim(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the cluster grid dimensions."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_nclusterid_x(),
-        nvvm.read_ptx_sreg_nclusterid_y(),
-        nvvm.read_ptx_sreg_nclusterid_z(),
-    )
+@stub
+def cluster_count(axis: int, /) -> int:
+    """Gets the total number of clusters in the grid.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+    Returns an ``int32``.
+    """
 
 
-@function
-def block_in_cluster_idx(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current block indices within its cluster."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_cluster_ctaid_x(),
-        nvvm.read_ptx_sreg_cluster_ctaid_y(),
-        nvvm.read_ptx_sreg_cluster_ctaid_z(),
-    )
+@stub
+def block_in_cluster_index(axis: int, /) -> int:
+    """Gets the index of the current block within its cluster.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+
+    For each `axis`, the returned value is an ``int32`` guaranteed to satisfy
+
+        0 <= block_in_cluster_index(axis) < block_in_cluster_count(axis).
+    """
 
 
-@function
-def block_in_cluster_dim(axis: int | None = None, /) -> tuple[int, int, int] | int:
-    """Gets the current cluster dimensions in blocks."""
-    return _maybe_axis(
-        axis,
-        nvvm.read_ptx_sreg_cluster_nctaid_x(),
-        nvvm.read_ptx_sreg_cluster_nctaid_y(),
-        nvvm.read_ptx_sreg_cluster_nctaid_z(),
-    )
+@stub
+def block_in_cluster_count(axis: int, /) -> int:
+    """Get the number of blocks in a cluster.
+
+    `axis` must be an integer constant equal to 0, 1 or 2.
+    Returns an ``int32``.
+    """
 
 
 @stub
@@ -214,7 +215,7 @@ def shared_array(
         @cl.kernel
         def kernel():
             shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
-            tx = cl.thread_idx(0)
+            tx = cl.thread_index(0)
             if tx == 0:
                 shmem[0] = 42
 
@@ -237,7 +238,7 @@ def shared_array(
         @cl.kernel
         def kernel(n):
             shmem = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
-            tx = cl.thread_idx(0)
+            tx = cl.thread_index(0)
             if tx == 0:
                 shmem[0] = 42
 
@@ -274,7 +275,7 @@ def local_array(
 
             @cl.kernel
             def kernel(out):
-                tx = cl.thread_idx(0)
+                tx = cl.thread_index(0)
                 with cl.local_array(shape=(2,), dtype=cl.int32) as tmp:
                     tmp[0] = tx
                     tmp[1] = tx + 10
@@ -306,7 +307,7 @@ def syncthreads() -> None:
             @cl.kernel
             def kernel():
                 shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
-                tx = cl.thread_idx(0)
+                tx = cl.thread_index(0)
                 if tx == 0:
                     shmem[0] = 42
 

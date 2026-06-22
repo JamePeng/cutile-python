@@ -45,9 +45,9 @@ def calculate_forces(
     sh_positions = cl.shared_array(shape=(tile_size, 2), dtype=cl.float32)
     sh_weights = cl.shared_array(shape=(tile_size,), dtype=cl.float32)
 
-    tx = cl.thread_idx(0)
-    bx = cl.block_idx(0)
-    bdx = cl.block_dim(0)
+    tx = cl.thread_index(0)
+    bx = cl.block_index(0)
+    bdx = cl.thread_count(0)
     i = bx * bdx + tx
 
     axi = cl.float32(0.0)

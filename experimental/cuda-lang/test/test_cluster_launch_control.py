@@ -70,9 +70,9 @@ def worksteal(data, n: cl.Constant[int], stolen):
     clc_resp = cl.shared_array(1, cl.clusterlaunchcontrol_token, alignment=16).get_base_pointer()
     mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
 
-    tx = cl.thread_idx(0)
-    bdx = cl.block_dim(0)
-    bx = cl.block_idx(0)
+    tx = cl.thread_index(0)
+    bdx = cl.thread_count(0)
+    bx = cl.block_index(0)
     phase = 0
 
     if tx == 0:
@@ -105,7 +105,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
 
         if tx == 0:
             cl.atomic_add(stolen.get_element_pointer(0), 1)
-        bx = cl.clusterlaunchcontrol_get_first_block_idx(tok, axis=0)
+        bx = cl.clusterlaunchcontrol_get_first_block_index(tok, axis=0)
         cl._nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
 
 
@@ -114,10 +114,10 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
     clc_resp = cl.shared_array(1, cl.clusterlaunchcontrol_token, alignment=16).get_base_pointer()
     mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
 
-    tx = cl.thread_idx(0)
-    bdx = cl.block_dim(0)
-    bx = cl.block_idx(0)
-    local_block = cl.block_in_cluster_idx(0)
+    tx = cl.thread_index(0)
+    bdx = cl.thread_count(0)
+    bx = cl.block_index(0)
+    local_block = cl.block_in_cluster_index(0)
     phase = 0
 
     if tx == 0:
@@ -159,7 +159,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
         if local_block == 0 and tx == 0:
             cl.atomic_add(stolen.get_element_pointer(0), 1)
 
-        bx = cl.clusterlaunchcontrol_get_first_block_idx(token, axis=0) + local_block
+        bx = cl.clusterlaunchcontrol_get_first_block_index(token, axis=0) + local_block
         cl._nvvm.fence_proxy_async_generic_release_sync_restrict_space_cta_scope_cluster()
 
 
@@ -175,14 +175,14 @@ def launch_configs():
 
 
 @pytest.mark.parametrize(
-    "kernel,cluster_dim",
+    "kernel,block_in_cluster_count",
     (
         pytest.param(worksteal, None, id="worksteal"),
         pytest.param(worksteal_cluster, (2, 1, 1), id="worksteal-cluster"),
     ),
 )
 @pytest.mark.parametrize("grid,block", launch_configs())
-def test_worksteal(kernel, cluster_dim, grid, block):
+def test_worksteal(kernel, block_in_cluster_count, grid, block):
     # Adapted from programming guide examples with added output tensor
     # to track number of stolen jobs.
     # https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cluster-launch-control.html#use-case-thread-blocks
@@ -196,7 +196,7 @@ def test_worksteal(kernel, cluster_dim, grid, block):
         block,
         kernel,
         (data, n, stolen),
-        cluster_dim=cluster_dim,
+        block_in_cluster_count=block_in_cluster_count,
     )
     torch.testing.assert_close(data.cpu(), expect)
     stolen = stolen.cpu().item()

@@ -56,17 +56,17 @@ SIMT Model
    :toctree: generated
    :nosignatures:
 
-    thread_idx
-    lane_idx
-    warp_idx
-    warp_size
-    block_idx
-    block_dim
-    cluster_idx
-    cluster_dim
-    block_in_cluster_idx
-    block_in_cluster_dim
-    grid_dim
+    thread_index
+    thread_count
+    block_index
+    block_count
+    cluster_index
+    cluster_count
+    block_in_cluster_index
+    block_in_cluster_count
+    lane_index
+    lane_count
+    warp_index
     full_mask
     elect_sync
 
@@ -225,7 +225,7 @@ Cluster Launch Control
 
     clusterlaunchcontrol_try_cancel
     clusterlaunchcontrol_is_canceled
-    clusterlaunchcontrol_get_first_block_idx
+    clusterlaunchcontrol_get_first_block_index
     griddepcontrol_wait
     griddepcontrol_launch_dependents
 

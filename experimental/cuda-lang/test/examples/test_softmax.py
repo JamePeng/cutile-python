@@ -35,7 +35,7 @@ class SoftmaxForwardKernel1:
 
     @cl.kernel
     def kernel(out, inp, n: cl.Constant[int], c: cl.Constant[int]):
-        row = cl.block_idx(0) * cl.block_dim(0) + cl.thread_idx(0)
+        row = cl.block_index(0) * cl.thread_count(0) + cl.thread_index(0)
 
         if row >= n:
             return
@@ -88,14 +88,14 @@ class SoftmaxForwardKernel7:
         unroll_factor: cl.Constant[int],
         warps_per_block: cl.Constant[int],
     ):
-        row = cl.block_idx(0)
-        tid = cl.thread_idx(0)
+        row = cl.block_index(0)
+        tid = cl.thread_index(0)
 
         if row >= n:
             return
 
-        warp_id = tid // cl.warp_size()
-        lane_id = tid % cl.warp_size()
+        warp_id = tid // cl.lane_count()
+        lane_id = tid % cl.lane_count()
         row_base = row * c
 
         maxvals = cl.shared_array(shape=(warps_per_block,), dtype=cl.float32)

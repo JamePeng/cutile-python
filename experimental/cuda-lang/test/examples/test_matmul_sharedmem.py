@@ -21,8 +21,8 @@ def test_matmul_sharedmem():
         ds_A = cl.shared_array(shape=(tile_width, tile_width), dtype=cl.float32)
         ds_B = cl.shared_array(shape=(tile_width, tile_width), dtype=cl.float32)
 
-        bx, by, _ = cl.block_idx()
-        tx, ty, _ = cl.thread_idx()
+        bx, by = cl.block_index(0), cl.block_index(1)
+        tx, ty = cl.thread_index(0), cl.thread_index(1)
 
         row = by * tile_width + ty
         col = bx * tile_width + tx

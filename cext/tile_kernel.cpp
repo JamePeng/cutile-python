@@ -32,8 +32,8 @@ static PyObject* g___dlpack___pyunicode;
 static PyObject* g_compile_pyunicode;
 static PyObject* g_dynamic_shared_memory_bytes_pyunicode;
 static PyObject* g_cooperative_pyunicode;
-static PyObject* g_cluster_dim_pyunicode;
-static PyObject* g_preferred_cluster_dim_pyunicode;
+static PyObject* g_block_in_cluster_count_pyunicode;
+static PyObject* g_preferred_block_in_cluster_count_pyunicode;
 static PyObject* g_pdl_pyunicode;
 
 static PyTypeObject* g_torch_Tensor_type;
@@ -2599,7 +2599,8 @@ static Result<unsigned> parse_launch_kwargs(PyObject *const *args,
           "Keyword argument tuple is nonnull and not a tuple");
 
     const auto nkwargs = PyTuple_GET_SIZE(kwargs);
-    bool has_cluster_dim = false, has_preferred_cluster_dim = false;
+    bool has_block_in_cluster_count = false;
+    bool has_preferred_block_in_cluster_count = false;
     size_t num_attrs = 0;
 
     for (Py_ssize_t i = 0; i < nkwargs; i++) {
@@ -2620,7 +2621,7 @@ static Result<unsigned> parse_launch_kwargs(PyObject *const *args,
             CUlaunchAttribute *attr = &launch_attrs[num_attrs++];
             attr->id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
             attr->value.programmaticStreamSerializationAllowed = Py_IsTrue(kwarg);
-        } else if (PyUnicode_Compare(keyword, g_cluster_dim_pyunicode) == 0) {
+        } else if (PyUnicode_Compare(keyword, g_block_in_cluster_count_pyunicode) == 0) {
             if (Py_IsNone(kwarg))
                 continue;
             const auto grid = parse_grid(kwarg);
@@ -2630,8 +2631,8 @@ static Result<unsigned> parse_launch_kwargs(PyObject *const *args,
             CUlaunchAttribute *attr = &launch_attrs[num_attrs++];
             attr->id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
             attr->value.clusterDim = {.x = dims[0], .y = dims[1], .z = dims[2]};
-            has_cluster_dim = true;
-        } else if (PyUnicode_Compare(keyword, g_preferred_cluster_dim_pyunicode) ==
+            has_block_in_cluster_count = true;
+        } else if (PyUnicode_Compare(keyword, g_preferred_block_in_cluster_count_pyunicode) ==
                    0) {
             if (Py_IsNone(kwarg))
                 continue;
@@ -2643,7 +2644,7 @@ static Result<unsigned> parse_launch_kwargs(PyObject *const *args,
             attr->id = CU_LAUNCH_ATTRIBUTE_PREFERRED_CLUSTER_DIMENSION;
             attr->value.preferredClusterDim = {
                 .x = dims[0], .y = dims[1], .z = dims[2]};
-            has_preferred_cluster_dim = true;
+            has_preferred_block_in_cluster_count = true;
         } else {
             return raise(PyExc_RuntimeError, "Unexpected keyword argument %U",
                          keyword);
@@ -2654,11 +2655,11 @@ static Result<unsigned> parse_launch_kwargs(PyObject *const *args,
     // cluster dimension has been specified." We could technically allow it, but
     // the user likely made a mistake if preferred dims were passed and
     // "regular" dims were not.
-    if (has_preferred_cluster_dim && !has_cluster_dim)
+    if (has_preferred_block_in_cluster_count && !has_block_in_cluster_count)
         return raise(PyExc_ValueError,
                      "Keyword argument %U requires that %U is also passed",
-                     g_preferred_cluster_dim_pyunicode,
-                     g_cluster_dim_pyunicode);
+                     g_preferred_block_in_cluster_count_pyunicode,
+                     g_block_in_cluster_count_pyunicode);
 
     return num_attrs;
 }
@@ -2742,9 +2743,9 @@ static PyObject* cuda_tile_launch(PyObject*, PyObject* const* args, Py_ssize_t n
                      /*with_block=*/false);
 }
 
-#define LAUNCH_EXTENDED_SIGNATURE                                              \
-  "launch(stream, grid, block, kernel, kernel_args, /, *, "                    \
-  "cooperative=False, cluster_dim=None, preferred_cluster_dim=None"            \
+#define LAUNCH_EXTENDED_SIGNATURE                                                         \
+  "launch(stream, block_count, thread_count, kernel, kernel_args, /, *, "                 \
+  "cooperative=False, block_in_cluster_count=None, preferred_block_in_cluster_count=None" \
   "pdl=False)"
 
 static PyObject *launch_extended(PyObject *, PyObject *const *args,
@@ -2920,8 +2921,8 @@ Status tile_kernel_init(PyObject* m) {
     INIT_STRING_CONSTANT(compile);
     INIT_STRING_CONSTANT(dynamic_shared_memory_bytes);
     INIT_STRING_CONSTANT(cooperative);
-    INIT_STRING_CONSTANT(cluster_dim);
-    INIT_STRING_CONSTANT(preferred_cluster_dim);
+    INIT_STRING_CONSTANT(block_in_cluster_count);
+    INIT_STRING_CONSTANT(preferred_block_in_cluster_count);
     INIT_STRING_CONSTANT(pdl);
 
     g_stream_buffer_pool_by_ctx_id = new StreamBufferPoolMap();

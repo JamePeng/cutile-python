@@ -69,7 +69,7 @@ temporary storage:
    @cl.kernel
    def kernel(out):
        smem = cl.shared_array(shape=(2,), dtype=cl.int32)
-       tx = cl.thread_idx(0)
+       tx = cl.thread_index(0)
 
        if tx == 0:
            with cl.local_array(shape=(1,), dtype=cl.int32) as tmp:
@@ -121,7 +121,7 @@ vectorized load:
    @cl.kernel
    def kernel(out):
        values = cl.shared_array(shape=(4,), dtype=cl.int32, alignment=16)
-       tx = cl.thread_idx(0)
+       tx = cl.thread_index(0)
 
        values[tx] = tx + 1
        cl.syncthreads()

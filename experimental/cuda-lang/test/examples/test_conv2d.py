@@ -82,8 +82,8 @@ def test_convolution_separable():
             dtype=cl.float32,
         )
 
-        bx, by, _ = cl.block_idx()
-        tx, ty, _ = cl.thread_idx()
+        bx, by = cl.block_index(0), cl.block_index(1)
+        tx, ty = cl.thread_index(0), cl.thread_index(1)
 
         base_x = (bx * ROWS_RESULT_STEPS - ROWS_HALO_STEPS) * ROWS_BLOCKDIM_X + tx
         base_y = by * ROWS_BLOCKDIM_Y + ty
@@ -134,8 +134,8 @@ def test_convolution_separable():
             dtype=cl.float32,
         )
 
-        bx, by, _ = cl.block_idx()
-        tx, ty, _ = cl.thread_idx()
+        bx, by = cl.block_index(0), cl.block_index(1)
+        tx, ty = cl.thread_index(0), cl.thread_index(1)
 
         base_x = bx * COLUMNS_BLOCKDIM_X + tx
         base_y = (by * COLUMNS_RESULT_STEPS - COLUMNS_HALO_STEPS) * COLUMNS_BLOCKDIM_Y + ty

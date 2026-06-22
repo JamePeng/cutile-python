@@ -124,7 +124,6 @@ def test_pointer_gep():
 def test_ptr_roundtrip():
     @cl.kernel
     def kernel(A):
-        tx, ty, tz = cl.thread_idx()
         B = cl.shared_array(shape=(3, 3), dtype=cl.int32)
         smem = B.get_base_pointer()
         B2 = cl.reinterpret_pointer_as_array(smem, cl.int32, 1)
@@ -198,7 +197,7 @@ def test_device_alloc_memspace():
         A = cl.shared_array(shape=(3, 3), dtype=cl.int32)
         p = A.get_base_pointer()
         p = cl.address_space_cast(p, cl.MemorySpace.GENERIC)
-        if cl.thread_idx(0) == 0:
+        if cl.thread_index(0) == 0:
             memspace[0] = cl.int32(cl._nvvm.isspacep_local(p))
             memspace[1] = cl.int32(cl._nvvm.isspacep_global(p))
             memspace[2] = cl.int32(cl._nvvm.isspacep_shared(p))
@@ -206,7 +205,7 @@ def test_device_alloc_memspace():
         with cl.local_array(shape=(3, 3), dtype=cl.int32) as B:
             p = B.get_base_pointer()
             p = cl.address_space_cast(p, cl.MemorySpace.GENERIC)
-            if cl.thread_idx(0) == 0:
+            if cl.thread_index(0) == 0:
                 memspace[3] = cl.int32(cl._nvvm.isspacep_local(p))
                 memspace[4] = cl.int32(cl._nvvm.isspacep_global(p))
                 memspace[5] = cl.int32(cl._nvvm.isspacep_shared(p))

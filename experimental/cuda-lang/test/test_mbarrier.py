@@ -21,10 +21,10 @@ def test_cluster_barriers():
 
     @cl.kernel()
     def kernel(out):
-        rank = cl.block_in_cluster_idx(0)
-        cdx = cl.block_in_cluster_dim(0)
-        tx = cl.thread_idx(0)
-        bdx = cl.block_dim(0)
+        rank = cl.block_in_cluster_index(0)
+        cdx = cl.block_in_cluster_count(0)
+        tx = cl.thread_index(0)
+        bdx = cl.thread_count(0)
         mbar = cl.shared_array(shape=(), dtype=cl.mbarrier, alignment=8)
         mbar = mbar.get_base_pointer()
 
@@ -54,7 +54,7 @@ def test_cluster_barriers():
         (32, 1, 1),
         kernel,
         (out,),
-        cluster_dim=(2, 1, 1),
+        block_in_cluster_count=(2, 1, 1),
     )
     assert out.cpu().tolist() == [1]
 

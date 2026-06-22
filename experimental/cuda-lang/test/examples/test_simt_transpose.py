@@ -41,8 +41,8 @@ NUM_REPS = 100
 
 @cl.kernel
 def copy(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index = xIndex + width * yIndex
@@ -53,8 +53,8 @@ def copy(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
 @cl.kernel
 def copySharedMem(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
     tile = cl.shared_array(shape=(TILE_DIM, TILE_DIM), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index = xIndex + width * yIndex
@@ -71,8 +71,8 @@ def copySharedMem(odata, idata, width: cl.Constant[int], height: cl.Constant[int
 
 @cl.kernel
 def transposeNaive(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index_in = xIndex + width * yIndex
@@ -84,8 +84,8 @@ def transposeNaive(odata, idata, width: cl.Constant[int], height: cl.Constant[in
 @cl.kernel
 def transposeCoalesced(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
     tile = cl.shared_array(shape=(TILE_DIM, TILE_DIM), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index_in = xIndex + yIndex * width
@@ -104,8 +104,8 @@ def transposeNoBankConflicts(
     odata, idata, width: cl.Constant[int], height: cl.Constant[int]
 ):
     tile = cl.shared_array(shape=(TILE_DIM, TILE_DIM + 1), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index_in = xIndex + yIndex * width
@@ -122,9 +122,9 @@ def transposeNoBankConflicts(
 @cl.kernel
 def transposeDiagonal(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
     tile = cl.shared_array(shape=(TILE_DIM, TILE_DIM + 1), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
-    gx, gy, _ = cl.grid_dim()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
+    gx, gy = cl.block_count(0), cl.block_count(1)
     if width == height:
         blockIdx_y = bx
         blockIdx_x = (bx + by) % gx
@@ -150,8 +150,8 @@ def transposeFineGrained(
     odata, idata, width: cl.Constant[int], height: cl.Constant[int]
 ):
     block = cl.shared_array(shape=(TILE_DIM, TILE_DIM + 1), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index = xIndex + yIndex * width
@@ -167,8 +167,8 @@ def transposeCoarseGrained(
     odata, idata, width: cl.Constant[int], height: cl.Constant[int]
 ):
     block = cl.shared_array(shape=(TILE_DIM, TILE_DIM + 1), dtype=cl.float32)
-    bx, by, _ = cl.block_idx()
-    tx, ty, _ = cl.thread_idx()
+    bx, by = cl.block_index(0), cl.block_index(1)
+    tx, ty = cl.thread_index(0), cl.thread_index(1)
     xIndex = bx * TILE_DIM + tx
     yIndex = by * TILE_DIM + ty
     index_in = xIndex + yIndex * width

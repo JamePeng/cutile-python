@@ -99,6 +99,7 @@ from .op_defs import (
     LoadPointer,
     ReinterpretPointerAsArray,
 )
+from .op_impl.core_api_impl import core_api_impl_registry
 from .type_checking_helpers import (
     require_optional_alignment,
     require_scalar_type,
@@ -135,7 +136,7 @@ from .ir import (
     LocalArrayContextManagerValue,
 )
 from .._stub.cluster_launch_control import clusterlaunchcontrol_try_cancel, \
-    clusterlaunchcontrol_is_canceled, clusterlaunchcontrol_get_first_block_idx
+    clusterlaunchcontrol_is_canceled, clusterlaunchcontrol_get_first_block_index
 from .._stub.tensor_map import TensorMapSwizzle
 from .._stub.mbarrier import MbarrierScope
 from .._stub import foreign_function, core_api, mbarrier as mbarrier_stub, tensor_map
@@ -160,6 +161,7 @@ cuda_lang_impl_registry.update(control_flow_impl_registry())
 cuda_lang_impl_registry.update(array_impl_registry)
 
 cuda_lang_impl_registry.update(tcgen05_impl_registry())
+cuda_lang_impl_registry.update(core_api_impl_registry())
 cuda_lang_impl_registry.update(math_impl_registry())
 cuda_lang_impl_registry.update(vector_impl_registry())
 cuda_lang_impl_registry.update(pointer_impl_registry())
@@ -950,8 +952,8 @@ def clusterlaunchcontrol_is_canceled_impl(token: Var) -> Var:
     )
 
 
-@impl(clusterlaunchcontrol_get_first_block_idx)
-def clusterlaunchcontrol_get_first_block_idx_impl(token: Var, axis: Var) -> Var:
+@impl(clusterlaunchcontrol_get_first_block_index)
+def clusterlaunchcontrol_get_first_block_index_impl(token: Var, axis: Var) -> Var:
     require_clusterlaunchcontrol_token_type(token)
     if not axis.is_constant():
         raise TileTypeError(

@@ -11,7 +11,7 @@ from .util import require_hopper_or_newer
 def test_pdl():
     @cl.kernel
     def dependee(a):
-        tx = cl.thread_idx(0)
+        tx = cl.thread_index(0)
         a[tx] = tx * 2.0
 
         cl.memory_barrier(scope=cl.MemoryScope.DEVICE)
@@ -21,7 +21,7 @@ def test_pdl():
     def dependent(a, b):
 
         # --- overlap some work with parent
-        tx = cl.thread_idx(0)
+        tx = cl.thread_index(0)
         val = tx * 4.0 + b[tx]
         # ---
 

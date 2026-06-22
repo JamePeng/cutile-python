@@ -302,8 +302,8 @@ def wmma_gemm_kernel(cfg: WmmaConfig) -> cl.kernel:
         wmma_m, wmma_n, wmma_k = config.shape
         global_m, global_n, global_k = config.global_shape
 
-        tid = cl.thread_idx(0)
-        bx, by, _ = cl.block_idx()
+        tid = cl.thread_index(0)
+        bx, by = cl.block_index(0), cl.block_index(1)
 
         a_frag_t = wmma.fragment(
             wmma.FragmentUse.MATRIX_A,

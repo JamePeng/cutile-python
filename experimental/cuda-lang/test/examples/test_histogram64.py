@@ -40,10 +40,10 @@ def add_word(s_ThreadBase, data):
 
 @cl.kernel
 def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
-    tx = cl.thread_idx(0)
-    bx = cl.block_idx(0)
-    bdx = cl.block_dim(0)
-    gdx = cl.grid_dim(0)
+    tx = cl.thread_index(0)
+    bx = cl.block_index(0)
+    bdx = cl.thread_count(0)
+    gdx = cl.block_count(0)
 
     # Encode thread index to avoid bank conflicts in s_Hist[] access.
     threadPos = (
@@ -100,8 +100,8 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
 
 @cl.kernel
 def merge_histogram64_kernel(d_Histogram, d_PartialHistograms, histogramCount):
-    tx = cl.thread_idx(0)
-    bx = cl.block_idx(0)
+    tx = cl.thread_index(0)
+    bx = cl.block_index(0)
 
     data = cl.shared_array(shape=(MERGE_THREADBLOCK_SIZE,), dtype=cl.uint32)
     sum = cl.uint32(0)

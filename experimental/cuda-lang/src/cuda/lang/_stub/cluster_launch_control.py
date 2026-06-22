@@ -30,7 +30,7 @@ def clusterlaunchcontrol_is_canceled(token: clusterlaunchcontrol_token) -> "bool
 
 
 @stub
-def clusterlaunchcontrol_get_first_block_idx(
+def clusterlaunchcontrol_get_first_block_index(
     token: clusterlaunchcontrol_token, axis: int | None = None
 ) -> "int32 | tuple[int32, int32, int32]":
     """Return the first block index encoded in ``token``."""

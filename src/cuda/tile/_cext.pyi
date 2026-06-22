@@ -19,15 +19,15 @@ def launch(stream,
 
 
 def launch_extended(stream,
-                    grid: Dim3,
-                    block: Dim3,
+                    block_count: Dim3,
+                    thread_count: Dim3,
                     kernel,
                     kernel_args: tuple[Any, ...],
                     /, *,
-                    cooperative: bool=False,
-                    cluster_dim: Dim3 | None=None,
-                    preferred_cluster_dim: Dim3 | None=None,
-                    pdl: bool=False
+                    cooperative: bool = False,
+                    block_in_cluster_count: Dim3 | None = None,
+                    preferred_block_in_cluster_count: Dim3 | None = None,
+                    pdl: bool = False
                     ):
     ...
 
