@@ -1,12 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) <2025> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
-
+import dataclasses
 import math
 import ctypes
 import sys
 import traceback
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any
+
 import torch
 import numpy as np
 import pytest
@@ -201,6 +204,21 @@ def kernel_print_tuple_fstring(x, TILE: ct.Constant[int]):
     ct.print((msg, bid))
 
 
+@dataclass(frozen=True)
+class Foo:
+    x: Any
+    y: Any = dataclasses.field(repr=False)
+    z: Any
+
+
+@ct.kernel(opt_level=_OPT_LEVEL)
+def kernel_print_dataclass(x, TILE: ct.Constant[int]):
+    t = ct.load(x, 0, (TILE,))
+    foo = Foo(t, t + 1, "hello")
+    ct.print(foo)
+    print(foo)
+
+
 @ct.kernel(opt_level=_OPT_LEVEL)
 def kernel_print_empty_tuple(x, TILE: ct.Constant[int]):
     ct.print(f"empty tuple: {()}")
@@ -301,6 +319,7 @@ _KERNELS_MAP_ = {
     "kernel_print_single_tuple": kernel_print_single_tuple,
     "kernel_print_tuple_w_tile": kernel_print_tuple_w_tile,
     "kernel_print_tuple_tile_shape": kernel_print_tuple_tile_shape,
+    "kernel_print_dataclass": kernel_print_dataclass,
     "kernel_print_dtype": kernel_print_dtype,
     "kernel_print_enum": kernel_print_enum,
     "kernel_print_ordering": kernel_print_ordering,
@@ -508,6 +527,65 @@ def test_ct_print_tuple_format_spec_error():
     x = torch.zeros(8, device='cuda', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="cannot apply format spec to a tuple value"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), bad_kernel, (x, 8))
+
+
+def test_ct_print_dataclass():
+    [actual_ct, actual_builtin] = _run_kernel(kernel_print_dataclass, (8,), "int32", 8)
+    assert actual_ct == actual_builtin == "Foo(x=[0, 1, 2, 3, 4, 5, 6, 7], z='hello')"
+
+
+def test_ct_print_reject_dataclass_with_custom_str():
+    @dataclass(frozen=True)
+    class CustomStr:
+        x: int
+
+        def __str__(self):
+            return "Custom!"
+
+    @ct.kernel
+    def kern():
+        print(CustomStr(123))
+
+    with pytest.raises(ct.TileTypeError,
+                       match="Printing dataclasses"
+                             " with custom __repr__/__str__/__format__ is not supported"):
+        ct.launch(torch.cuda.current_stream(), (1,), kern, ())
+
+
+def test_ct_print_reject_dataclass_with_custom_repr():
+    @dataclass(frozen=True)
+    class CustomRepr:
+        x: int
+
+        def __repr__(self):
+            return "Custom!"
+
+    @ct.kernel
+    def kern():
+        print(CustomRepr(123))
+
+    with pytest.raises(ct.TileTypeError,
+                       match="Printing dataclasses"
+                             " with custom __repr__/__str__/__format__ is not supported"):
+        ct.launch(torch.cuda.current_stream(), (1,), kern, ())
+
+
+def test_ct_print_reject_dataclass_with_custom_format():
+    @dataclass(frozen=True)
+    class CustomFormat:
+        x: int
+
+        def __format__(self, spec):
+            return "Custom!"
+
+    @ct.kernel
+    def kern():
+        print(CustomFormat(123))
+
+    with pytest.raises(ct.TileTypeError,
+                       match="Printing dataclasses"
+                             " with custom __repr__/__str__/__format__ is not supported"):
+        ct.launch(torch.cuda.current_stream(), (1,), kern, ())
 
 
 def test_ct_print_dtype():

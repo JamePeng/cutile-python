@@ -29,7 +29,8 @@ from cuda.tile._ir.type import Type, DTypeSpec, TensorLikeTy, TupleTy, TupleValu
     RangeIterType, RangeValue, TypeTy, ModuleTy, NONE, SliceType, StringTy, FormattedStringTy, \
     StringFormat, FormattedStringValue, FormattedPiece, DictTy, DictValue, EnumTy, TokenTy
 from cuda.tile._ir.typing_support import type_of_constant_python_value, \
-    loose_type_of_constant_python_value, get_dataclass_info, as_third_party_dtype_spec
+    loose_type_of_constant_python_value, get_dataclass_info, as_third_party_dtype_spec, \
+    dataclass_has_default_formatter
 from cuda.tile._ir2bytecode import BytecodeContext
 from cuda.tile._mutex import tile_mutex
 
@@ -837,6 +838,27 @@ def print_impl(args: tuple[Var, ...], sep: Var, end: Var) -> None:
                 if i < len(agg.items) - 1:
                     format_parts.append(', ')
             format_parts.append(',)' if len(agg.items) == 1 else ')')
+        elif isinstance(ty, DataclassTy):
+            if format_spec is not None:
+                raise TileTypeError("f-string: cannot apply format spec to a dataclass instance",
+                                    var.loc)
+
+            if not dataclass_has_default_formatter(ty.cls):
+                raise TileTypeError("Printing dataclasses with custom __repr__/__str__/__format__"
+                                    " is not supported")
+
+            agg = var.get_aggregate()
+            assert isinstance(agg, DataclassValue)
+            format_parts.append(PrintfValidator.escape_str(f"{ty.cls.__qualname__}("))
+            comma = ""
+            for f, item in zip(dataclasses.fields(ty.cls), agg.items, strict=True):
+                if not f.repr:
+                    continue
+
+                format_parts.append(PrintfValidator.escape_str(f"{comma}{f.name}="))
+                _expand_var(item, is_tuple_element=True)
+                comma = ", "
+            format_parts.append(")")
         elif isinstance(ty, TensorLikeTy):
             if format_spec is not None:
                 format_parts.append(PrintfValidator.apply_python_spec(

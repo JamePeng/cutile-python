@@ -253,6 +253,19 @@ def get_dataclass_info(cls) -> DataclassInfo:
     return DataclassInfo(cls, field_names, field_name_to_idx, init_signature)
 
 
+def dataclass_has_default_formatter(cls) -> bool:
+    return (
+            cls.__dataclass_params__.repr
+            and cls.__str__ is object.__str__
+            and cls.__format__ is object.__format__
+            and (
+                    # HACK HACK HACK!
+                    (wrapped := getattr(cls.__repr__, "__wrapped__", None)) is not None
+                    and getattr(wrapped, "__qualname__", "") == "__create_fn__.<locals>.__repr__"
+            )
+    )
+
+
 # ========= Numpy support ===========
 
 try:
