@@ -20,7 +20,13 @@ from cuda.tile._ir.ops import broadcast_to, implicit_cast
 from cuda.tile._ir.ops_utils import promote_types
 from cuda.tile._ir.type import PointerInfo, TupleTy, TupleValue
 from cuda.tile._datatype import is_integral, is_signed
-from cuda.lang._datatype import clusterlaunchcontrol_token, is_float, mbarrier, opaque_pointer_dtype
+from cuda.lang._datatype import (
+    clusterlaunchcontrol_token,
+    is_boolean,
+    is_float,
+    mbarrier,
+    opaque_pointer_dtype,
+)
 
 
 def is_none(var: Var):
@@ -105,6 +111,12 @@ def require_scalar_type(var: Var,
 def require_integral_scalar_type(var: Var):
     ty = require_scalar_type(var)
     if not is_integral(ty.dtype):
+        raise make_type_checking_error(f"Expected scalar integral but got {ty}", var)
+
+
+def require_boolean_scalar_type(var: Var):
+    ty = require_scalar_type(var)
+    if not is_boolean(ty.dtype):
         raise make_type_checking_error(f"Expected scalar integral but got {ty}", var)
 
 

@@ -23,6 +23,14 @@ def require_blackwell_or_newer():
     )
 
 
+def require_blackwell_cc100():
+    cc = get_compute_capability()
+    return pytest.mark.skipif(
+        cc.major != 10,
+        reason="feature requires Blackwell with compute capability 100",
+    )
+
+
 def require_hopper_or_newer():
     return pytest.mark.skipif(
         get_compute_capability() < (9, 0),

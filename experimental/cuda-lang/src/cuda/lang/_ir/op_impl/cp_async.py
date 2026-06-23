@@ -10,6 +10,7 @@ from cuda.lang._stub._nvvm_mlir_support import _raw_nvvm_mlir_operation_impl
 from cuda.lang._stub import nvvm_mlir_interfaces
 from ..type_checking_helpers import (
     make_type_checking_error,
+    require_boolean_scalar_type,
     require_integral_scalar_type,
     require_mbarrier_ptr,
     require_none,
@@ -87,9 +88,9 @@ def cp_async_bulk_tensor_global_to_shared_impl(
         require_none(multicast_mask, message)
         require_none(group, message)
     else:
-        raise make_type_checking_error(
-            "Copying from global to shared-cluster memory is not yet supported"
-        )
+        require_optional(multicast_mask, require_integral_scalar_type)
+        require_optional(l2_cache_hint, require_integral_scalar_type)
+        require_optional(predicate, require_boolean_scalar_type)
 
     return _raw_nvvm_mlir_operation_impl(
         nvvm_mlir_interfaces.cp_async_bulk_tensor_shared_cluster_global,

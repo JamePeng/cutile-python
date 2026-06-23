@@ -8,7 +8,12 @@ import cuda.lang as cl
 from cuda.lang._exception import TileTypeError
 from cuda.lang.compilation import KernelSignature
 
-from .util import make_symbolic_scalar, make_symbolic_tensor, require_hopper_or_newer
+from .util import (
+    make_symbolic_scalar,
+    make_symbolic_tensor,
+    require_blackwell_cc100,
+    require_hopper_or_newer,
+)
 
 
 class CpAsyncPtxTestBase:
@@ -35,45 +40,25 @@ class CpAsyncPtxTestBase:
 
 @require_hopper_or_newer()
 class TestG2S(CpAsyncPtxTestBase):
-    def test_minimal(self):
+    @pytest.mark.parametrize("cluster", (True, False))
+    def test_minimal(self, cluster):
         @cl.kernel
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(
-                shape=(), dtype=cl.mbarrier, alignment=8
-            ).get_base_pointer()
-
-            cl.cp_async_bulk_tensor_global_to_shared(
-                tensor_map,
-                (i, j),
-                smem.get_base_pointer(),
-                mbar,
-            )
-
-        self.check_ptx_source(kernel, "cp.async.bulk.tensor.2d.shared::cta.global")
-
-    def test_shared_clsuter_nyi(self):
-        @cl.kernel
-        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
-            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
-            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
+            smem = smem.get_base_pointer()
+            if cluster:
+                smem = cl.map_shared_to_cluster(smem, 0)
             mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
 
-            cl.cp_async_bulk_tensor_global_to_shared(
-                tensor_map,
-                (i, j),
-                smem,
-                mbar,
-                predicate=pred,
-            )
+            cl.cp_async_bulk_tensor_global_to_shared(tensor_map, (i, j), smem, mbar)
 
-        with pytest.raises(
-            TileTypeError,
-            match="Copying from global to shared-cluster memory is not yet supported",
-        ):
-            self.check_ptx_source(kernel)
+        shared_mode = "cluster" if cluster else "cta"
+        expect = (
+            f"cp.async.bulk.tensor.2d.shared::{shared_mode}"
+            ".global.tile.mbarrier::complete_tx::bytes"
+        )
+        self.check_ptx_source(kernel, expect)
 
     def test_unsupported_kwargs_for_cta_mode(self, subtests):
         @cl.kernel
@@ -138,7 +123,124 @@ class TestG2S(CpAsyncPtxTestBase):
         with subtests.test("group"):
             compile(k3)
 
-    def test_im2col_offsets_without_required_load_mode(self):
+    @pytest.mark.parametrize("cluster", (True, False))
+    def test_im2col_offsets_without_required_load_mode(self, cluster):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            smem = smem.get_base_pointer()
+            if cluster:
+                smem = cl.map_shared_to_cluster(smem, 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map, (i, j), smem, mbar, im2col_offsets=(0, 1)
+            )
+
+        with pytest.raises(
+            TileTypeError, match="TILE mode does not accept im2col_offsets"
+        ):
+            self.check_ptx_source(kernel)
+
+    @require_blackwell_cc100()
+    @pytest.mark.parametrize("cluster", (True, False))
+    def test_tile_gather4_load_mode(self, cluster):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            smem = smem.get_base_pointer()
+            if cluster:
+                smem = cl.map_shared_to_cluster(smem, 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j, 0, 0, 0),
+                smem,
+                mbar,
+                mode=cl.TMALoadMode.TILE_GATHER4,
+            )
+
+        shared_mode = "cluster" if cluster else "cta"
+        expect = (
+            f"cp.async.bulk.tensor.2d.shared::{shared_mode}"
+            ".global.tile::gather4.mbarrier::complete_tx::bytes"
+        )
+        self.check_ptx_source(kernel, expect)
+
+    @pytest.mark.parametrize(
+        "mode",
+        (cl.TMALoadMode.IM2COL, cl.TMALoadMode.IM2COL_W, cl.TMALoadMode.IM2COL_W_128),
+    )
+    def test_im2col_load_modes_require_offsets(self, mode):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j),
+                smem.get_base_pointer(),
+                mbar,
+                mode=mode,
+            )
+
+        with pytest.raises(
+            TileTypeError, match=f"{mode.name} mode requires im2col_offsets"
+        ):
+            self.check_ptx_source(kernel)
+
+    def test_im2col_load_mode_rank3(self):
+        @cl.kernel
+        def kernel(
+            x,
+            pred,
+            i,
+            j,
+            k,
+            D: cl.Constant[int],
+            H: cl.Constant[int],
+            W: cl.Constant[int],
+        ):
+            tensor_map = cl.tensor_map_tiled(x, (D, H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j, k),
+                smem.get_base_pointer(),
+                mbar,
+                im2col_offsets=(0,),
+                mode=cl.TMALoadMode.IM2COL,
+            )
+
+        compiled = cl.compile_simt(
+            kernel,
+            [
+                KernelSignature(
+                    [
+                        make_symbolic_tensor((1, 1, 1), cl.int32),
+                        make_symbolic_scalar(cl.bool_),
+                        make_symbolic_scalar(cl.int32),
+                        make_symbolic_scalar(cl.int32),
+                        make_symbolic_scalar(cl.int32),
+                        4,
+                        32,
+                        8,
+                    ]
+                )
+            ],
+            log_ptx=True,
+        )
+        assert compiled.ptx is not None
+        assert "cp.async.bulk.tensor.3d.shared::cta.global.im2col" in compiled.ptx
+
+    def test_tile_gather4_rejects_im2col_offsets(self):
         @cl.kernel
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
@@ -151,10 +253,11 @@ class TestG2S(CpAsyncPtxTestBase):
                 smem.get_base_pointer(),
                 mbar,
                 im2col_offsets=(0, 1),
+                mode=cl.TMALoadMode.TILE_GATHER4,
             )
 
         with pytest.raises(
-            TileTypeError, match="TILE mode does not accept im2col_offsets"
+            TileTypeError, match="TILE_GATHER4 mode does not accept im2col_offsets"
         ):
             self.check_ptx_source(kernel)
 
@@ -208,3 +311,80 @@ class TestS2G(CpAsyncPtxTestBase):
             )
 
         self.check_ptx_source(kernel, "cp.async.bulk.tensor.2d.global.shared::cta")
+
+    @require_blackwell_cc100()
+    def test_tile_scatter4_store_mode(self):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+
+            cl.cp_async_bulk_tensor_shared_to_global(
+                smem.get_base_pointer(),
+                tensor_map,
+                (i, j, 0, 0, 0),
+                mode=cl.TMAStoreMode.TILE_SCATTER4,
+            )
+
+        self.check_ptx_source(
+            kernel, "cp.async.bulk.tensor.2d.global.shared::cta.tile::scatter4"
+        )
+
+    def test_im2col_store_mode_rank2_is_rejected(self):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+
+            cl.cp_async_bulk_tensor_shared_to_global(
+                smem.get_base_pointer(),
+                tensor_map,
+                (i, j),
+                mode=cl.TMAStoreMode.IM2COL,
+            )
+
+        with pytest.raises(Exception, match="im2col|IM2COL|expected"):
+            self.check_ptx_source(kernel)
+
+    def test_im2col_store_mode_rank3(self):
+        @cl.kernel
+        def kernel(
+            x,
+            pred,
+            i,
+            j,
+            k,
+            D: cl.Constant[int],
+            H: cl.Constant[int],
+            W: cl.Constant[int],
+        ):
+            tensor_map = cl.tensor_map_tiled(x, (D, H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+
+            cl.cp_async_bulk_tensor_shared_to_global(
+                smem.get_base_pointer(),
+                tensor_map,
+                (i, j, k),
+                mode=cl.TMAStoreMode.IM2COL,
+            )
+
+        compiled = cl.compile_simt(
+            kernel,
+            [
+                KernelSignature(
+                    [
+                        make_symbolic_tensor((1, 1, 1), cl.int32),
+                        make_symbolic_scalar(cl.bool_),
+                        make_symbolic_scalar(cl.int32),
+                        make_symbolic_scalar(cl.int32),
+                        make_symbolic_scalar(cl.int32),
+                        4,
+                        32,
+                        8,
+                    ]
+                )
+            ],
+            log_ptx=True,
+        )
+        assert compiled.ptx is not None
+        assert "cp.async.bulk.tensor.3d.global.shared::cta.im2col" in compiled.ptx
