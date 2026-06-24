@@ -19,7 +19,7 @@ from ..type_checking_helpers import (
     require_uniform_int_tuple_type,
     tensor_map_descriptor_like,
 )
-from cuda.tile._ir.op_impl import require_constant_enum
+from cuda.tile._ir.op_impl import require_constant_enum, require_optional_constant_enum
 import cuda.lang._mlir.nvvm as mlir
 
 
@@ -91,6 +91,9 @@ def cp_async_bulk_tensor_global_to_shared_impl(
         require_optional(multicast_mask, require_integral_scalar_type)
         require_optional(l2_cache_hint, require_integral_scalar_type)
         require_optional(predicate, require_boolean_scalar_type)
+        group_value = require_optional_constant_enum(group, cp_async.CTAGroup)
+        if group_value is not None:
+            group = loosely_typed_const(getattr(mlir.CTAGroupKind, group_value.name))
 
     return _raw_nvvm_mlir_operation_impl(
         nvvm_mlir_interfaces.cp_async_bulk_tensor_shared_cluster_global,

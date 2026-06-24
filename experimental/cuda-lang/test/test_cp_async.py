@@ -60,6 +60,61 @@ class TestG2S(CpAsyncPtxTestBase):
         )
         self.check_ptx_source(kernel, expect)
 
+    @require_blackwell_cc100()
+    @pytest.mark.parametrize(
+        "group,expect_group",
+        (
+            (cl.CTAGroup.CTA_1, "cta_group::1"),
+            (cl.CTAGroup.CTA_2, "cta_group::2"),
+        ),
+    )
+    def test_shared_cluster_group(self, group, expect_group):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j),
+                smem,
+                mbar,
+                group=group,
+            )
+
+        self.check_ptx_source(
+            kernel,
+            "cp.async.bulk.tensor.2d.shared::cluster.global",
+            expect_group,
+        )
+
+    @require_blackwell_cc100()
+    def test_shared_cluster_group_with_predicate_and_multicast(self):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+
+            cl.cp_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j),
+                smem,
+                mbar,
+                multicast_mask=0x3,
+                group=cl.CTAGroup.CTA_2,
+                predicate=pred,
+            )
+
+        self.check_ptx_source(
+            kernel,
+            "cp.async.bulk.tensor.2d.shared::cluster.global",
+            "multicast::cluster",
+        )
+
     def test_unsupported_kwargs_for_cta_mode(self, subtests):
         @cl.kernel
         def k1(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
