@@ -369,3 +369,57 @@ def test_type_error():
         match="Expected scalar or vector to satisfy constraint is_float but got int32",
     ):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
+
+
+MINMAX_OPS = (
+    (device_math.maximum, builtins.max),
+    (device_math.minimum, builtins.min),
+)
+
+MINMAX_DTYPES = (*FLOAT_TYPES, *SIGNED_INT_TYPES, *UNSIGNED_INT_TYPES)
+
+
+@pytest.mark.parametrize("dtype", MINMAX_DTYPES)
+@pytest.mark.parametrize("device_op, host_op", MINMAX_OPS)
+@pytest.mark.parametrize("vector", (False, True))
+def test_minmax_basic(dtype, device_op, host_op, vector):
+    count = 4 if vector else 1
+    lhs_vals = [1, 5, 3, 8][:count]
+    rhs_vals = [4, 2, 3, 6][:count]
+
+    @cl.kernel
+    def kernel(lhs, rhs, out):
+        if vector:
+            lhs_v = lhs.get_base_pointer().load(count=4)
+            rhs_v = rhs.get_base_pointer().load(count=4)
+            out.get_base_pointer().store(device_op(lhs_v, rhs_v))
+        else:
+            out[0] = device_op(lhs[0], rhs[0])
+
+    torch_dt = datatype.to_torch_dtype(dtype)
+    lhs = torch.tensor(lhs_vals, dtype=torch_dt, device="cuda")
+    rhs = torch.tensor(rhs_vals, dtype=torch_dt, device="cuda")
+    out = torch.zeros(count, dtype=torch_dt, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
+    expected = [host_op(a, b) for a, b in zip(lhs_vals, rhs_vals, strict=True)]
+    assert out.cpu().tolist() == expected
+
+
+@pytest.mark.parametrize("dtype", FLOAT_TYPES)
+@pytest.mark.parametrize("device_op", (device_math.maximum, device_math.minimum))
+@pytest.mark.parametrize("propagate_nan", (False, True))
+def test_minmax_nan(dtype, device_op, propagate_nan):
+    @cl.kernel
+    def kernel(lhs, rhs, out):
+        out[0] = device_op(lhs[0], rhs[0], propagate_nan=propagate_nan)
+
+    torch_dt = datatype.to_torch_dtype(dtype)
+    lhs = torch.tensor([float("nan")], dtype=torch_dt, device="cuda")
+    rhs = torch.tensor([3.0], dtype=torch_dt, device="cuda")
+    out = torch.zeros(1, dtype=torch_dt, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
+    got = out.cpu().item()
+    if propagate_nan:
+        assert host_math.isnan(got), f"expected NaN, got {got}"
+    else:
+        assert got == 3.0, f"expected 3.0, got {got}"

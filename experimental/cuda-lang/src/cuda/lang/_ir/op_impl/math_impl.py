@@ -28,6 +28,7 @@ from cuda.tile._ir.arithmetic_ops import astype, promote_and_broadcast_to
 from cuda.tile._ir.core_ops import strictly_typed_const
 from cuda.tile._ir.op_impl import (
     ImplRegistry,
+    require_constant_bool,
 )
 from ..._stub import math as cl_math
 
@@ -171,6 +172,41 @@ def math_float_binary_impl(op_name: str, x: Var, y: Var):
     ty = common_type(x, y)
     x = promote_and_broadcast_to(x, ty)
     y = promote_and_broadcast_to(y, ty)
+    return add_operation(
+        RawMLIROperation,
+        ty,
+        op_name=op_name,
+        operands_=(x, y),
+    )
+
+
+@impl(cl_math.maximum, fixed_args=["max"])
+@impl(cl_math.minimum, fixed_args=["min"])
+def math_minmax_impl(kind: str, x: Var, y: Var, propagate_nan: Var) -> Var:
+    propagate_nan = require_constant_bool(propagate_nan)
+
+    require_scalar_or_vector_type(x)
+    require_scalar_or_vector_type(y)
+    ty = common_type(x, y)
+    x = promote_and_broadcast_to(x, ty)
+    y = promote_and_broadcast_to(y, ty)
+    dtype = ty.tensor_dtype()
+
+    if datatype.is_float(dtype):
+        # propagate_nan selects IEEE-754 minimum/maximum (NaN-propagating) vs
+        # minimumNumber/maximumNumber (NaN-ignoring).
+        if propagate_nan:
+            op_name = "arith.maximumf" if kind == "max" else "arith.minimumf"
+        else:
+            op_name = "arith.maxnumf" if kind == "max" else "arith.minnumf"
+    elif datatype.is_integral(dtype):
+        if datatype.is_signed(dtype):
+            op_name = "arith.maxsi" if kind == "max" else "arith.minsi"
+        else:
+            op_name = "arith.maxui" if kind == "max" else "arith.minui"
+    else:
+        raise TileTypeError(f"{kind}() expects arithmetic operands, got {ty}")
+
     return add_operation(
         RawMLIROperation,
         ty,

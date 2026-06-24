@@ -132,6 +132,34 @@ def pow(x, y, /):
     ...
 
 
+@stub
+def maximum(x, y, /, *, propagate_nan=False):
+    """Compute the element-wise maximum of ``x`` and ``y``.
+
+    Args:
+        propagate_nan: If ``True``, the result is ``NaN`` whenever either
+            operand is ``NaN`` (IEEE-754 ``maximum``). If ``False`` (the
+            default), a ``NaN`` operand is ignored and the other operand is
+            returned, matching C ``fmax`` (IEEE-754 ``maximumNumber``).
+            Has no effect for integer operands.
+    """
+    ...
+
+
+@stub
+def minimum(x, y, /, *, propagate_nan=False):
+    """Compute the element-wise minimum of ``x`` and ``y``.
+
+    Args:
+        propagate_nan: If ``True``, the result is ``NaN`` whenever either
+            operand is ``NaN`` (IEEE-754 ``minimum``). If ``False`` (the
+            default), a ``NaN`` operand is ignored and the other operand is
+            returned, matching C ``fmin`` (IEEE-754 ``minimumNumber``).
+            Has no effect for integer operands.
+    """
+    ...
+
+
 __all__ = (
     "ceil",
     "exp",
@@ -158,4 +186,6 @@ __all__ = (
     "isfinite",
     "isnormal",
     "pow",
+    "maximum",
+    "minimum",
 )
