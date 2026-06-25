@@ -4,7 +4,6 @@
 
 #include "tile_kernel.h"
 
-#include "arena.h"
 #include "check.h"
 #include "cuda_loader.h"
 #include "cuda_helper.h"
@@ -342,28 +341,33 @@ struct KernelFamily : SimpleRefcount<KernelFamily> {
     KernelMap kernels_by_constants;
 };
 
+using ArenaOffset = size_t;
+
 union Word {
     void* device_ptr;
     int32_t i32;
     int64_t i64;
     size_t size;
     float f32;
-    Word* arena_ptr;
+    ArenaOffset arena_offset;
 };
 
 static_assert(sizeof(Word) == 8);
 
+using Arena = Vec<Word, AlignedAllocation<Word, alignof(CUtensorMap)>>;
+
 struct ListArg {
-    Word* base_ptr_cuarg;
+    ArenaOffset base_ptr_cuarg;
     size_t length;
-    Word* item_pointers;  // [length], each word containing an `arena_ptr` that points to the item
+    ArenaOffset item_offsets;  // [length], each word contains an `ArenaOffset` points to the item
     size_t item_size_words;
 };
 
 struct LaunchHelper {
     Vec<PyTypeObject*> pyarg_types;
-    Arena<Word> arena;
-    Vec<Word*> cuarg_pointers;  // pointers into `arena`
+    Arena arena;
+    Vec<ArenaOffset> cuarg_offsets;  // offsets into `arena`
+    Vec<void*> launch_params;
     Vec<ListArg> list_args;
     size_t total_list_data_size_words;
     Vec<int64_t> constants;
@@ -371,11 +375,34 @@ struct LaunchHelper {
     LaunchHelper* next_free;
 };
 
-static Word* push_single_word_cuarg(LaunchHelper& helper, Word word) {
-    Word* ptr = helper.arena.alloc(1);
-    *ptr = word;
-    helper.cuarg_pointers.push_back(ptr);
-    return ptr;
+static ArenaOffset arena_alloc_words(Arena& arena, size_t count) {
+    ArenaOffset offset = arena.size();
+    arena.resize(offset + count);
+    return offset;
+}
+
+static void** make_launch_params(LaunchHelper& helper) {
+    helper.launch_params.clear();
+    helper.launch_params.reserve(helper.cuarg_offsets.size());
+    for (ArenaOffset offset : helper.cuarg_offsets)
+        helper.launch_params.push_back(&helper.arena[offset]);
+    return helper.launch_params.data();
+}
+
+template <size_t AlignmentBytes>
+static void arena_pad_to_alignment(Arena& arena) {
+    static_assert(AlignmentBytes % sizeof(Word) == 0);
+    constexpr size_t AlignmentWords = AlignmentBytes / sizeof(Word);
+    size_t padded_size = ((arena.size() + AlignmentWords - 1) / AlignmentWords)
+            * AlignmentWords;
+    arena.resize(padded_size);
+}
+
+static ArenaOffset push_single_word_cuarg(LaunchHelper& helper, Word word) {
+    ArenaOffset offset = arena_alloc_words(helper.arena, 1);
+    helper.arena[offset] = word;
+    helper.cuarg_offsets.push_back(offset);
+    return offset;
 }
 
 static LaunchHelper* g_helper_freelist;  // protected by the GIL or g_launch_mutex
@@ -550,7 +577,7 @@ struct ArrayType {
 
 struct ArrayRepr {
     ArrayType arrty;
-    Word* repr;
+    ArenaOffset repr;
 };
 
 // This should compile to a no-op
@@ -731,10 +758,11 @@ struct ArrayTypeConstantBuilder {
     void* device_ptr = nullptr;
     uint64_t bits = -1;
 
-    void update(const ArrayRepr& ar) {
-        device_ptr = ar.repr[0].device_ptr;
+    void update(const Arena& arena, const ArrayRepr& ar) {
+        const Word* repr = arena.data() + ar.repr;
+        device_ptr = repr[0].device_ptr;
         bits &= compute_array_specialization_bits(
-                    ar.repr, ar.arrty.ndim, ar.arrty.dtype.bits * ar.arrty.dtype.lanes,
+                    repr, ar.arrty.ndim, ar.arrty.dtype.bits * ar.arrty.dtype.lanes,
                     ar.arrty.index_bitwidth).u64;
     }
 
@@ -846,7 +874,7 @@ static PyPtr parse_array_constraint(ConstantCursor& cursor) {
 
 
 static Result<ArrayRepr> arrayrepr_cuda_array_iface(PyObject* pyobj, unsigned index_bitwidth,
-                                                    Arena<Word>& arena) {
+                                                    Arena& arena) {
     PyPtr dict = steal(PyObject_GetAttr(pyobj, g___cuda_array_interface___pyunicode));
     if (!PyDict_Check(dict.get())) {
         PyErr_SetString(PyExc_TypeError,
@@ -881,8 +909,8 @@ static Result<ArrayRepr> arrayrepr_cuda_array_iface(PyObject* pyobj, unsigned in
     Py_ssize_t ndim = PyTuple_GET_SIZE(shape);
     ASSERT_NDIM(ndim);
 
-    Word* repr = arena.alloc(1 + 2 * ndim);
-    repr[0].device_ptr = reinterpret_cast<void*>(data_ptr_int);
+    ArenaOffset repr_offset = arena_alloc_words(arena, 1 + 2 * ndim);
+    arena[repr_offset].device_ptr = reinterpret_cast<void*>(data_ptr_int);
 
     // Parse the shape
     if (!PyTuple_Check(shape))
@@ -891,14 +919,14 @@ static Result<ArrayRepr> arrayrepr_cuda_array_iface(PyObject* pyobj, unsigned in
     for (Py_ssize_t i = 0; i < ndim; ++i) {
         int64_t size = pylong_as<int64_t>(PyTuple_GET_ITEM(shape, i));
         if (PyErr_Occurred()) return ErrorRaised;
-        repr[1 + i].i64 = size;
+        arena[repr_offset + 1 + i].i64 = size;
     }
 
     // Parse the strides
     PyObject* strides = PyDict_GetItem(dict.get(), g_strides_pyunicode);
     if (PyErr_Occurred()) return ErrorRaised;
     if (!strides || strides == Py_None) {
-        if (!fill_row_major_strides(index_bitwidth, repr, ndim))
+        if (!fill_row_major_strides(index_bitwidth, arena.data() + repr_offset, ndim))
             return ErrorRaised;
     } else if (PyTuple_Check(strides)) {
         // Only byte-aligned types should be supported by __cuda_array_interface__
@@ -906,7 +934,8 @@ static Result<ArrayRepr> arrayrepr_cuda_array_iface(PyObject* pyobj, unsigned in
         for (Py_ssize_t i = 0; i < ndim; ++i) {
             int64_t stride = pylong_as<int64_t>(PyTuple_GET_ITEM(strides, i));
             if (PyErr_Occurred()) return ErrorRaised;
-            repr[1 + ndim + i].i64 = static_cast<int64_t>(stride / dtype_bytewidth);
+            arena[repr_offset + 1 + ndim + i].i64 = static_cast<int64_t>(
+                    stride / dtype_bytewidth);
         }
     } else {
         return raise(PyExc_TypeError, "__cuda_array_interface['strides'] can only be"
@@ -919,12 +948,12 @@ static Result<ArrayRepr> arrayrepr_cuda_array_iface(PyObject* pyobj, unsigned in
             .ndim = static_cast<size_t>(ndim),
             .index_bitwidth = index_bitwidth
         },
-        .repr = repr
+        .repr = repr_offset
     };
 }
 
 static Result<ArrayRepr> arrayrepr_dlpack_common(PyObject* dlpack_capsule, unsigned index_bitwidth,
-                                                 Arena<Word>& arena) {
+                                                 Arena& arena) {
     void* ptr = PyCapsule_GetPointer(dlpack_capsule, "dltensor");
     if (!ptr) return ErrorRaised;
     DLManagedTensor* tensor = static_cast<DLManagedTensor*>(ptr);
@@ -939,25 +968,25 @@ static Result<ArrayRepr> arrayrepr_dlpack_common(PyObject* dlpack_capsule, unsig
     uint32_t ndim = tensor->dl_tensor.ndim;
     ASSERT_NDIM(ndim);
 
-    Word* repr = arena.alloc(1 + 2 * ndim);
-    repr[0].device_ptr = data_ptr;
+    ArenaOffset repr_offset = arena_alloc_words(arena, 1 + 2 * ndim);
+    arena[repr_offset].device_ptr = data_ptr;
 
     for (uint32_t i = 0; i < ndim; ++i) {
         if (index_bitwidth != 64 && (tensor->dl_tensor.shape[i] < INT32_MIN
             || tensor->dl_tensor.shape[i] > INT32_MAX))
             return raise(PyExc_OverflowError, "shape is too big");
-        repr[1 + i].i64 = tensor->dl_tensor.shape[i];
+        arena[repr_offset + 1 + i].i64 = tensor->dl_tensor.shape[i];
     }
 
     if (!tensor->dl_tensor.strides) {
-        if (!fill_row_major_strides(index_bitwidth, repr, ndim))
+        if (!fill_row_major_strides(index_bitwidth, arena.data() + repr_offset, ndim))
             return ErrorRaised;
     } else {
         for (uint32_t i = 0; i < ndim; ++i) {
             if(index_bitwidth != 64 && (tensor->dl_tensor.strides[i] < INT32_MIN
                 || tensor->dl_tensor.strides[i] > INT32_MAX))
                 return raise(PyExc_OverflowError, "stride is too big");
-            repr[1 + ndim + i].i64 = tensor->dl_tensor.strides[i];
+            arena[repr_offset + 1 + ndim + i].i64 = tensor->dl_tensor.strides[i];
         }
     }
 
@@ -967,7 +996,7 @@ static Result<ArrayRepr> arrayrepr_dlpack_common(PyObject* dlpack_capsule, unsig
             .ndim = ndim,
             .index_bitwidth = index_bitwidth
         },
-        .repr = repr
+        .repr = repr_offset
     };
 
     PyCapsule_SetName(dlpack_capsule, "used_dltensor");
@@ -996,7 +1025,7 @@ static Result<DLDataType> dtype_from_torch_dtype(PyObject* torch_dtype) {
 }
 
 static Result<ArrayRepr> arrayrepr_torch_tensor_pymethod(PyObject* tensor, unsigned index_bitwidth,
-                                                         Arena<Word>& arena) {
+                                                         Arena& arena) {
     PyPtr data_ptr = steal(PyObject_CallMethod(tensor, "data_ptr", nullptr));
     if (!data_ptr) return ErrorRaised;
 
@@ -1024,8 +1053,8 @@ static Result<ArrayRepr> arrayrepr_torch_tensor_pymethod(PyObject* tensor, unsig
     uint32_t ndim = len;
     ASSERT_NDIM(ndim);
 
-    Word* repr = arena.alloc(1 + 2 * ndim);
-    repr[0].device_ptr = reinterpret_cast<void*>(addr);
+    ArenaOffset repr_offset = arena_alloc_words(arena, 1 + 2 * ndim);
+    arena[repr_offset].device_ptr = reinterpret_cast<void*>(addr);
 
     for (uint32_t i = 0; i < ndim; ++i) {
         PyObject* item_ptr = PyTuple_GetItem(shape_ptr.get(), i);
@@ -1037,7 +1066,7 @@ static Result<ArrayRepr> arrayrepr_torch_tensor_pymethod(PyObject* tensor, unsig
 
         if (index_bitwidth != 64 && (si < INT32_MIN || si > INT32_MAX))
             return raise(PyExc_OverflowError, "shape is too big");
-        repr[1 + i].i64 = static_cast<int64_t>(si);
+        arena[repr_offset + 1 + i].i64 = static_cast<int64_t>(si);
     }
 
     // Extract stride
@@ -1057,7 +1086,7 @@ static Result<ArrayRepr> arrayrepr_torch_tensor_pymethod(PyObject* tensor, unsig
         if (PyErr_Occurred()) return ErrorRaised;
         if (index_bitwidth != 64 && (si < INT32_MIN || si > INT32_MAX))
             return raise(PyExc_OverflowError, "stride is too big");
-        repr[1 + ndim + i].i64 = static_cast<int64_t>(si);
+        arena[repr_offset + 1 + ndim + i].i64 = static_cast<int64_t>(si);
     }
 
 
@@ -1071,12 +1100,12 @@ static Result<ArrayRepr> arrayrepr_torch_tensor_pymethod(PyObject* tensor, unsig
             .ndim = ndim,
             .index_bitwidth = index_bitwidth,
         },
-        .repr = repr,
+        .repr = repr_offset,
     };
 }
 
 static Result<ArrayRepr> arrayrepr_torch_tensor_dlpack(PyObject* pyobj, unsigned index_bitwidth,
-                                                       Arena<Word>& arena) {
+                                                       Arena& arena) {
     PyPtr dlpack_capsule = steal(PyObject_CallFunctionObjArgs(
                 g_torch_to_dlpack_func, pyobj, nullptr));
 
@@ -1090,7 +1119,7 @@ static Result<ArrayRepr> arrayrepr_torch_tensor_dlpack(PyObject* pyobj, unsigned
 }
 
 static Result<ArrayRepr> arrayrepr_dlpack(PyObject* pyobj, unsigned index_bitwidth,
-                                          Arena<Word>& arena) {
+                                          Arena& arena) {
     PyPtr dlpack_method = steal(PyObject_GetAttr(pyobj, g___dlpack___pyunicode));
     if (!dlpack_method) return ErrorRaised;
 
@@ -1113,7 +1142,7 @@ static Result<ArrayRepr> arrayrepr_dlpack(PyObject* pyobj, unsigned index_bitwid
 }
 
 
-typedef Result<ArrayRepr> (*ArrayReprFunc)(PyObject*, unsigned, Arena<Word>&);
+typedef Result<ArrayRepr> (*ArrayReprFunc)(PyObject*, unsigned, Arena&);
 
 
 template <ArrayReprFunc F>
@@ -1124,10 +1153,10 @@ static Status extract_array(const DriverApi* driver, PyObject* pyobj, unsigned i
 
     size_t num_words = 1 + 2 * ar->arrty.ndim;
     for (size_t i = 0; i < num_words; ++i)
-        helper.cuarg_pointers.push_back(ar->repr + i);
+        helper.cuarg_offsets.push_back(ar->repr + i);
 
     ArrayTypeConstantBuilder builder;
-    builder.update(*ar);
+    builder.update(helper.arena, *ar);
     builder.finalize(driver, ar->arrty, helper);
     return OK;
 }
@@ -1249,7 +1278,7 @@ static PyPtr parse_pyfloat_constraint(ConstantCursor& cursor, bool is_constant) 
 }
 
 static Result<ArrayRepr> get_array_repr(PythonArgKind kind, PyObject* pyobj,
-                                        unsigned index_bitwidth, Arena<Word>& arena) {
+                                        unsigned index_bitwidth, Arena& arena) {
     switch (kind) {
         case PythonArgKind::TorchTensorDlpack:
             return arrayrepr_torch_tensor_dlpack(pyobj, index_bitwidth, arena);
@@ -1291,24 +1320,24 @@ static Status extract_py_list(const DriverApi* driver, PyObject* pyobj, unsigned
                                                       helper.arena);
     if (!first_repr_res.is_ok()) return ErrorRaised;
 
-    Word* item_pointers = helper.arena.alloc(len);
+    ArenaOffset item_offsets = arena_alloc_words(helper.arena, len);
     size_t item_size_words = 1 + 2 * first_repr_res->arrty.ndim;
 
     // Push a relative offset in place of the base pointer for now, since we don't know the actual
     // address yet. We will patch it later via `ListArg.base_ptr_cuarg`).
-    Word* base_ptr_cuarg = push_single_word_cuarg(helper,
-                                                  {.size = helper.total_list_data_size_words});
+    ArenaOffset base_ptr_cuarg = push_single_word_cuarg(
+            helper, {.size = helper.total_list_data_size_words});
     helper.total_list_data_size_words += len * item_size_words;
     push_single_word_cuarg(helper, {.i32 = static_cast<int32_t>(len)});
 
     helper.list_args.push_back({.base_ptr_cuarg = base_ptr_cuarg,
                                 .length = len,
-                                .item_pointers = item_pointers,
+                                .item_offsets = item_offsets,
                                 .item_size_words = item_size_words});
-    item_pointers[0].arena_ptr = first_repr_res->repr;
+    helper.arena[item_offsets].arena_offset = first_repr_res->repr;
 
     ArrayTypeConstantBuilder builder;
-    builder.update(*first_repr_res);
+    builder.update(helper.arena, *first_repr_res);
 
     // Handle the rest of the list
     for (size_t i = 1; i < len; ++i) {
@@ -1324,7 +1353,7 @@ static Status extract_py_list(const DriverApi* driver, PyObject* pyobj, unsigned
 
         Result<ArrayRepr> repr_res = get_array_repr(kind, item, index_bitwidth, helper.arena);
         if (!repr_res.is_ok()) return ErrorRaised;
-        item_pointers[i].arena_ptr = repr_res->repr;
+        helper.arena[item_offsets + i].arena_offset = repr_res->repr;
 
         // TODO: nicer error messages
         if (dtype_as_uint(first_repr_res->arrty.dtype) != dtype_as_uint(repr_res->arrty.dtype))
@@ -1332,7 +1361,7 @@ static Status extract_py_list(const DriverApi* driver, PyObject* pyobj, unsigned
         if (first_repr_res->arrty.ndim != repr_res->arrty.ndim)
             return raise(PyExc_TypeError, "Arrays in list vary in rank");
 
-        builder.update(*repr_res);
+        builder.update(helper.arena, *repr_res);
     }
 
     // TODO: If we accept lists of things other than arrays, then to disambiguate,
@@ -1375,7 +1404,7 @@ static Status extract_cuda_args(const DriverApi* driver,
                                 LaunchHelper& helper) {
     CHECK(num_pyargs == arg_kinds.size());
     helper.arena.clear();
-    helper.cuarg_pointers.clear();
+    helper.cuarg_offsets.clear();
     helper.list_args.clear();
     helper.total_list_data_size_words = 0;
     helper.constants.clear();
@@ -1510,15 +1539,16 @@ struct TileContextDispatcher {
 
 
 static void host_program_eval(const HostProgram& prog,
-                              const Vec<Word*>& cuarg_pointers,
+                              const Arena& arena,
+                              const Vec<ArenaOffset>& cuarg_offsets,
                               int64_t stack[HostProgram::kMaxStackDepth]) {
     int64_t* top = stack;
     const int64_t* op_attrs = prog.op_attrs.data();
     for (SizeOpcode opcode : prog.opcodes) {
         switch (opcode) {
         case SizeOpcode::Const: *top++ = *op_attrs++; break;
-        case SizeOpcode::KernelArgI32: *top++ = cuarg_pointers[*op_attrs++]->i32; break;
-        case SizeOpcode::KernelArgI64: *top++ = cuarg_pointers[*op_attrs++]->i64; break;
+        case SizeOpcode::KernelArgI32: *top++ = arena[cuarg_offsets[*op_attrs++]].i32; break;
+        case SizeOpcode::KernelArgI64: *top++ = arena[cuarg_offsets[*op_attrs++]].i64; break;
         case SizeOpcode::Add: top[-2] += top[-1]; --top; break;  // TODO: overflow check?
         case SizeOpcode::Mul: top[-2] *= top[-1]; --top; break;  // TODO: overflow check?
         case SizeOpcode::RoundUpToPow2: {
@@ -1725,13 +1755,14 @@ static Status hoisted_tensor_map_encode(const DriverApi& driver,
     if (maps.empty()) return OK;
 
     for (const HoistedTensorMap& m : maps) {
-        static_assert(sizeof(CUtensorMap) % sizeof(Word) == 0);
-        void* storage = helper.arena.alloc_aligned<alignof(CUtensorMap)>(
-                sizeof(CUtensorMap) / sizeof(Word));
+        arena_pad_to_alignment<alignof(CUtensorMap)>(helper.arena);
+        ArenaOffset tensor_map_offset = arena_alloc_words(
+                helper.arena, sizeof(CUtensorMap) / sizeof(Word));
+        void* storage = static_cast<void*>(helper.arena.data() + tensor_map_offset);
         CUtensorMap* dst = new (storage) CUtensorMap();
 
         int64_t stack[HostProgram::kMaxStackDepth];
-        host_program_eval(m.shape_stride_program, helper.cuarg_pointers, stack);
+        host_program_eval(m.shape_stride_program, helper.arena, helper.cuarg_offsets, stack);
 
         uint32_t rank = m.rank;
         uint64_t global_dim[HoistedTensorMap::kMaxRank];
@@ -1764,7 +1795,7 @@ static Status hoisted_tensor_map_encode(const DriverApi& driver,
             dst,
             m.dtype,
             rank,
-            helper.cuarg_pointers[m.base_ptr_param_idx]->device_ptr,
+            helper.arena[helper.cuarg_offsets[m.base_ptr_param_idx]].device_ptr,
             global_dim,
             global_strides,
             m.box_dim,
@@ -1778,7 +1809,7 @@ static Status hoisted_tensor_map_encode(const DriverApi& driver,
             return raise(PyExc_RuntimeError, "Failed to encode tiled tensor map: %s",
                          get_cuda_error(&driver, res));
 
-        helper.cuarg_pointers.push_back(reinterpret_cast<Word*>(dst));
+        helper.cuarg_offsets.push_back(tensor_map_offset);
     }
     return OK;
 }
@@ -2165,15 +2196,15 @@ static Result<PreparedLaunch> prepare_launch(
             return raise(PyExc_RuntimeError, "Failed to allocate memory in stream buffer");
 
         for (const ListArg& list_arg : helper->list_args) {
-            size_t data_offset_words = list_arg.base_ptr_cuarg->size;
-            list_arg.base_ptr_cuarg->device_ptr = reinterpret_cast<void*>(
+            size_t data_offset_words = helper->arena[list_arg.base_ptr_cuarg].size;
+            helper->arena[list_arg.base_ptr_cuarg].device_ptr = reinterpret_cast<void*>(
                     ptr.device + data_offset_words * sizeof(Word));
             Word* dst = reinterpret_cast<Word*>(ptr.host) + data_offset_words;
             size_t item_size_words = list_arg.item_size_words;
             size_t item_size_bytes = item_size_words * sizeof(Word);
-            Word* items_ptr = list_arg.item_pointers;
             for (size_t i = 0; i < list_arg.length; ++i) {
-                mem_copy(dst, items_ptr[i].arena_ptr, item_size_bytes);
+                ArenaOffset item_offset = helper->arena[list_arg.item_offsets + i].arena_offset;
+                mem_copy(dst, helper->arena.data() + item_offset, item_size_bytes);
                 dst += item_size_words;
             }
         }
@@ -2189,7 +2220,8 @@ static Result<PreparedLaunch> prepare_launch(
         return ErrorRaised;
 
     int64_t stack[HostProgram::kMaxStackDepth];
-    host_program_eval(kernel_item->value.dyn_smem_size_prog, helper->cuarg_pointers, stack);
+    host_program_eval(kernel_item->value.dyn_smem_size_prog,
+                      helper->arena, helper->cuarg_offsets, stack);
     int64_t dyn_smem_size = stack[0];
     if (dyn_smem_size < 0 || dyn_smem_size > UINT_MAX)
         return raise(PyExc_RuntimeError, "Invalid dynamic shared memory size");
@@ -2236,7 +2268,7 @@ static Status launch(const DriverApi* driver,
     CUresult res = driver->cuLaunchKernelEx(
             &config,
             reinterpret_cast<CUfunction>(prep->kernel),
-            reinterpret_cast<void**>(prep->helper->cuarg_pointers.data()),
+            make_launch_params(*prep->helper),
             nullptr);
 
     if (res != CUDA_SUCCESS) {
@@ -2346,7 +2378,7 @@ static Result<double> benchmark(const DriverApi* driver,
     kparams.blockDimY = 1;
     kparams.blockDimZ = 1;
     kparams.sharedMemBytes = pl.dynamic_smem_bytes;
-    kparams.kernelParams = reinterpret_cast<void**>(pl.helper->cuarg_pointers.data());
+    kparams.kernelParams = make_launch_params(*pl.helper);
     kparams.extra = nullptr;
     kparams.kern = pl.kernel;
     kparams.ctx = pl.helper->cuda_context;
