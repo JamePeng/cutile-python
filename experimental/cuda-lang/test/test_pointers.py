@@ -15,12 +15,12 @@ from .util import make_symbolic_tensor, make_symbolic_scalar, compile_for_argume
 
 @cl.function
 def loadme(ptr: cl.Pointer[Any], mo: cl.MemoryOrder):
-    return ptr.load(ordering=mo, alignment=16)
+    return ptr.load(memory_order=mo, alignment=16)
 
 
 @cl.function
 def storeme(ptr: cl.Pointer[Any], mo: cl.MemoryOrder):
-    ptr.store(0, ordering=mo, alignment=16)
+    ptr.store(0, memory_order=mo, alignment=16)
 
 
 @pytest.mark.parametrize(
@@ -50,7 +50,7 @@ def test_atomic_store_missing_alignment():
     @cl.kernel
     def kernel():
         ptr = cl.shared_array(1, cl.int32).get_base_pointer()
-        ptr.store(0, ordering=cl.MemoryOrder.RELAXED)
+        ptr.store(0, memory_order=cl.MemoryOrder.RELAXED)
 
     with pytest.raises(TileTypeError, match="Expected explicit alignment on atomic"):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
@@ -60,7 +60,7 @@ def test_atomic_load_missing_alignment():
     @cl.kernel
     def kernel():
         ptr = cl.shared_array(1, cl.int32).get_base_pointer()
-        ptr.load(ordering=cl.MemoryOrder.RELAXED)
+        ptr.load(memory_order=cl.MemoryOrder.RELAXED)
 
     with pytest.raises(TileTypeError, match="Expected explicit alignment on atomic"):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, ())
@@ -78,7 +78,7 @@ def test_atomic_ptr_load_invalid_ordering(ordering):
     def kernel(out):
         A = cl.shared_array(1, dtype=cl.int32, alignment=16)
         ptr = A.get_base_pointer()
-        out[0] = ptr.load(ordering=ordering, alignment=16)
+        out[0] = ptr.load(memory_order=ordering, alignment=16)
 
     out = torch.zeros(1, dtype=torch.int32, device="cuda")
     with pytest.raises(TileTypeError, match="Invalid memory order for Pointer.load"):
@@ -96,7 +96,7 @@ def test_atomic_ptr_store_invalid_ordering(ordering):
     @cl.kernel
     def kernel(out):
         ptr = out.get_base_pointer()
-        ptr.store(cl.int32(0), ordering=ordering, alignment=4)
+        ptr.store(cl.int32(0), memory_order=ordering, alignment=4)
 
     out = torch.zeros(1, dtype=torch.int32, device="cuda")
     with pytest.raises(TileTypeError, match="Invalid memory order for Pointer.store"):

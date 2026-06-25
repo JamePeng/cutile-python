@@ -50,13 +50,13 @@ class Array(TileArray, Generic[T]):
         count: int | None = None,
         alignment: int | None = None,
         volatile: bool = False,
-        ordering: MemoryOrder | None = None,
+        memory_order: MemoryOrder | None = None,
     ) -> "T | Vector[T]":
         """Load the element at ``indices``.
 
         Shorthand for ``self.get_element_pointer(indices).load(...)``: the
         element pointer is derived from ``indices`` and the keyword arguments
-        (``count``, ``alignment``, ``volatile``, ``ordering``) are forwarded
+        (``count``, ``alignment``, ``volatile``, ``memory_order``) are forwarded
         unchanged to :meth:`Pointer.load`, which documents their semantics.
 
         Args:
@@ -70,7 +70,7 @@ class Array(TileArray, Generic[T]):
             count=count,
             alignment=alignment,
             volatile=volatile,
-            ordering=ordering,
+            memory_order=memory_order,
         )
 
     @function
@@ -81,14 +81,14 @@ class Array(TileArray, Generic[T]):
         *,
         alignment: int | None = None,
         volatile: bool = False,
-        ordering: Literal[MemoryOrder.RELAXED,
-                          MemoryOrder.RELEASE, MemoryOrder.WEAK] | None = None,
+        memory_order: Literal[MemoryOrder.RELAXED,
+                              MemoryOrder.RELEASE, MemoryOrder.WEAK] | None = None,
     ) -> None:
         """Store ``value`` to the element at ``indices``.
 
         Shorthand for ``self.get_element_pointer(indices).store(value, ...)``:
         the element pointer is derived from ``indices`` and the keyword
-        arguments (``alignment``, ``volatile``, ``ordering``) are forwarded
+        arguments (``alignment``, ``volatile``, ``memory_order``) are forwarded
         unchanged to :meth:`Pointer.store`, which documents their semantics.
 
         Args:
@@ -99,7 +99,7 @@ class Array(TileArray, Generic[T]):
             value,
             alignment=alignment,
             volatile=volatile,
-            ordering=ordering,
+            memory_order=memory_order,
         )
 
 

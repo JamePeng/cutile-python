@@ -107,10 +107,10 @@ def test_arrive_intrinsic_name(expect_tx, drop, ordering, scope):
         ).get_base_pointer()
         if expect_tx:
             cl.mbarrier_arrive_expect_tx(
-                mbar, 128, drop=drop, scope=scope, ordering=ordering
+                mbar, 128, drop=drop, scope=scope, memory_order=ordering
             )
         else:
-            cl.mbarrier_arrive(mbar, 1, drop=drop, scope=scope, ordering=ordering)
+            cl.mbarrier_arrive(mbar, 1, drop=drop, scope=scope, memory_order=ordering)
 
     expected = "llvm.nvvm.mbarrier.arrive"
     if drop:
@@ -154,9 +154,9 @@ def test_test_wait_intrinsic_name(parity, ordering, scope):
             shape=(1,), dtype=cl.mbarrier, alignment=8
         ).get_base_pointer()
         if parity:
-            cl.mbarrier_test_wait_parity(mbar, 0, scope=scope, ordering=ordering)
+            cl.mbarrier_test_wait_parity(mbar, 0, scope=scope, memory_order=ordering)
         else:
-            cl.mbarrier_test_wait(mbar, cl.uint64(0), scope=scope, ordering=ordering)
+            cl.mbarrier_test_wait(mbar, cl.uint64(0), scope=scope, memory_order=ordering)
 
     expected = "llvm.nvvm.mbarrier.test.wait"
     if parity:
@@ -180,11 +180,11 @@ def test_try_wait_intrinsic_name(parity, ordering, time_hint, scope):
         ).get_base_pointer()
         if parity:
             cl.mbarrier_try_wait_parity(
-                mbar, 0, time_hint=time_hint, scope=scope, ordering=ordering
+                mbar, 0, time_hint=time_hint, scope=scope, memory_order=ordering
             )
         else:
             cl.mbarrier_try_wait(
-                mbar, cl.uint64(0), time_hint=time_hint, scope=scope, ordering=ordering
+                mbar, cl.uint64(0), time_hint=time_hint, scope=scope, memory_order=ordering
             )
 
     expected = "llvm.nvvm.mbarrier.try.wait"

@@ -88,7 +88,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
             cl.mbarrier_arrive_expect_tx(
                 mbar,
                 clc_bytes,
-                ordering=cl.MemoryOrder.RELAXED,
+                memory_order=cl.MemoryOrder.RELAXED,
             )
 
         i = bx * bdx + tx
@@ -139,7 +139,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
                 mbar,
                 clc_bytes,
                 scope=cl.MbarrierScope.CLUSTER,
-                ordering=cl.MemoryOrder.RELAXED,
+                memory_order=cl.MemoryOrder.RELAXED,
             )
 
         i = bx * bdx + tx

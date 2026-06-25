@@ -33,7 +33,7 @@ def mbarrier_arrive(
     *,
     drop: bool = False,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: ArriveOrdering = MemoryOrder.RELEASE,
+    memory_order: ArriveOrdering = MemoryOrder.RELEASE,
 ) -> "uint64 | None":
     """Arrive at ``mbar``. When the mbarrier resides in ``MemorySpace.SHARED``,
     an opaque 64-bit value capturing the phase of the mbarrier object _prior_
@@ -49,7 +49,7 @@ def mbarrier_arrive_expect_tx(
     *,
     drop: bool = False,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: ArriveOrdering = MemoryOrder.RELEASE,
+    memory_order: ArriveOrdering = MemoryOrder.RELEASE,
 ) -> "uint64 | None":
     """Arrive at ``mbar`` and add expected transaction bytes."""
     ...
@@ -83,7 +83,7 @@ def mbarrier_test_wait(
     state,
     *,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: WaitOrdering = MemoryOrder.ACQUIRE,
+    memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
     """Non-blocking test whether ``mbar`` has completed."""
 
@@ -94,7 +94,7 @@ def mbarrier_test_wait_parity(
     parity: int,
     *,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: WaitOrdering = MemoryOrder.ACQUIRE,
+    memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
     """Phase-parity variant of ``mbarrier_test_wait``.
     ``parity`` is the 0/1 integer parity of the phase to test for.
@@ -108,7 +108,7 @@ def mbarrier_try_wait(
     *,
     time_hint: int | None = None,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: WaitOrdering = MemoryOrder.ACQUIRE,
+    memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
     """Bounded-wait test whether ``mbar`` has completed."""
 
@@ -120,7 +120,7 @@ def mbarrier_try_wait_parity(
     *,
     time_hint: int | None = None,
     scope: MbarrierScope = MbarrierScope.BLOCK,
-    ordering: WaitOrdering = MemoryOrder.ACQUIRE,
+    memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
     """Phase-parity variant of ``mbarrier_try_wait``.
     ``parity`` is the 0/1 integer parity of the phase to test for.

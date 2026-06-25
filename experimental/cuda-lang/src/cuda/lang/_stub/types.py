@@ -49,7 +49,7 @@ class Pointer(Generic[T]):
             count: int | None = None,
             alignment: int | None = None,
             volatile: bool = False,
-            ordering: MemoryOrder | None = None,
+            memory_order: MemoryOrder | None = None,
     ) -> T | Vector[T]:
         """
         Low-level API to read from memory.
@@ -67,7 +67,7 @@ class Pointer(Generic[T]):
             volatile: If True, the compiler will not modify the number of times
                 this load is performed nor the order of execution with respect
                 to other volatile operations.
-            ordering: When ordering is specified, the load is atomic.
+            memory_order: When memory_order is specified, the load is atomic.
                 Alignment must be explicitly specified on atomic loads.
                 Atomic loads require a pointee type with a bit width that
                 is a power of two greater than or equal to one byte.
@@ -80,8 +80,8 @@ class Pointer(Generic[T]):
             *,
             alignment: int | None = None,
             volatile: bool = False,
-            ordering: Literal[MemoryOrder.RELAXED,
-                              MemoryOrder.RELEASE, MemoryOrder.WEAK] | None = None,
+            memory_order: Literal[MemoryOrder.RELAXED,
+                                  MemoryOrder.RELEASE, MemoryOrder.WEAK] | None = None,
     ) -> None:
         """
         Low-level API to store to memory.
@@ -97,7 +97,7 @@ class Pointer(Generic[T]):
             volatile: If True, the compiler will not modify the number of times
                 this store is performed nor the order of execution with respect
                 to other volatile operations.
-            ordering: When ordering is specified, the store is atomic.
+            memory_order: When memory_order is specified, the store is atomic.
                 Alignment must be explicitly specified on atomic stores.
                 Atomic loads require a pointee type with a bit width that
                 is a power of two greater than or equal to one byte.

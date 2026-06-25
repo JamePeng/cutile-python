@@ -364,9 +364,9 @@ def pointer_load_impl(
     count: Var,
     alignment: Var,
     volatile: Var,
-    ordering: Var,
+    memory_order: Var,
 ) -> Var:
-    return pointer_load(self, count, alignment, volatile, ordering)
+    return pointer_load(self, count, alignment, volatile, memory_order)
 
 
 @impl(Pointer.store)
@@ -375,9 +375,9 @@ def pointer_store_impl(
     value: Var,
     alignment: Var,
     volatile: Var,
-    ordering: Var,
+    memory_order: Var,
 ) -> None:
-    pointer_store(self, value, alignment, volatile, ordering)
+    pointer_store(self, value, alignment, volatile, memory_order)
 
 
 @impl(core_api.address_space_cast)
