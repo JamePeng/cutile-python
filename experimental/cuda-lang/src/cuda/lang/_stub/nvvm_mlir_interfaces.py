@@ -16,6 +16,8 @@ from cuda.lang._stub._nvvm_mlir_support import (
     MemoryScope,
     MemoryOrderAttr,
     MemoryOrder,
+    FenceProxyKindAttr,
+    FenceProxyKind,
     ResultSpec,
     nvvm_mlir_interface_stub,
 )
@@ -267,27 +269,27 @@ def fence_mbarrier_init() -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy',
-    args=(ArgSpec(type=strip(ProxyKind), name='kind', kind='attribute'), ArgSpec(type=SharedSpaceAttr, name='space', kind='attribute', optional=True),),
+    args=(ArgSpec(type=FenceProxyKindAttr, name='kind', kind='attribute'), ArgSpec(type=SharedSpaceAttr, name='space', kind='attribute', optional=True),),
 )
-def fence_proxy(*, kind: ProxyKind, space: MemorySpace | None = None) -> None: ...
+def fence_proxy(*, kind: FenceProxyKind, space: MemorySpace | None = None) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.acquire',
-    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(P0), name='addr'), ArgSpec(type=strip(I32), name='size'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(P0), name='addr'), ArgSpec(type=strip(I32), name='size'), ArgSpec(type=FenceProxyKindAttr, name='fromProxy', kind='attribute'), ArgSpec(type=FenceProxyKindAttr, name='toProxy', kind='attribute'),),
 )
-def fence_proxy_acquire(*, scope: MemoryScope, addr: P0, size: I32, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
+def fence_proxy_acquire(*, scope: MemoryScope, addr: P0, size: I32, from_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.GENERIC), to_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.TENSORMAP)) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.release',
-    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryScopeAttr, name='scope', kind='attribute'), ArgSpec(type=FenceProxyKindAttr, name='fromProxy', kind='attribute'), ArgSpec(type=FenceProxyKindAttr, name='toProxy', kind='attribute'),),
 )
-def fence_proxy_release(*, scope: MemoryScope, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.TENSORMAP) -> None: ...
+def fence_proxy_release(*, scope: MemoryScope, from_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.GENERIC), to_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.TENSORMAP)) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.proxy.sync_restrict',
-    args=(ArgSpec(type=MemoryOrderAttr, name='order', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='fromProxy', kind='attribute'), ArgSpec(type=strip(ProxyKind), name='toProxy', kind='attribute'),),
+    args=(ArgSpec(type=MemoryOrderAttr, name='order', kind='attribute'), ArgSpec(type=FenceProxyKindAttr, name='fromProxy', kind='attribute'), ArgSpec(type=FenceProxyKindAttr, name='toProxy', kind='attribute'),),
 )
-def fence_proxy_sync_restrict(*, order: MemoryOrder, from_proxy: ProxyKind = ProxyKind.GENERIC, to_proxy: ProxyKind = ProxyKind.async_) -> None: ...
+def fence_proxy_sync_restrict(*, order: MemoryOrder, from_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.GENERIC), to_proxy: FenceProxyKind = FenceProxyKindAttr.mlir2cl(ProxyKind.async_)) -> None: ...
 
 @nvvm_mlir_interface_stub(
     op_name='nvvm.fence.sc.cluster',

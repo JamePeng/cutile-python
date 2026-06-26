@@ -877,7 +877,12 @@ class TileLoad(Operation, opcode="tile_load", memory_effect=MemoryEffect.LOAD):
         MemoryOrder.RELAXED, MemoryOrder.ACQUIRE, MemoryOrder.WEAK
     )
 
-    VALID_MEMORY_SCOPES = tuple(MemoryScope)
+    VALID_MEMORY_SCOPES = (
+        MemoryScope.NONE,
+        MemoryScope.BLOCK,
+        MemoryScope.DEVICE,
+        MemoryScope.SYS,
+    )
 
     @override
     def generate_bytecode(self, ctx: BytecodeContext) -> tuple[bc.Value, bc.Value]:
@@ -1029,7 +1034,12 @@ class TileStore(Operation, opcode="tile_store", memory_effect=MemoryEffect.STORE
         MemoryOrder.RELAXED, MemoryOrder.RELEASE, MemoryOrder.WEAK
     )
 
-    VALID_MEMORY_SCOPES = tuple(MemoryScope)
+    VALID_MEMORY_SCOPES = (
+        MemoryScope.NONE,
+        MemoryScope.BLOCK,
+        MemoryScope.DEVICE,
+        MemoryScope.SYS,
+    )
 
     @override
     def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
@@ -1395,7 +1405,12 @@ class TileAtomicCAS(Operation, opcode="tile_atomic_cas",
         MemoryOrder.RELAXED, MemoryOrder.ACQUIRE, MemoryOrder.RELEASE, MemoryOrder.ACQ_REL
     )
 
-    VALID_MEMORY_SCOPES = tuple(MemoryScope)
+    VALID_MEMORY_SCOPES = (
+        MemoryScope.NONE,
+        MemoryScope.BLOCK,
+        MemoryScope.DEVICE,
+        MemoryScope.SYS,
+    )
 
     def generate_bytecode(self, ctx: BytecodeContext) -> tuple[bc.Value, bc.Value]:
         return bc.encode_AtomicCASTkoOp(
@@ -1485,7 +1500,12 @@ class TileAtomicRMW(Operation, opcode="tile_atomic_rmw", memory_effect=MemoryEff
         MemoryOrder.RELAXED, MemoryOrder.ACQUIRE, MemoryOrder.RELEASE, MemoryOrder.ACQ_REL
     )
 
-    VALID_MEMORY_SCOPES = tuple(MemoryScope)
+    VALID_MEMORY_SCOPES = (
+        MemoryScope.NONE,
+        MemoryScope.BLOCK,
+        MemoryScope.DEVICE,
+        MemoryScope.SYS,
+    )
 
     @override
     def generate_bytecode(self, ctx: BytecodeContext) -> tuple[bc.Value, bc.Value]:

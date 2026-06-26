@@ -15,6 +15,10 @@ class MemoryScope(Enum):
     BLOCK = "block"
     """Ordering guarantees apply to threads within the same block."""
 
+    CLUSTER = "cluster"
+    """Ordering guarantees apply to all threads within the same
+       thread-block cluster. cuda.lang only."""
+
     DEVICE = "device"
     """Ordering guarantees apply to all threads on the same GPU."""
 

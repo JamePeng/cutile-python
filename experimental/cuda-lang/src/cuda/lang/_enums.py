@@ -4,7 +4,7 @@
 
 import enum
 from cuda.tile import _cext
-from cuda.tile._memory_model import MemorySpace
+from cuda.tile._memory_model import MemorySpace, MemoryScope, MemoryOrder
 
 
 class TensorMapSwizzle(enum.Enum):
@@ -79,8 +79,19 @@ class Tcgen05WaitKind(enum.Enum):
     STORE = 1
 
 
+class FenceProxyKind(enum.Enum):
+    ALIAS = "alias"
+    ASYNC = "async"
+    ASYNC_GLOBAL = "async.global"
+    ASYNC_SHARED = "async.shared"
+    TENSORMAP = "tensormap"
+    GENERIC = "generic"
+
+
 __all__ = (
     "MemorySpace",
+    "MemoryScope",
+    "MemoryOrder",
     "TensorMapSwizzle",
     "MbarrierScope",
     "TMALoadMode",
@@ -90,4 +101,5 @@ __all__ = (
     "Tcgen05MMACollectorOp",
     "Tcgen05LdStShape",
     "Tcgen05WaitKind",
+    "FenceProxyKind",
 )

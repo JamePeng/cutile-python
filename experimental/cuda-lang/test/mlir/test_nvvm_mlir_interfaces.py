@@ -21,8 +21,8 @@ def test_mlir_interface_enums():
             scope=cl.MemoryScope.BLOCK,
             addr=tensor.get_base_pointer(),
             size=128,
-            from_proxy=nvvm.ProxyKind.GENERIC,
-            to_proxy=nvvm.ProxyKind.TENSORMAP,
+            from_proxy=cl.FenceProxyKind.GENERIC,
+            to_proxy=cl.FenceProxyKind.TENSORMAP,
         )
 
     z = torch.zeros(1, dtype=torch.int32).cuda()
@@ -79,14 +79,14 @@ def test_mlir_interface_error_on_non_constant_enum():
     @cl.kernel
     def kernel(cond):
         if cond:
-            dyn_kind = nvvm.ProxyKind.GENERIC
+            dyn_kind = cl.FenceProxyKind.GENERIC
         else:
-            dyn_kind = nvvm.ProxyKind.TENSORMAP
+            dyn_kind = cl.FenceProxyKind.TENSORMAP
         nvvm.fence_proxy(kind=dyn_kind)
 
     with pytest.raises(
         TileTypeError,
-        match="Expected ProxyKind constant, but given value is not constant",
+        match="Expected FenceProxyKind constant, but given value is not constant",
     ):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (False,))
 
@@ -139,8 +139,7 @@ def test_correct_enum_class():
         (cl.MemoryScope.DEVICE, "gpu"),
         (cl.MemoryScope.SYS, "sys"),
         (cl.MemoryScope.NONE, None),
-        # TODO: add cluster scope
-        # (cl.MemoryScope.CLUSTER, ""),
+        (cl.MemoryScope.CLUSTER, "cluster"),
     ),
 )
 def test_memory_scope_enum_mappings(enum, expect):
@@ -150,12 +149,19 @@ def test_memory_scope_enum_mappings(enum, expect):
     if expect is None:
         with pytest.raises(
             TileValueError,
-            match="Expected one of MemoryScope.BLOCK, MemoryScope.DEVICE, "
-            "MemoryScope.SYS, got MemoryScope.NONE",
+            match=(
+                "Expected one of MemoryScope.BLOCK, MemoryScope.CLUSTER, "
+                "MemoryScope.DEVICE, MemoryScope.SYS, got MemoryScope.NONE"
+            ),
         ):
             compile_simt(kernel, [KernelSignature(())])
     else:
-        result = compile_simt(kernel, [KernelSignature(())])
+        compile_kwargs = (
+            {"gpu_name": "sm_90", "arch": "compute_90"}
+            if enum is cl.MemoryScope.CLUSTER
+            else {}
+        )
+        result = compile_simt(kernel, [KernelSignature(())], **compile_kwargs)
         filecheck(
             result.mlir,
             f"""

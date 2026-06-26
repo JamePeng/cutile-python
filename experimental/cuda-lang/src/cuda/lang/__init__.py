@@ -22,6 +22,16 @@ from cuda.tile._datatype import (
     is_pointer_dtype,
     PointerInfo,
 )
+from ._stub.fence import (
+    FenceProxyKind,
+    fence_sync_restrict,
+    fence_sc_cluster,
+    fence_mbarrier_init,
+    fence_proxy_sync_restrict,
+    fence_proxy,
+    fence_proxy_acquire,
+    fence_proxy_release,
+)
 from ._stub.types import (
     Scalar,
     Vector,
@@ -227,6 +237,14 @@ __all__ = (
     "MemorySpace",
     "MemoryScope",
     "MemoryOrder",
+    "FenceProxyKind",
+    "fence_sync_restrict",
+    "fence_sc_cluster",
+    "fence_mbarrier_init",
+    "fence_proxy_sync_restrict",
+    "fence_proxy",
+    "fence_proxy_acquire",
+    "fence_proxy_release",
     "compile_simt",
     "TensorMapSwizzle",
     "TensorMap",

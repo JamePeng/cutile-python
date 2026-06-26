@@ -11,7 +11,8 @@ from cuda.tile._memory_model import MemoryOrder, MemoryScope, MemorySpace
 import cuda.lang._datatype as datatype
 from cuda.lang._execution import stub
 import cuda.lang._mlir as mlir
-from cuda.lang._mlir.nvvm import MemScopeKind, MemOrderKind, SharedSpace
+from cuda.lang._enums import FenceProxyKind
+from cuda.lang._mlir.nvvm import MemScopeKind, MemOrderKind, ProxyKind, SharedSpace
 from cuda.lang._stub._nvvm_support import (
     _IntrinsicDTypeAnnotation,
     _IntrinsicPredicateAnnotation,
@@ -57,14 +58,14 @@ class AliasedEnumAttr:
     mlir_enum: type[Enum]
     value_map: tuple[tuple[Enum, Enum], ...]
 
-    def cl2mlir(self, enum_val):
+    def cl2mlir(self, enum_val) -> Any:
         for cl_val, mlir_val in self.value_map:
             if enum_val == cl_val:
                 return mlir_val
         valid = ", ".join(str(value) for value, _ in self.value_map)
         raise TileValueError(f"Expected one of {valid}, got {enum_val}")
 
-    def mlir2cl(self, enum_val):
+    def mlir2cl(self, enum_val) -> Any:
         for cl_val, mlir_val in self.value_map:
             if enum_val == mlir_val:
                 return cl_val
@@ -100,8 +101,23 @@ MemoryScopeAttr = AliasedEnumAttr(
     mlir_enum=MemScopeKind,
     value_map=(
         (MemoryScope.BLOCK, MemScopeKind.CTA),
+        (MemoryScope.CLUSTER, MemScopeKind.CLUSTER),
         (MemoryScope.DEVICE, MemScopeKind.GPU),
         (MemoryScope.SYS, MemScopeKind.SYS),
+    ),
+)
+
+
+FenceProxyKindAttr = AliasedEnumAttr(
+    cl_enum=FenceProxyKind,
+    mlir_enum=ProxyKind,
+    value_map=(
+        (FenceProxyKind.ALIAS, ProxyKind.alias),
+        (FenceProxyKind.ASYNC, ProxyKind.async_),
+        (FenceProxyKind.ASYNC_GLOBAL, ProxyKind.async_global),
+        (FenceProxyKind.ASYNC_SHARED, ProxyKind.async_shared),
+        (FenceProxyKind.TENSORMAP, ProxyKind.TENSORMAP),
+        (FenceProxyKind.GENERIC, ProxyKind.GENERIC),
     ),
 )
 
@@ -257,6 +273,8 @@ def nvvm_mlir_interface_stub(
 __all__ = (
     "AliasedEnumAttr",
     "ArgSpec",
+    "FenceProxyKind",
+    "FenceProxyKindAttr",
     "MemoryOrder",
     "MemoryOrderAttr",
     "MemoryScope",

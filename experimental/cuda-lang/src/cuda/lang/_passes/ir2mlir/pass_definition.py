@@ -57,6 +57,8 @@ def _get_llvm_syncscope(memory_scope: MemoryScope) -> str | None:
     match memory_scope:
         case MemoryScope.BLOCK:
             return "block"
+        case MemoryScope.CLUSTER:
+            return "cluster"
         case MemoryScope.DEVICE:
             return "device"
         case MemoryScope.SYS:

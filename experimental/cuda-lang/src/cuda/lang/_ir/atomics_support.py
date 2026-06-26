@@ -97,6 +97,7 @@ ATOMIC_VALID_MEMORY_ORDERS = (
 )
 ATOMIC_VALID_MEMORY_SCOPES = (
     MemoryScope.BLOCK,
+    MemoryScope.CLUSTER,
     MemoryScope.DEVICE,
     MemoryScope.SYS,
 )
