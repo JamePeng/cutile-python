@@ -78,7 +78,7 @@ temporary storage:
        if tx == 1:
            smem[1] = 35
 
-       cl.syncthreads()
+       cl.barrier_sync_block()
 
        if tx == 0:
            out[0] = smem[0] + smem[1]
@@ -124,7 +124,7 @@ vectorized load:
        tx = cl.thread_index(0)
 
        values[tx] = tx + 1
-       cl.syncthreads()
+       cl.barrier_sync_block()
 
        if tx == 0:
            ptr = values.get_base_pointer()

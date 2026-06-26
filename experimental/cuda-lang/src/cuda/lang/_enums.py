@@ -2,12 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import enum
+from enum import Enum, auto
 from cuda.tile import _cext
 from cuda.tile._memory_model import MemorySpace, MemoryScope, MemoryOrder
 
 
-class TensorMapSwizzle(enum.Enum):
+class TensorMapSwizzle(Enum):
     """Swizzle modes for tiled tensor map descriptors."""
 
     SWIZZLE_NONE = _cext.CU_TENSOR_MAP_SWIZZLE_NONE
@@ -19,14 +19,14 @@ class TensorMapSwizzle(enum.Enum):
     SWIZZLE_128B_ATOM_64B = _cext.CU_TENSOR_MAP_SWIZZLE_128B_ATOM_64B
 
 
-class MbarrierScope(enum.Enum):
+class MbarrierScope(Enum):
     """Scope of the threads that observe an mbarrier operation."""
 
     BLOCK = "cta"
     CLUSTER = "cluster"
 
 
-class TMALoadMode(enum.Enum):
+class TMALoadMode(Enum):
     TILE = 0
     IM2COL = 1
     IM2COL_W = 2
@@ -34,13 +34,13 @@ class TMALoadMode(enum.Enum):
     TILE_GATHER4 = 4
 
 
-class TMAStoreMode(enum.Enum):
+class TMAStoreMode(Enum):
     TILE = 0
     IM2COL = 1
     TILE_SCATTER4 = 2
 
 
-class Tcgen05MMAKind(enum.Enum):
+class Tcgen05MMAKind(Enum):
     F16 = 0
     TF32 = 1
     F8F6F4 = 2
@@ -50,14 +50,14 @@ class Tcgen05MMAKind(enum.Enum):
     MXF4NVF4 = 6
 
 
-class Tcgen05MMACollectorOp(enum.Enum):
+class Tcgen05MMACollectorOp(Enum):
     DISCARD = 0
     LASTUSE = 1
     FILL = 2
     USE = 3
 
 
-class Tcgen05LdStShape(enum.Enum):
+class Tcgen05LdStShape(Enum):
     """Load/store shapes supported by tcgen05 tensor memory operations."""
 
     SHAPE_16X64B = "16x64b"
@@ -67,25 +67,31 @@ class Tcgen05LdStShape(enum.Enum):
     SHAPE_16X32BX2 = "16x32bx2"
 
 
-class CTAGroup(enum.Enum):
+class CTAGroup(Enum):
     """CTA group selection for tcgen05 tensor memory operations."""
 
     CTA_1 = "cg1"
     CTA_2 = "cg2"
 
 
-class Tcgen05WaitKind(enum.Enum):
+class Tcgen05WaitKind(Enum):
     LOAD = 0
     STORE = 1
 
 
-class FenceProxyKind(enum.Enum):
+class FenceProxyKind(Enum):
     ALIAS = "alias"
     ASYNC = "async"
     ASYNC_GLOBAL = "async.global"
     ASYNC_SHARED = "async.shared"
     TENSORMAP = "tensormap"
     GENERIC = "generic"
+
+
+class BarrierReductionKind(Enum):
+    POP_COUNT = auto()
+    AND = auto()
+    OR = auto()
 
 
 __all__ = (
@@ -102,4 +108,5 @@ __all__ = (
     "Tcgen05LdStShape",
     "Tcgen05WaitKind",
     "FenceProxyKind",
+    "BarrierReductionKind",
 )

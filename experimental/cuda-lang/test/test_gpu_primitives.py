@@ -360,7 +360,7 @@ class TestSyncwarp:
             lane = cl.thread_index(0)
 
             shmem[lane] = lane
-            cl.syncwarp()
+            cl.barrier_sync_warp()
             out[lane] = shmem[lane ^ 1]
 
         out = torch.zeros(32, dtype=torch.int32, device="cuda")
@@ -373,7 +373,7 @@ class TestSyncwarp:
 
     def test_syncwarp_reduction(self):
         """
-        warp lanes can communicate via memory by storing, synchronizing with syncwarp
+        warp lanes can communicate via memory by storing, synchronizing with barrier_sync_warp
         and then reading peers' values.
         """
 
@@ -383,23 +383,23 @@ class TestSyncwarp:
             lane = cl.thread_index(0)
 
             shmem[lane] = 1
-            cl.syncwarp()
+            cl.barrier_sync_warp()
 
             if lane < 16:
                 shmem[lane] = shmem[lane] + shmem[lane + 16]
-            cl.syncwarp()
+            cl.barrier_sync_warp()
             if lane < 8:
                 shmem[lane] = shmem[lane] + shmem[lane + 8]
-            cl.syncwarp()
+            cl.barrier_sync_warp()
             if lane < 4:
                 shmem[lane] = shmem[lane] + shmem[lane + 4]
-            cl.syncwarp()
+            cl.barrier_sync_warp()
             if lane < 2:
                 shmem[lane] = shmem[lane] + shmem[lane + 2]
-            cl.syncwarp()
+            cl.barrier_sync_warp()
             if lane < 1:
                 shmem[lane] = shmem[lane] + shmem[lane + 1]
-            cl.syncwarp()
+            cl.barrier_sync_warp()
 
             if lane == 0:
                 out[0] = shmem[0]
@@ -422,7 +422,7 @@ class TestSyncwarp:
 
             if lane < 16:
                 shmem[lane] = lane + 100
-                cl.syncwarp(mask)
+                cl.barrier_sync_warp(mask)
                 out[lane] = shmem[lane ^ 1]
             else:
                 out[lane] = -1

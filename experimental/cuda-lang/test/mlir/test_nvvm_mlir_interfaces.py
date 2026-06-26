@@ -49,7 +49,7 @@ def test_cp_async_bulk_tensor_mlir_interface():
         if cl.thread_index(0) == 0:
             cl.mbarrier_init(mbar, cl.thread_count(0))
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
         if cl.elect_sync():
             nvvm.cp_async_bulk_tensor_shared_cluster_global(
                 dst_mem=smem.get_base_pointer(),

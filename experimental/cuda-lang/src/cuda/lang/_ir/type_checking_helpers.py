@@ -313,6 +313,12 @@ def common_type(x: Var, y: Var):
     return promote_types(x_ty, y_ty, x.ctx.typing_hooks)
 
 
+def optional_cast(var, dtype, context: str):
+    if is_none(var):
+        return None
+    return implicit_cast(var, dtype, context)
+
+
 def make_type_checking_error(message: str, culprit: Var | None = None):
     # TODO: recover the context similarly to _make_type_error in cutile
     raise TileTypeError(message)

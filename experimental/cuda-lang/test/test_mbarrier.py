@@ -32,7 +32,7 @@ def test_cluster_barriers():
             cl.mbarrier_init(mbar, cdx * bdx)
 
         cl._nvvm.fence_mbarrier_init_release_cluster()
-        cl.syncthreads()
+        cl.barrier_sync_block()
         cl._nvvm.barrier_cluster_arrive_aligned()
         cl._nvvm.barrier_cluster_wait_aligned()
 

@@ -10,7 +10,7 @@ from cuda.lang._enums import MemorySpace
 from cuda.lang._stub import cp_async
 from .raw_mlir_operation_utils import RawMLIROperationBuilder
 from ..type_checking_helpers import (
-    is_none,
+    optional_cast,
     make_type_checking_error,
     require_boolean_scalar_type,
     require_mbarrier_ptr,
@@ -52,12 +52,6 @@ def validate_g2s_mode(mode: cp_async.TMALoadMode, im2col_count: int) -> None:
 
         case _:
             raise make_type_checking_error(f"Unsupported TMA load mode {mode}")
-
-
-def optional_cast(var, dtype, context: str):
-    if is_none(var):
-        return None
-    return implicit_cast(var, dtype, context)
 
 
 @impl(cp_async.cp_async_bulk_tensor_global_to_shared)

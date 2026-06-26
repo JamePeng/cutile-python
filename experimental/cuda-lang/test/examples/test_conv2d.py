@@ -11,7 +11,7 @@ https://github.com/NVIDIA/cuda-samples/blob/master/Samples/2_Concepts_and_Techni
 
 Both the CUDA version and the CPU version were replicated here.
 Note that the CUDA version uses cooperative groups to more selectively
-synchronize, but we just use syncthreads.
+synchronize, but we just use barrier_sync_block.
 
 The original example also uses `pitch` for tile size, but then
 only tests with a tile size of the image width.
@@ -108,7 +108,7 @@ def test_convolution_separable():
                 src[row_offset + src_x] if src_x < image_w else cl.float32(0.0)
             )
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
 
         for step in range(ROWS_HALO_STEPS, ROWS_HALO_STEPS + ROWS_RESULT_STEPS):
             acc = cl.float32(0.0)
@@ -161,7 +161,7 @@ def test_convolution_separable():
                 src[src_y * pitch + base_x] if src_y < image_h else cl.float32(0.0)
             )
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
 
         for step in range(COLUMNS_HALO_STEPS, COLUMNS_HALO_STEPS + COLUMNS_RESULT_STEPS):
             acc = cl.float32(0.0)

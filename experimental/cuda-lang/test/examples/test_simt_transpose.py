@@ -62,7 +62,7 @@ def copySharedMem(odata, idata, width: cl.Constant[int], height: cl.Constant[int
         if xIndex < width and yIndex < height:
             tile[ty + i, tx] = idata[index + i * width]
             tile[ty + i, tx] = idata[index + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         if xIndex < height and yIndex < width:
             odata[index + i * width] = tile[ty + i, tx]
@@ -94,7 +94,7 @@ def transposeCoalesced(odata, idata, width: cl.Constant[int], height: cl.Constan
     index_out = xIndex + yIndex * height
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -114,7 +114,7 @@ def transposeNoBankConflicts(
     index_out = xIndex + yIndex * height
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -140,7 +140,7 @@ def transposeDiagonal(odata, idata, width: cl.Constant[int], height: cl.Constant
     index_out = xIndex + yIndex * height
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -157,7 +157,7 @@ def transposeFineGrained(
     index = xIndex + yIndex * width
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         block[ty + i, tx] = idata[index + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index + i * height] = block[tx, ty + i]
 
@@ -177,7 +177,7 @@ def transposeCoarseGrained(
     index_out = xIndex + yIndex * height
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         block[ty + i, tx] = idata[index_in + i * width]
-    cl.syncthreads()
+    cl.barrier_sync_block()
     for i in ct.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = block[ty + i, tx]
 

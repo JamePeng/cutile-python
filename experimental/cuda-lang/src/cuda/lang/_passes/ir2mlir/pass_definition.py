@@ -864,11 +864,6 @@ class IR2MLIR:
         return [ptr]
 
     @lower_operation.register
-    def lower_syncthreads(self, operation: ops.SyncThreads) -> Sequence[mlir.Value]:
-        mlir.nvvm.add_Barrier0Op()
-        return [None]
-
-    @lower_operation.register
     def lower_tensor_map_as_opaque_ptr(self, operation: ops.TensorMapAsOpaquePtr):
         tm = self.get_var(operation.tensor_map)
         return [tm]

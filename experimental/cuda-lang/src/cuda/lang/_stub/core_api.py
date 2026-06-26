@@ -279,7 +279,7 @@ def shared_array(
             if tx == 0:
                 shmem[0] = 42
 
-            cl.syncthreads()
+            cl.barrier_sync_block()
 
             if tx == 1:
                 print(f"thread id {tx} sees shmem[0] = {shmem[0]}")
@@ -302,7 +302,7 @@ def shared_array(
             if tx == 0:
                 shmem[0] = 42
 
-            cl.syncthreads()
+            cl.barrier_sync_block()
 
             if tx == 1:
                 print(f"thread id {tx} sees shmem[0] = {shmem[0]}")
@@ -350,41 +350,6 @@ def local_array(
 
             [10, 12]
     """
-
-
-@function
-def syncthreads() -> None:
-    """
-    Synchronizes all threads in the current thread block.
-
-    It is equivalent to ``__syncthreads`` in CUDA C++.
-
-    Examples:
-
-        .. testcode::
-            :template: setup_only.py
-
-            @cl.kernel
-            def kernel():
-                shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
-                tx = cl.thread_index(0)
-                if tx == 0:
-                    shmem[0] = 42
-
-                cl.syncthreads()
-
-                # Write to shared memory now reflected in all threads
-                if tx != 0:
-                    print(f"shmem[0] = {shmem[0]}")
-
-            cl.launch(stream, (1,), (2,), kernel, ())
-
-        .. testoutput::
-
-            shmem[0] = 42
-
-    """
-    nvvm.barrier_cta_sync_all(0)
 
 
 @function
@@ -1002,23 +967,6 @@ def shfl_xor_sync(value: int, lane_mask: int, width: int = 32, mask: int = FULL_
     Return ``value`` from the lane addressed by XORing the caller lane with
     ``lane_mask`` within the logical warp subdivision.
     """
-
-
-@function
-def syncwarp(mask: int = FULL_MASK) -> None:
-    """
-    Performs barrier synchronization for threads within a warp.
-
-    This operation causes the executing thread to wait until all threads
-    corresponding to the mask operand have executed a bar.warp.sync with
-    the same mask value before resuming execution.
-
-    The mask operand specifies the threads participating in the barrier,
-    where each bit position corresponds to the thread's lane ID within the
-    warp. Only threads with their corresponding bit set in the mask
-    participate in the barrier synchronization.
-    """
-    nvvm.bar_warp_sync(mask)
 
 
 @stub

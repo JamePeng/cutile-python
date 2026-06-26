@@ -80,7 +80,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
 
     alpha = compute()
     while True:
-        cl.syncthreads()
+        cl.barrier_sync_block()
 
         if tx == 0:
             cl._nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()

@@ -32,12 +32,12 @@ memory:
 
        if tx == 0:
            total[0] = 0.0
-       cl.syncthreads()
+       cl.barrier_sync_block()
 
        loaded = values.get_element_pointer(offset).load(count=4, alignment=16)
        partial_sum = loaded[0] + loaded[1] + loaded[2] + loaded[3]
        cl.atomic_add(total.get_element_pointer(0), partial_sum)
-       cl.syncthreads()
+       cl.barrier_sync_block()
 
        loaded = loaded / total[0]
        normalized[offset + 0] = loaded[0]

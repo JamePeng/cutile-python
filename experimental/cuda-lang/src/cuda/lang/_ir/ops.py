@@ -152,6 +152,7 @@ from .op_impl.pointer_impl import (
     pointer_impl_registry,
 )
 from .op_impl.cp_async import cp_async_impl_registry
+from .op_impl.barrier_impl import barrier_impl_registry
 
 cuda_lang_impl_registry = ImplRegistry()
 cuda_lang_impl_registry.update(core_impl_registry())
@@ -166,6 +167,7 @@ cuda_lang_impl_registry.update(math_impl_registry())
 cuda_lang_impl_registry.update(vector_impl_registry())
 cuda_lang_impl_registry.update(pointer_impl_registry())
 cuda_lang_impl_registry.update(cp_async_impl_registry())
+cuda_lang_impl_registry.update(barrier_impl_registry())
 
 impl = cuda_lang_impl_registry.impl
 
@@ -561,16 +563,6 @@ def shared_array_impl(shape: Var, dtype: Var, dynamic: Var, alignment: Var) -> O
 
     array_value = ArrayValue(base_ptr=base_ptr, shape=tuple(shape_vars), strides=tuple(stride_vars))
     return make_aggregate(array_value, array_type)
-
-
-@dataclass(eq=False)
-class SyncThreads(Operation, opcode="syncthreads", memory_effect=MemoryEffect.STORE):
-    pass
-
-
-@impl(core_api.syncthreads)
-def syncthreads_impl() -> None:
-    add_operation_variadic(SyncThreads, (),)
 
 
 @impl(core_api.elect_sync)

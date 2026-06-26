@@ -4,8 +4,10 @@
 
 import pytest
 
+import cuda.lang as cl
 from cuda.lang._compile import get_compute_capability
 from cuda.lang._logging import get_log_flags
+from cuda.lang.compilation import KernelSignature
 
 from .filecheck_utils import filecheck, get_source
 from .ir_utils import (
@@ -58,6 +60,38 @@ def no_log_ptx():
         yield
     finally:
         log_flags.log_ptx = old_log_ptx
+
+
+def compile_kernel(
+    kernel,
+    signature=KernelSignature([]),
+    assert_in_ptx=None,
+    filecheck_ptx=None,
+    raises=None,
+):
+    if raises is not None:
+        assert assert_in_ptx is None
+        assert filecheck_ptx is None
+        with raises:
+            cl.compile_simt(kernel, [signature], log_ptx=True)
+        return
+
+    compiled = cl.compile_simt(kernel, [signature], log_ptx=True)
+    ptx = compiled.ptx
+    assert ptx is not None
+    match assert_in_ptx:
+        case None:
+            pass
+        case str():
+            assert assert_in_ptx in ptx, f"'{assert_in_ptx}' not in \n{ptx}"
+        case tuple() | list():
+            for check in assert_in_ptx:
+                assert check in ptx, f"'{check}' not in \n{ptx}"
+        case _:
+            assert False, "expected assert_in_ptx to be str or iterable of str"
+    if filecheck_ptx is not None:
+        assert isinstance(filecheck_ptx, str)
+        filecheck(ptx, filecheck_ptx)
 
 
 __all__ = (

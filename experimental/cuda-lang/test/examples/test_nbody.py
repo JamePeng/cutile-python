@@ -60,7 +60,7 @@ def calculate_forces(
         sh_positions[tx, 0] = positions[index, 0]
         sh_positions[tx, 1] = positions[index, 1]
         sh_weights[tx] = weights[index]
-        cl.syncthreads()
+        cl.barrier_sync_block()
 
         for j in range(tile_size):
             rx = sh_positions[j, 0] - xi
@@ -71,7 +71,7 @@ def calculate_forces(
             axi = axi + rx * s
             ayi = ayi + ry * s
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
 
     accelerations[i, 0] = axi
     accelerations[i, 1] = ayi

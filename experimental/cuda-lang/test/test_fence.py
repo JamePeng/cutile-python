@@ -12,7 +12,7 @@ from cuda.lang._exception import (
     TileValueError,
 )
 from cuda.lang._stub.fence import FenceProxyKind
-from test.util import make_symbolic_tensor, filecheck
+from test.util import make_symbolic_tensor, compile_kernel
 
 cc = get_compute_capability()
 if cc < (9, 0):
@@ -47,45 +47,12 @@ INVALID_SCOPE_RAISES = pytest.raises(
 )
 
 
-def compile_empty_kernel(kernel, assert_in_ptx=None, filecheck_ptx=None, raises=None):
-    if raises is not None:
-        with raises:
-            cl.compile_simt(kernel, [KernelSignature([])], log_ptx=True)
-        return
-
-    compiled = cl.compile_simt(kernel, [KernelSignature([])], log_ptx=True)
-    ptx = compiled.ptx
-    assert ptx is not None
-    if assert_in_ptx is not None:
-        assert assert_in_ptx in ptx, ptx
-    if filecheck_ptx is not None:
-        assert isinstance(filecheck_ptx, str)
-        filecheck(ptx, filecheck_ptx)
-
-
-def compile_tensor_kernel(kernel, assert_in_ptx=None, filecheck_ptx=None, raises=None):
-    sig = KernelSignature([make_symbolic_tensor((1,), cl.int32)])
-    if raises is not None:
-        with raises:
-            cl.compile_simt(kernel, [sig], log_ptx=True)
-        return
-
-    compiled = cl.compile_simt(kernel, [sig], log_ptx=True)
-    ptx = compiled.ptx
-    assert ptx is not None
-    if assert_in_ptx is not None:
-        assert assert_in_ptx in ptx, ptx
-    if filecheck_ptx is not None:
-        assert isinstance(filecheck_ptx, str)
-        filecheck(ptx, filecheck_ptx)
-
-
 def compile_empty_kernel_with_call(func, **kwargs):
     @cl.kernel
     def kernel():
         func()
 
-    compile_empty_kernel(kernel, **kwargs)
+    compile_kernel(kernel, **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -213,7 +180,12 @@ def test_fence_proxy_acquire(scope, from_proxy, to_proxy, expect, raises):
             to_proxy=to_proxy,
         )
 
-    compile_tensor_kernel(kernel, assert_in_ptx=expect, raises=raises)
+    compile_kernel(
+        kernel,
+        signature=KernelSignature([make_symbolic_tensor((1,), cl.int32)]),
+        assert_in_ptx=expect,
+        raises=raises,
+    )
 
 
 def _fence_proxy_sync_restrict_cases():

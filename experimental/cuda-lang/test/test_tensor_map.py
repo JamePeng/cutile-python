@@ -19,7 +19,7 @@ def test_mbar_manager():
         if cl.thread_index(0) == 0:
             cl.mbarrier_init(mbar, cl.thread_count(0))
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
         if cl.elect_sync():
             cl.cp_async_bulk_tensor_global_to_shared(
                 x_tm, (j, i), smem.get_base_pointer(), mbar
@@ -59,7 +59,7 @@ def test_tensor_map_tiled():
         if cl.thread_index(0) == 0:
             cl.mbarrier_init(barrier.get_base_pointer(), cl.thread_count(0))
 
-        cl.syncthreads()
+        cl.barrier_sync_block()
         if cl.elect_sync():
             cl.cp_async_bulk_tensor_global_to_shared(
                 x_tm,

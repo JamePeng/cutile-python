@@ -31,12 +31,12 @@ def test_matmul_sharedmem():
         for tile_idx in ct.static_iter(range(wA // tile_width)):
             ds_A[ty, tx] = A[row * wA + (tile_idx * tile_width + tx)]
             ds_B[ty, tx] = B[(tile_idx * tile_width + ty) * wB + col]
-            cl.syncthreads()
+            cl.barrier_sync_block()
 
             for kk in ct.static_iter(range(tile_width)):
                 p_value = p_value + ds_A[ty, kk] * ds_B[kk, tx]
 
-            cl.syncthreads()
+            cl.barrier_sync_block()
 
         C[row * wB + col] = p_value
 

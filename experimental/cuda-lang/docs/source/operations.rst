@@ -166,8 +166,13 @@ Synchronization
    :toctree: generated
    :nosignatures:
 
-    syncwarp
-    syncthreads
+    barrier_sync_warp
+    barrier_sync_block
+    barrier_arrive_block
+    barrier_reduce_block
+    barrier_arrive_cluster
+    barrier_wait_cluster
+    barrier_sync_cluster
 
     mbarrier_init
     mbarrier_invalidate
@@ -186,6 +191,7 @@ Synchronization
    :template: autosummary/class_no_init.rst
 
     MbarrierScope
+    BarrierReductionKind
 
 
 Memory Fence
