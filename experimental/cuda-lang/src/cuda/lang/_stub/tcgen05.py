@@ -107,7 +107,7 @@ def tcgen05_commit(
 
 
 @stub
-def tcgen05_ld(
+def tcgen05_load(
     shape: Tcgen05LdStShape,
     tmem_addr: P6,
     *,
@@ -117,6 +117,31 @@ def tcgen05_ld(
 ) -> Any:
     """Load registers from tensor memory using a tcgen05 load shape."""
     ...
+
+
+@stub
+def tcgen05_store(
+    shape: Tcgen05LdStShape,
+    tmem_addr,
+    value,
+    *,
+    unpack: bool = False,
+    offset: int | None = None,
+):
+    """
+    Store registers to tensor memory using a tcgen05 store shape.
+
+    Args:
+        shape:
+        tmem_addr: pointer in tensor memory (address space 6)
+        value: 32-bit signless integer or vector of 32-bit signless integer
+            values of length 2/4/8/16/32/64/128
+        unpack: unpack a 32-bit element in the register into two 16-bit
+            elements and store them in adjacent columns.
+        offset: When shape 16x32bx2 is used, base address of the first access is
+            specified by tmemAddr and the base address of the second access is
+            specified by tmemAddr + offset, where offset is an immediate argument.
+    """
 
 
 class _Tcgen05Tf32Type(IntEnum):
@@ -368,7 +393,8 @@ __all__ = (
     "tcgen05_alloc",
     "tcgen05_dealloc",
     "tcgen05_commit",
-    "tcgen05_ld",
+    "tcgen05_load",
+    "tcgen05_store",
     "tcgen05_mma",
     "tcgen05_wait_load",
     "tcgen05_wait_store",

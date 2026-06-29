@@ -55,7 +55,7 @@ def tcgen05_impl_registry() -> ImplRegistry:
     return _registry
 
 
-_TCGEN05_LD_VALID_COUNTS_BY_SHAPE = {
+TCGEN05_VALID_COUNTS_BY_SHAPE = {
     Tcgen05LdStShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
     Tcgen05LdStShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
     Tcgen05LdStShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
@@ -63,7 +63,7 @@ _TCGEN05_LD_VALID_COUNTS_BY_SHAPE = {
     Tcgen05LdStShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
 }
 
-_TCGEN05_LD_REGISTERS_PER_COUNT = {
+TCGEN05_REGISTERS_PER_COUNT = {
     Tcgen05LdStShape.SHAPE_16X64B: 1,
     Tcgen05LdStShape.SHAPE_16X128B: 2,
     Tcgen05LdStShape.SHAPE_16X256B: 4,
@@ -133,8 +133,80 @@ def tcgen05_commit_impl(
     )
 
 
-@impl(tcgen05_stub.tcgen05_ld)
-def tcgen05_ld_impl(
+@impl(tcgen05_stub.tcgen05_store)
+def tcgen05_store_impl(
+    shape: Var,
+    tmem_addr: Var,
+    value: Var,
+    unpack: Var,
+    offset: Var,
+):
+    require_pointer_in_memory_space(tmem_addr, (MemorySpace.TENSOR,))
+    shape_value = require_constant_enum(shape, Tcgen05LdStShape)
+    valid_counts = TCGEN05_VALID_COUNTS_BY_SHAPE[shape_value]
+    registers_per_count = TCGEN05_REGISTERS_PER_COUNT[shape_value]
+    value_type = value.get_type()
+    if is_none(offset):
+        offset = None
+    else:
+        require_constant_int(offset)
+        offset = astype(offset, datatype.int64)
+    require_constant_bool(unpack)
+
+    def type_error(dtype, count):
+        message = (
+            "Expected scalar 32-bit integer or vector of 32-bit integers "
+            f"but got {count=} and {dtype=}"
+        )
+        raise TileTypeError(message)
+
+    match value_type:
+        case ScalarTy() as st:
+            count = 1
+            if st.dtype != datatype.int32:
+                type_error(st.dtype, count)
+        case VectorTy() as vt:
+            count = vt.length
+            if vt.element_dtype != datatype.int32:
+                type_error(vt.element_dtype, count)
+        case _:
+            raise TileTypeError("Expected scalar or vector with datatype int32")
+
+    valid_register_counts = tuple(
+        valid_count * registers_per_count for valid_count in valid_counts
+    )
+    if count not in valid_register_counts:
+        valid = ", ".join(str(count) for count in valid_register_counts)
+        raise TileValueError(
+            f"Expected register count for {shape_value.name} to be one of "
+            f"{valid}, got {count}"
+        )
+
+    count_value = count // registers_per_count
+    needs_offset = shape_value == Tcgen05LdStShape.SHAPE_16X32BX2
+    has_offset = offset is not None
+    if needs_offset != has_offset:
+        raise TileTypeError(
+            "offset parameter is only valid with shape Tcgen05LdStShape.SHAPE_16X32BX2"
+        )
+
+    operands = (
+        tmem_addr,
+        *([offset] if offset is not None else []),
+        value,
+        unpack,
+    )
+    intrinsic = f"llvm.nvvm.tcgen05.st.{shape_value.value}.x{count_value}"
+    add_operation_variadic(
+        RawNVVMIntrinsic,
+        (),
+        intrinsic=intrinsic,
+        operands_=operands,
+    )
+
+
+@impl(tcgen05_stub.tcgen05_load)
+def tcgen05_load_impl(
     shape: Var,
     tmem_addr: Var,
     count: Var,
@@ -142,9 +214,9 @@ def tcgen05_ld_impl(
     offset: Var,
 ) -> Var:
     require_pointer_in_memory_space(tmem_addr, (MemorySpace.TENSOR,))
-    shape_value = cast(Tcgen05LdStShape, require_constant_enum(shape, Tcgen05LdStShape))
-    count_value = cast(int, require_constant_int(count))
-    valid_counts = _TCGEN05_LD_VALID_COUNTS_BY_SHAPE[shape_value]
+    shape_value = require_constant_enum(shape, Tcgen05LdStShape)
+    count_value = require_constant_int(count)
+    valid_counts = TCGEN05_VALID_COUNTS_BY_SHAPE[shape_value]
     if count_value not in valid_counts:
         valid = ", ".join(str(value) for value in valid_counts)
         raise TileValueError(
@@ -154,9 +226,9 @@ def tcgen05_ld_impl(
     has_offset = not is_none(offset)
     uses_offset = shape_value is Tcgen05LdStShape.SHAPE_16X32BX2
     if uses_offset and not has_offset:
-        raise TileTypeError("tcgen05_ld with SHAPE_16X32BX2 requires offset")
+        raise TileTypeError("tcgen05_load with SHAPE_16X32BX2 requires offset")
     if has_offset and not uses_offset:
-        raise TileTypeError("tcgen05_ld offset is only valid with SHAPE_16X32BX2")
+        raise TileTypeError("tcgen05_load offset is only valid with SHAPE_16X32BX2")
 
     operands = [tmem_addr]
     if has_offset:
@@ -174,7 +246,7 @@ def tcgen05_ld_impl(
         operands.append(pack)
 
     intrinsic = f"llvm.nvvm.tcgen05.ld.{shape_value.value}.x{count_value}"
-    total_registers = count_value * _TCGEN05_LD_REGISTERS_PER_COUNT[shape_value]
+    total_registers = count_value * TCGEN05_REGISTERS_PER_COUNT[shape_value]
     result_type = (
         ScalarTy(datatype.int32)
         if total_registers == 1
@@ -252,7 +324,9 @@ def tcgen05_mma_impl(
     a_shift: Var[Any],
 ):
     kind_value = require_constant_enum(kind, Tcgen05MMAKind)
-    cta_group_value = require_optional_constant_enum(cta_group, CTAGroup) or CTAGroup.CTA_1
+    cta_group_value = (
+        require_optional_constant_enum(cta_group, CTAGroup) or CTAGroup.CTA_1
+    )
     collector_op_value = require_constant_enum(collector_op, Tcgen05MMACollectorOp)
     require_pointer_in_memory_space(matrix_d, (MemorySpace.TENSOR,))
     matrix_a = _require_tcgen05_mma_matrix_a(matrix_a)
@@ -265,8 +339,12 @@ def tcgen05_mma_impl(
 
     builder = (
         RawMLIROperationBuilder(name="nvvm.tcgen05.mma")
-        .add_attribute("mmaKind", enum_to_mlir_attribute(kind_value, mlir.Tcgen05MMAKind))
-        .add_attribute("ctaGroup", enum_to_mlir_attribute(cta_group_value, mlir.CTAGroupKind))
+        .add_attribute(
+            "mmaKind", enum_to_mlir_attribute(kind_value, mlir.Tcgen05MMAKind)
+        )
+        .add_attribute(
+            "ctaGroup", enum_to_mlir_attribute(cta_group_value, mlir.CTAGroupKind)
+        )
         .add_attribute(
             "collectorOp",
             enum_to_mlir_attribute(collector_op_value, mlir.Tcgen05MMACollectorOp),

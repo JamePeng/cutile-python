@@ -116,18 +116,122 @@ def test_dealloc(log_ptx, cta_group, expect):
     assert expect in ptx, ptx
 
 
-@pytest.mark.parametrize("shape", cl.Tcgen05LdStShape._member_map_.values())
+STORE_VALID_COUNTS_BY_SHAPE = {
+    cl.Tcgen05LdStShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
+    cl.Tcgen05LdStShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
+    cl.Tcgen05LdStShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
+    cl.Tcgen05LdStShape.SHAPE_32X32B: (1, 2, 4, 8, 16, 32, 64, 128),
+    cl.Tcgen05LdStShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
+}
+
+
+@pytest.mark.parametrize(
+    "shape,count",
+    [
+        (shape, count)
+        for shape, counts in STORE_VALID_COUNTS_BY_SHAPE.items()
+        for count in counts
+    ],
+)
+@pytest.mark.parametrize("unpack", (False, True))
+def test_store(shape, count, unpack):
+    offset = 1 if shape is cl.Tcgen05LdStShape.SHAPE_16X32BX2 else None
+    registers_per_count = {
+        cl.Tcgen05LdStShape.SHAPE_16X64B: 1,
+        cl.Tcgen05LdStShape.SHAPE_16X128B: 2,
+        cl.Tcgen05LdStShape.SHAPE_16X256B: 4,
+        cl.Tcgen05LdStShape.SHAPE_32X32B: 1,
+        cl.Tcgen05LdStShape.SHAPE_16X32BX2: 1,
+    }[shape]
+    register_count = count * registers_per_count
+
+    def kernel():
+        tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
+        smem = cl.shared_array(1, tmem_dtype, alignment=4)
+        storage = cl.shared_array(256, cl.int32)
+        v = storage.load_element(0, count=register_count)
+        cl.tcgen05_alloc(smem.get_base_pointer(), 128)
+        cl.tcgen05_store(shape, smem[0], v, unpack=unpack, offset=offset)
+        cl.tcgen05_wait_store()
+        cl.tcgen05_dealloc(smem[0], 128)
+
+    expect = (
+        f"tcgen05.st.sync.aligned.{shape.value}.x{count}"
+        + (".unpack::16b" if unpack else "")
+        + ".b32"
+    )
+    compile_kernel(kernel, assert_in_ptx=expect)
+
+
+def test_store_rejects_wrong_value_dtype():
+    @cl.kernel
+    def kernel():
+        tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
+        smem = cl.shared_array(1, tmem_dtype, alignment=4)
+        cl.tcgen05_store(
+            cl.Tcgen05LdStShape.SHAPE_16X64B,
+            smem[0],
+            cl.float32(0),
+        )
+
+    compile_kernel(
+        kernel,
+        raises=pytest.raises(TileTypeError, match="Expected scalar 32-bit integer"),
+    )
+
+
+def test_store_rejects_invalid_register_count():
+    @cl.kernel
+    def kernel():
+        tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
+        smem = cl.shared_array(1, tmem_dtype, alignment=4)
+        value = cl.Vector(cl.int32(0), cl.int32(0), cl.int32(0))
+
+        # 16x128b requires 2 * count registers; three is invalid.
+        cl.tcgen05_store(
+            cl.Tcgen05LdStShape.SHAPE_16X128B,
+            smem[0],
+            value,
+        )
+
+    compile_kernel(
+        kernel,
+        raises=pytest.raises(TileValueError, match="Expected register count"),
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,offset",
+    (
+        (cl.Tcgen05LdStShape.SHAPE_16X32BX2, None),
+        (cl.Tcgen05LdStShape.SHAPE_16X64B, 1),
+    ),
+)
+def test_store_offset_validation(shape, offset):
+    @cl.kernel
+    def kernel():
+        tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
+        smem = cl.shared_array(1, tmem_dtype, alignment=4)
+        cl.tcgen05_store(shape, smem[0], cl.int32(0), offset=offset)
+
+    compile_kernel(
+        kernel,
+        raises=pytest.raises(TileTypeError, match="offset"),
+    )
+
+
+@pytest.mark.parametrize("shape", tuple(cl.Tcgen05LdStShape))
 @pytest.mark.parametrize("count", (1, 2, 4, 8, 16, 32, 64, 128))
 @pytest.mark.parametrize("pack", (True, False, None))
 @pytest.mark.parametrize("offset", (None, 0, 1))
-def test_ld(log_ptx, shape, count, pack, offset):
+def test_load(log_ptx, shape, count, pack, offset):
     @cl.kernel
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
         cl.tcgen05_alloc(smem.get_base_pointer(), 128)
         tmem_ptr = smem[0]
-        cl.tcgen05_ld(shape, tmem_ptr, count=count, pack=pack, offset=offset)
+        cl.tcgen05_load(shape, tmem_ptr, count=count, pack=pack, offset=offset)
         cl.tcgen05_dealloc(tmem_ptr, 128)
 
     def do_compile():
@@ -162,9 +266,9 @@ def test_ld(log_ptx, shape, count, pack, offset):
         do_compile()
 
 
-@pytest.mark.parametrize("kind", cl.Tcgen05MMAKind._member_map_.values())
-@pytest.mark.parametrize("cta_group", cl.CTAGroup._member_map_.values())
-@pytest.mark.parametrize("collector_op", cl.Tcgen05MMACollectorOp._member_map_.values())
+@pytest.mark.parametrize("kind", cl.Tcgen05MMAKind)
+@pytest.mark.parametrize("cta_group", cl.CTAGroup)
+@pytest.mark.parametrize("collector_op", cl.Tcgen05MMACollectorOp)
 def test_mma_valid_enum_combinations(kind, cta_group, collector_op):
     if kind in (
         cl.Tcgen05MMAKind.I8,
@@ -172,7 +276,7 @@ def test_mma_valid_enum_combinations(kind, cta_group, collector_op):
         cl.Tcgen05MMAKind.MXF4,
         cl.Tcgen05MMAKind.MXF4NVF4,
     ):
-        pytest.skip("needs updated mlir bindings")
+        pytest.xfail("needs updated mlir bindings")
 
     @cl.kernel
     def kernel():

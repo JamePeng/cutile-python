@@ -212,7 +212,8 @@ TensorCore (Gen5)
     tcgen05_alloc
     tcgen05_dealloc
     tcgen05_commit
-    tcgen05_ld
+    tcgen05_load
+    tcgen05_store
 
 .. autosummary::
    :toctree: generated
