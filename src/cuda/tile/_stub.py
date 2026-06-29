@@ -2638,6 +2638,12 @@ def _math_op_extra_block(f, indent):
                 f"{name} (const bool): If True, flushes subnormal inputs and results to "
                 "sign-preserving zero, default is False."
             )
+        elif name == "propagate_nan":
+            extra.append(
+                f"{name} (const bool): Float types only. If False (the default), NaN inputs "
+                "are ignored. If True, NaN propagates: a NaN makes the result NaN for min/max, "
+                "and argmin/argmax return the index of the first NaN."
+            )
     return ("\n" + textwrap.indent("\n".join(extra), indent)) if extra else ""
 
 
@@ -2725,7 +2731,8 @@ def sum(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMode
 
 @_doc_reduce_op
 @stub
-def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
+def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False,
+        propagate_nan: bool = False) -> Tile:
     """
     Examples:
 
@@ -2777,7 +2784,8 @@ def max(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile
 
 @_doc_reduce_op
 @stub
-def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False) -> Tile:
+def min(x, /, axis=None, *, keepdims=False, flush_to_zero: bool = False,
+        propagate_nan: bool = False) -> Tile:
     """
     Examples:
 
@@ -2865,7 +2873,7 @@ def prod(x, /, axis=None, *, keepdims=False, rounding_mode: Optional[RoundingMod
 
 @_doc_reduce_op
 @stub
-def argmax(x, /, axis=None, *, keepdims=False) -> Tile:
+def argmax(x, /, axis=None, *, keepdims=False, propagate_nan: bool = False) -> Tile:
     """
     Examples:
 
@@ -2919,7 +2927,7 @@ def argmax(x, /, axis=None, *, keepdims=False) -> Tile:
 
 @_doc_reduce_op
 @stub
-def argmin(x, /, axis=None, *, keepdims=False) -> Tile:
+def argmin(x, /, axis=None, *, keepdims=False, propagate_nan: bool = False) -> Tile:
     """
     Examples:
 
@@ -3462,7 +3470,7 @@ def bitwise_not(x, /) -> TileOrScalar:
 
 @_doc_binary_op('min')
 @stub
-def minimum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+def minimum(x, y, /, *, flush_to_zero: bool = False, propagate_nan: bool = False) -> TileOrScalar:
     """
     Examples:
 
@@ -3482,7 +3490,7 @@ def minimum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
 
 @_doc_binary_op('max')
 @stub
-def maximum(x, y, /, *, flush_to_zero: bool = False) -> TileOrScalar:
+def maximum(x, y, /, *, flush_to_zero: bool = False, propagate_nan: bool = False) -> TileOrScalar:
     """
     Examples:
 

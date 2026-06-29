@@ -357,8 +357,9 @@ def _bitwise_shift_tensorlike_impl(fn: str, x: Var[TensorLikeTy], y: Var[TensorL
 @dataclass(eq=False)
 class RawBinaryArithmeticOperation(Operation, opcode="raw_binary_arith"):
     fn: str = attribute()
-    rounding_mode: RoundingMode | None = attribute()
-    flush_to_zero: bool = attribute()
+    rounding_mode: RoundingMode | None = attribute(default=None)
+    flush_to_zero: bool = attribute(default=False)
+    propagate_nan: bool = attribute(default=False)
     lhs: Var[TensorLikeTy] = operand()
     rhs: Var[TensorLikeTy] = operand()
 
@@ -421,14 +422,14 @@ class RawBinaryArithmeticOperation(Operation, opcode="raw_binary_arith"):
                                         signedness=get_signedness(dtype))
             case "min", "float":
                 return bc.encode_MinFOp(ctx.builder, res_typeid, lhs, rhs,
-                                        propagate_nan=False,
+                                        propagate_nan=self.propagate_nan,
                                         flush_to_zero=self.flush_to_zero)
             case "max", "int":
                 return bc.encode_MaxIOp(ctx.builder, res_typeid, lhs, rhs,
                                         signedness=get_signedness(dtype))
             case "max", "float":
                 return bc.encode_MaxFOp(ctx.builder, res_typeid, lhs, rhs,
-                                        propagate_nan=False,
+                                        propagate_nan=self.propagate_nan,
                                         flush_to_zero=self.flush_to_zero)
             case "c_mod", "float":
                 # C-style modulo
@@ -444,18 +445,21 @@ class RawBinaryArithmeticOperation(Operation, opcode="raw_binary_arith"):
 
 def binary_arithmetic_tensorlike_raw(fn: str, x: Var[TensorLikeTy], y: Var[TensorLikeTy],
                                      rounding_mode: RoundingMode | None = None,
-                                     flush_to_zero: bool = False) -> Var[TensorLikeTy]:
+                                     flush_to_zero: bool = False,
+                                     propagate_nan: bool = False) -> Var[TensorLikeTy]:
     ty = x.get_type()
     assert ty == y.get_type(), f"{ty} != {y.get_type()}"
     # FIXME: remove cutile-specific check
     check_rd_and_ftz(fn, rounding_mode, flush_to_zero, ty.tensor_dtype())
     return add_operation(RawBinaryArithmeticOperation, ty, fn=fn, lhs=x, rhs=y,
-                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
+                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero,
+                         propagate_nan=propagate_nan)
 
 
 def binary_arithmetic_tensorlike(fn: str, x: Var[TensorLikeTy], y: Var[TensorLikeTy],
                                  rounding_mode: RoundingMode | None = None,
-                                 flush_to_zero: bool = False) -> Var[TensorLikeTy]:
+                                 flush_to_zero: bool = False,
+                                 propagate_nan: bool = False) -> Var[TensorLikeTy]:
     x_ty = x.get_loose_type()
     y_ty = y.get_loose_type()
 
@@ -481,7 +485,8 @@ def binary_arithmetic_tensorlike(fn: str, x: Var[TensorLikeTy], y: Var[TensorLik
     if x.is_constant() and y.is_constant():
         return binop_propagate_constant(fn, x.get_constant(), y.get_constant(), common_ty)
 
-    return binary_arithmetic_tensorlike_raw(fn, x, y, rounding_mode, flush_to_zero)
+    return binary_arithmetic_tensorlike_raw(fn, x, y, rounding_mode, flush_to_zero,
+                                            propagate_nan=propagate_nan)
 
 
 @impl(operator.add, fixed_args=["add"], overload=(TensorLikeTy, TensorLikeTy))
@@ -590,8 +595,8 @@ def where(cond: Var[TensorLikeTy],
 @dataclass(eq=False)
 class Unary(Operation, opcode="unaryop"):
     fn: str = attribute()
-    rounding_mode: RoundingMode | None = attribute()
-    flush_to_zero: bool = attribute()
+    rounding_mode: RoundingMode | None = attribute(default=None)
+    flush_to_zero: bool = attribute(default=False)
     operand: Var = operand()
 
     @override
@@ -725,8 +730,7 @@ def logical_not_impl(x: Var[TensorLikeTy]) -> Var[TensorLikeTy]:
     if x.is_constant():
         return strictly_typed_const(not x.get_constant(), x.get_type())
 
-    return add_operation(Unary, x.get_type(), fn="invert", operand=x,
-                         rounding_mode=None, flush_to_zero=False)
+    return add_operation(Unary, x.get_type(), fn="invert", operand=x)
 
 
 @impl(operator.pos, overload=(TensorLikeTy,))

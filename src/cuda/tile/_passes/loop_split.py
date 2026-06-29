@@ -100,7 +100,6 @@ def _split_loop(loop: Loop, cond: _Condition, if_ops_to_flatten: Set[IfElse], ne
         one_var.set_type(range_dtype)
         plus_one_var = new_block.make_temp_var(loc)
         new_block.append(RawBinaryArithmeticOperation(fn="add", lhs=split_value, rhs=one_var,
-                                                      rounding_mode=None, flush_to_zero=False,
                                                       result_vars=(plus_one_var,),
                                                       loc=loc))
         plus_one_var.set_type(range_dtype)
@@ -108,12 +107,10 @@ def _split_loop(loop: Loop, cond: _Condition, if_ops_to_flatten: Set[IfElse], ne
 
     first_loop_stop = new_block.make_temp_var(loc)
     new_block.append(RawBinaryArithmeticOperation(fn="min", lhs=loop.stop, rhs=split_value,
-                                                  rounding_mode=None, flush_to_zero=False,
                                                   result_vars=(first_loop_stop,), loc=loc))
 
     second_loop_start = new_block.make_temp_var(loc)
     new_block.append(RawBinaryArithmeticOperation(fn="max", lhs=loop.start, rhs=split_value,
-                                                  rounding_mode=None, flush_to_zero=False,
                                                   result_vars=(second_loop_start,), loc=loc))
 
     for var in first_loop_stop, second_loop_start:

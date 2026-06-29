@@ -120,7 +120,7 @@ def fuse_mul_addsub(op: RawBinaryArithmeticOperation, ctx: MatchContext):
         neg_target = mul_op.lhs if rhs_is_mul else acc
         negated = ctx.make_temp_var(op.loc)
         ctx.set_type(negated, ctx.typeof(neg_target))
-        new_ops.append(Unary(fn="neg", operand=neg_target, rounding_mode=None, flush_to_zero=False,
+        new_ops.append(Unary(fn="neg", operand=neg_target,
                              result_vars=(negated,), loc=op.loc))
         if rhs_is_mul:
             mul_lhs = negated

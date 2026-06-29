@@ -405,6 +405,28 @@ def test_array_maxmin_flush_to_zero(shape, tile, dtype, op_func, tile_op, flush_
         launch_binary(kernel, x, y, z, tile)
 
 
+@pytest.mark.parametrize("propagate_nan", [False, True])
+@pytest.mark.parametrize("op_func, torch_op", [
+    pytest.param("ct.maximum", torch.maximum, id="ct.maximum"),
+    pytest.param("ct.minimum", torch.minimum, id="ct.minimum"),
+])
+@pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
+def test_array_maxmin_nan(shape, tile, dtype, op_func, torch_op, propagate_nan, tmp_path):
+    x = make_tensor(shape, dtype=dtype, device='cuda')
+    y = make_tensor(shape, dtype=dtype, device='cuda')
+    x[1::3] = float("nan")
+    y[0::3] = float("nan")
+    z = torch.zeros_like(x)
+    kernel = array_kernel("maxmin_nan",
+                          f"tz = {op_func}(tx, ty, propagate_nan={propagate_nan})", tmp_path)
+    launch_binary(kernel, x, y, z, tile)
+    if propagate_nan:
+        ref = torch_op(x, y)
+    else:
+        ref = torch.where(torch.isnan(x), y, torch.where(torch.isnan(y), x, torch_op(x, y)))
+    assert_equal(z, ref)
+
+
 @pytest.mark.parametrize("is_constant", [False, True])
 @pytest.mark.parametrize("x", [100, 100.0])
 @pytest.mark.parametrize("y", [23, 2.3])

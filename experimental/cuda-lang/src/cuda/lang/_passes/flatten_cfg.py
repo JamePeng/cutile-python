@@ -91,8 +91,6 @@ class CFGFlattener:
                     fn="add",
                     lhs=self.loop_iv,
                     rhs=self.loop_step,
-                    rounding_mode=None,
-                    flush_to_zero=False,
                 )
             )
             args = (next_iv,) + args

@@ -9,7 +9,7 @@ import torch
 from torch.testing import make_tensor
 from typing import Optional, Tuple
 from conftest import float_dtypes, int_dtypes, dtype_id
-from math import ceil
+from math import ceil, inf, nan
 
 from cuda.tile import TileSyntaxError
 from util import filecheck, assert_equal, get_bytecode
@@ -404,6 +404,70 @@ def test_reduce_argmaxmin_all_axes(shape, dtype, reduce_op, torch_op, keepdims):
         y = y.squeeze()
     ref_result = torch_op(x, dim=None, keepdim=keepdims).to(torch.int32)
     assert_equal(y, ref_result)
+
+
+@pytest.mark.parametrize("propagate_nan", [False, True])
+@pytest.mark.parametrize("reduce_op, torch_op, ref_ignore_nan, ref_propagate_nan", [
+    pytest.param(ct.min, torch.amin, [0.0, -2.0, 0.5, -inf, nan], [0.0, nan, nan, nan, nan],
+                 id="min"),
+    pytest.param(ct.max, torch.amax, [9.0,  inf, 8.0,  5.0, nan], [9.0, nan, nan, nan, nan],
+                 id="max"),
+])
+def test_reduce_maxmin_nan(reduce_op, torch_op, ref_ignore_nan, ref_propagate_nan, propagate_nan):
+    M, N = 5, 8
+    TM = 8
+
+    @ct.kernel
+    def kernel(inp, out, TM: ct.Constant[int], N: ct.Constant[int]):
+        tile = ct.load(inp, index=(0, 0), shape=(TM, N), padding_mode=ct.PaddingMode.NAN)
+        ct.store(out, index=(0,), tile=reduce_op(tile, axis=1, propagate_nan=propagate_nan))
+
+    x = torch.tensor([
+        [3.0, 0.0, 4.0, 1.5, 5.0, 9.0, 2.0, 6.0],
+        [3.0, inf, nan, 1.5, 5.0, -2.0, 2.0, 6.0],
+        [nan, nan, 7.0, 1.0, nan, 8.0, nan, 0.5],
+        [5.0, -3.0, 2.0, nan, 4.0, 0.0, -inf, 1.0],
+        [nan, nan, nan, nan, nan, nan, nan, nan],
+    ], dtype=torch.float32, device="cuda")
+    out = torch.zeros((M,), dtype=torch.float32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1, 1, 1), kernel, (x, out, TM, N))
+
+    ref = ref_propagate_nan if propagate_nan else ref_ignore_nan
+    torch.testing.assert_close(out, torch.tensor(ref, dtype=torch.float32, device="cuda"),
+                               equal_nan=True)
+    if propagate_nan:
+        torch.testing.assert_close(out, torch_op(x, dim=1), equal_nan=True)
+
+
+@pytest.mark.parametrize("propagate_nan", [False, True])
+@pytest.mark.parametrize("reduce_op, torch_op, ref_ignore_nan, ref_propagate_nan", [
+    pytest.param(ct.argmin, torch.argmin, [1, 5, 7, 6, 0], [1, 2, 0, 3, 0], id="argmin"),
+    pytest.param(ct.argmax, torch.argmax, [5, 1, 5, 0, 0], [5, 2, 0, 3, 0], id="argmax"),
+])
+def test_reduce_argmaxmin_nan(reduce_op, torch_op,
+                              ref_ignore_nan, ref_propagate_nan, propagate_nan):
+    M, N = 5, 8
+    TM = 8
+
+    @ct.kernel
+    def kernel(inp, out, TM: ct.Constant[int], N: ct.Constant[int]):
+        tile = ct.load(inp, index=(0, 0), shape=(TM, N), padding_mode=ct.PaddingMode.NAN)
+        ct.store(out, index=(0,), tile=reduce_op(tile, axis=1, propagate_nan=propagate_nan))
+
+    x = torch.tensor([
+        [3.0, 0.0, 4.0, 1.5, 5.0, 9.0, 2.0, 6.0],
+        [3.0, inf, nan, 1.5, 5.0, -2.0, 2.0, 6.0],
+        [nan, nan, 7.0, 1.0, nan, 8.0, nan, 0.5],
+        [5.0, -3.0, 2.0, nan, 4.0, 0.0, -inf, 1.0],
+        [nan, nan, nan, nan, nan, nan, nan, nan],
+    ], dtype=torch.float32, device="cuda")
+    out = torch.zeros((M,), dtype=torch.int32, device="cuda")
+    ct.launch(torch.cuda.current_stream(), (1, 1, 1), kernel, (x, out, TM, N))
+
+    ref = ref_propagate_nan if propagate_nan else ref_ignore_nan
+    assert_equal(out, torch.tensor(ref, dtype=torch.int32, device="cuda"))
+    if propagate_nan:
+        assert_equal(out, torch_op(x, dim=1).to(torch.int32))
 
 
 @pytest.mark.parametrize("flavor", ["lambda", "def", "operator"])

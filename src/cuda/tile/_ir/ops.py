@@ -166,10 +166,11 @@ def atan2_impl(x1: Var, x2: Var) -> Var:
 @impl(ct.minimum, fixed_args=["min"])
 @impl(ct.maximum, fixed_args=["max"])
 def tile_binary_arithmetic_function_impl_with_ftz(fn: str, x: Var, y: Var,
-                                                  flush_to_zero: Var) -> Var:
+                                                  flush_to_zero: Var, propagate_nan: Var) -> Var:
     flush_to_zero = require_constant_bool(flush_to_zero)
+    propagate_nan = require_constant_bool(propagate_nan)
     return binary_arithmetic_tensorlike(fn, ensure_tile(x), ensure_tile(y),
-                                        flush_to_zero=flush_to_zero)
+                                        flush_to_zero=flush_to_zero, propagate_nan=propagate_nan)
 
 
 @impl(ct.add, fixed_args=["add"])
@@ -2331,7 +2332,7 @@ def _get_reduction_shape(shape: Tuple[int, ...],
 
 async def reduce_simple(fn: str, x: Var, axis: int | None | tuple[int, ...], keepdims: bool,
                         rounding_mode: Optional[RoundingMode] = None,
-                        flush_to_zero: bool = False) -> Var:
+                        flush_to_zero: bool = False, propagate_nan: bool = False) -> Var:
     x_type = require_tile_type(x)
     if not datatype.is_arithmetic(x_type.dtype):
         raise TileTypeError(f"Non-arithmetic dtype {x_type.dtype} is unsupported for reduction")
@@ -2351,7 +2352,8 @@ async def reduce_simple(fn: str, x: Var, axis: int | None | tuple[int, ...], kee
     async def body(lhs: tuple[Var], rhs: tuple[Var]) -> tuple[Var]:
         [lhs], [rhs] = lhs, rhs
         ret = binary_arithmetic_tensorlike(fn, lhs, rhs,
-                                           rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
+                                           rounding_mode=rounding_mode, flush_to_zero=flush_to_zero,
+                                           propagate_nan=propagate_nan)
         return (ret,)
 
     [ret] = await reduce((x,), (id_val,), axis, keepdims, body)
@@ -2399,14 +2401,17 @@ async def reduce_impl_with_rd_and_ftz(fn: str, x: Var, axis: Var, keepdims: Var,
 @impl(ct.max, fixed_args=["max"])
 @impl(ct.min, fixed_args=["min"])
 async def reduce_impl_with_ftz(fn: str, x: Var, axis: Var, keepdims: Var,
-                               flush_to_zero: Var) -> Var:
+                               flush_to_zero: Var, propagate_nan: Var) -> Var:
     axis = _parse_reduce_axis(axis)
     keepdims = require_constant_bool(keepdims)
     flush_to_zero = require_constant_bool(flush_to_zero)
-    return await reduce_simple(fn, x, axis, keepdims, flush_to_zero=flush_to_zero)
+    propagate_nan = require_constant_bool(propagate_nan)
+    return await reduce_simple(fn, x, axis, keepdims, flush_to_zero=flush_to_zero,
+                               propagate_nan=propagate_nan)
 
 
-async def argmax_argmin(fn: str, x: Var, axis: Optional[int], keepdims: bool) -> Var:
+async def argmax_argmin(fn: str, x: Var, axis: Optional[int], keepdims: bool,
+                        propagate_nan: bool = False) -> Var:
     require_tile_type(x)
     final_shape = None
     if axis is None:
@@ -2434,14 +2439,34 @@ async def argmax_argmin(fn: str, x: Var, axis: Optional[int], keepdims: bool) ->
             cmp = "gt"
         case _: assert False
 
+    is_float_dtype = datatype.is_float(x_type.dtype)
+
     async def body(lhs: tuple[Var, Var], rhs: tuple[Var, Var]) -> tuple[Var, Var]:
         lhs_val, lhs_idx = lhs
         rhs_val, rhs_idx = rhs
-        val_strict = compare_tensorlike_raw(cmp, lhs_val, rhs_val)
+        lhs_win = compare_tensorlike_raw(cmp, lhs_val, rhs_val)
         val_equal = compare_tensorlike_raw("eq", lhs_val, rhs_val)
+        if is_float_dtype:
+            lhs_is_nan = compare_tensorlike_raw("ne", lhs_val, lhs_val)
+            rhs_is_nan = compare_tensorlike_raw("ne", rhs_val, rhs_val)
+            if propagate_nan:
+                # Mirror min/max's propagate_nan=True semantics by
+                # treating NaN as the best possible value.
+                rhs_not_nan = compare_tensorlike_raw("eq", rhs_val, rhs_val)
+                lhs_nan_rhs_finite = binary_bitwise_tensorlike_raw("and_", lhs_is_nan, rhs_not_nan)
+                lhs_win = binary_bitwise_tensorlike_raw("or_", lhs_win, lhs_nan_rhs_finite)
+            else:
+                # Mirror min/max's propagate_nan=False semantics by
+                # treating NaN as the worst possible value.
+                lhs_not_nan = compare_tensorlike_raw("eq", lhs_val, lhs_val)
+                lhs_finite_rhs_nan = binary_bitwise_tensorlike_raw("and_", lhs_not_nan, rhs_is_nan)
+                lhs_win = binary_bitwise_tensorlike_raw("or_", lhs_win, lhs_finite_rhs_nan)
+            # two NaNs count as "equal" so the index tiebreak (smallest index) decides.
+            both_nan = binary_bitwise_tensorlike_raw("and_", lhs_is_nan, rhs_is_nan)
+            val_equal = binary_bitwise_tensorlike_raw("or_", val_equal, both_nan)
         index_lt = compare_tensorlike_raw("lt", lhs_idx, rhs_idx)
         val_equal_and_index_lt = binary_bitwise_tensorlike_raw("and_", val_equal, index_lt)
-        cond = binary_bitwise_tensorlike_raw("or_", val_strict, val_equal_and_index_lt)
+        cond = binary_bitwise_tensorlike_raw("or_", lhs_win, val_equal_and_index_lt)
         res = where_raw(cond, lhs_val, rhs_val)
         idx = where_raw(cond, lhs_idx, rhs_idx)
         return res, idx
@@ -2456,10 +2481,11 @@ async def argmax_argmin(fn: str, x: Var, axis: Optional[int], keepdims: bool) ->
 
 @impl(ct.argmax, fixed_args=["argmax"])
 @impl(ct.argmin, fixed_args=["argmin"])
-async def argmax_argmin_impl(fn: str, x: Var, axis: Var, keepdims: Var) -> Var:
+async def argmax_argmin_impl(fn: str, x: Var, axis: Var, keepdims: Var, propagate_nan: Var) -> Var:
     axis = require_optional_constant_int(axis)
     keepdims = require_constant_bool(keepdims)
-    return await argmax_argmin(fn, x, axis, keepdims)
+    propagate_nan = require_constant_bool(propagate_nan)
+    return await argmax_argmin(fn, x, axis, keepdims, propagate_nan=propagate_nan)
 
 
 @dataclass(eq=False)
