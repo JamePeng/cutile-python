@@ -40,12 +40,16 @@ def test_exhaustive_search_returns_best(monkeypatch):
 
     times = {64: 5.0, 128: 1.0, 256: 3.0}
 
-    def fake_time_us(stream, grid, kernel, get_args, launch_timeout_sec):
-        args = get_args()
-        cfg = args[1]
-        return times[cfg], 1, 20, launch_timeout_sec
+    def fake_benchmark(stream, grid, kernel, pyargs):
+        cfg = pyargs[1]
+        return times[cfg]
 
-    monkeypatch.setattr(tune_mod, "_time_us", fake_time_us, raising=True)
+    def fake_benchmark_with_timeout(stream, grid, kernel, pyargs, timeout_sec):
+        return fake_benchmark(stream, grid, kernel, pyargs), None
+
+    monkeypatch.setattr(tune_mod, "benchmark_with_timeout",
+                        fake_benchmark_with_timeout, raising=True)
+    monkeypatch.setattr(tune_mod, "_benchmark", fake_benchmark, raising=True)
 
     result = exhaustive_search(
             search_space,
@@ -62,8 +66,60 @@ def test_exhaustive_search_returns_best(monkeypatch):
     assert len(result.successes) == 3
     assert "3 succeeded, 0 failed" in str(result)
 
-    assert list(map(attrgetter("config"), result.successes)) == [64, 128, 256]
-    assert list(map(attrgetter("mean_us"), result.successes)) == [5.0, 1.0, 3.0]
+    sorted_successes = sorted(result.successes, key=lambda m: m.mean_us)
+    assert list(map(attrgetter("config"), sorted_successes)) == [128, 256, 64]
+    assert list(map(attrgetter("mean_us"), sorted_successes)) == [1.0, 3.0, 5.0]
+
+
+def test_exhaustive_search_skips_slow_configs(monkeypatch):
+    x = torch.empty((256,), device="cuda")
+    search_space = range(1, 8)
+    times = {
+        1: [1.0],
+        2: [2.0],
+        3: [3.0],
+        4: [4.0],
+        5: [5.0],
+        6: [1.1, 9.0, 1.1, 9.0, 1.1, 20.0, 20.0, 20.0, 20.0, 20.0],
+        7: [20.0, 20.5, 20.0, 20.5, 20.0],
+    }
+    sample_counts = {cfg: 0 for cfg in search_space}
+
+    def fake_benchmark(stream, grid, kernel, pyargs):
+        cfg = pyargs[1]
+        sample_index = min(sample_counts[cfg], len(times[cfg]) - 1)
+        sample_counts[cfg] += 1
+        return times[cfg][sample_index]
+
+    def fake_benchmark_with_timeout(stream, grid, kernel, pyargs, timeout_sec):
+        cfg = pyargs[1]
+        return times[cfg][0], None
+
+    monkeypatch.setattr(tune_mod, "_TOP_K", 5, raising=True)
+    monkeypatch.setattr(tune_mod, "_WARM_UP_REPEATS", 1, raising=True)
+    monkeypatch.setattr(tune_mod, "_MIN_REPEATS", 2, raising=True)
+    monkeypatch.setattr(tune_mod, "_BATCH_REPEATS", 1, raising=True)
+    monkeypatch.setattr(tune_mod, "benchmark_with_timeout",
+                        fake_benchmark_with_timeout, raising=True)
+    monkeypatch.setattr(tune_mod, "_benchmark", fake_benchmark, raising=True)
+
+    result = exhaustive_search(
+        search_space,
+        torch.cuda.current_stream(),
+        grid_fn=partial(grid_fn_on_x, x),
+        kernel=dummy_kernel,
+        args_fn=lambda cfg: (x, cfg),
+        quiet=True,
+    )
+
+    assert result.best.config == 1
+    assert len(result.successes) == 7
+    assert len(result.failures) == 0
+    sorted_successes = sorted(result.successes, key=lambda m: m.mean_us)
+    assert [m.config for m in sorted_successes] == [1, 2, 3, 4, 5, 6, 7]
+    assert [m.num_samples for m in sorted_successes[:5]] == [2, 2, 2, 2, 2]
+    assert sorted_successes[5].num_samples > 2  # config 6 keep running until it cannot beat Top-K
+    assert sorted_successes[6].num_samples == 1  # config 7 stopped after 1 sample for too slow
 
 
 # ========== Test empty search space ==========
@@ -88,14 +144,18 @@ def test_skips_failed_configs(monkeypatch):
         256: TileCompilerExecutionError(1, "simulated error", "", None),
     }
 
-    def fake_time_us(stream, grid, kernel, get_args, launch_timeout_sec):
-        args = get_args()
-        cfg = args[1]
+    def fake_benchmark(stream, grid, kernel, pyargs):
+        cfg = pyargs[1]
         if cfg in failures:
             raise failures[cfg]
-        return 2.0, 1, 20, launch_timeout_sec
+        return 2.0
 
-    monkeypatch.setattr(tune_mod, "_time_us", fake_time_us, raising=True)
+    def fake_benchmark_with_timeout(stream, grid, kernel, pyargs, timeout_sec):
+        return fake_benchmark(stream, grid, kernel, pyargs), None
+
+    monkeypatch.setattr(tune_mod, "benchmark_with_timeout",
+                        fake_benchmark_with_timeout, raising=True)
+    monkeypatch.setattr(tune_mod, "_benchmark", fake_benchmark, raising=True)
 
     result = exhaustive_search(
         [64, 128, 256],
@@ -127,10 +187,12 @@ def test_skips_failed_configs(monkeypatch):
 def test_all_configs_fail_raises(monkeypatch):
     x = torch.empty((256,), device="cuda")
 
-    def fake_time_us(stream, grid, kernel, get_args, launch_timeout_sec):
+    def fake_benchmark(*args, **kwargs):
         raise TileCompilerTimeoutError("always fails", "", None)
 
-    monkeypatch.setattr(tune_mod, "_time_us", fake_time_us, raising=True)
+    monkeypatch.setattr(tune_mod, "benchmark_with_timeout",
+                        fake_benchmark, raising=True)
+    monkeypatch.setattr(tune_mod, "_benchmark", fake_benchmark, raising=True)
 
     with pytest.raises(ValueError, match=r"No valid config") as exc_info:
         exhaustive_search(

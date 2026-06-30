@@ -3,11 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import heapq
 import math
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Sequence, TypeVar
 
-from cuda.tile._cext import _benchmark, _synchronize_context
+from cuda.tile._cext import _benchmark
 from cuda.tile.tune._tune_utils import benchmark_with_timeout
 import logging
 import sys
@@ -102,13 +103,21 @@ class TuningResult(Generic[T]):
 _spinner = ['|', '/', '-', '\\']
 
 
-def progress(n: int, total: int, errors: int):
+def progress(phase: int, n: int, total: int, errors: int):
     if n == 0:
         print()
     marker = _spinner[n % len(_spinner)]
     width = len(str(total))
     end = "\r\033[K" if n == total - 1 else ""
-    print(f"\r{marker}  Progress: {n:{width}}/{total} | Errors: {errors:{width}}",
+    if phase == 0:
+        message = "Warmup & initial run"
+    elif phase == 1:
+        message = f"Converging Top-{total} configs"
+    elif phase == 2:
+        message = "Converging all configs"
+    else:
+        raise ValueError(f"Invalid phase: {phase}")
+    print(f"\r{marker} [Phase {phase}/2] {message}: {n:{width}}/{total} | Errors: {errors:{width}}",
           end=end, flush=True)
 
 
@@ -219,44 +228,38 @@ def exhaustive_search(
        Best config: {'tm': ..., 'tn': ..., 'tk': ..., 'num_ctas': ...} (...us)
     """
 
-    successes = []
-    errors = []
-
-    best_time_us = float("inf")
-    best_cfg_id = None
     total = len(search_space)
     isatty = _in_terminal()
     dynamic_launch_timeout_sec = _MAX_DYNAMIC_LAUNCH_TIMEOUT_SEC
 
+    if total == 0:
+        raise ValueError("Search space is empty.")
+
+    # min-heap of running candidates, sorted by (mean_us, error_margin_us).
+    # The integer tie-breaker keeps heap operations stable when timings match.
+    running: list[tuple[float, float, int, _TimingCandidate[T]]] = []
+    converged: list[_TimingCandidate[T]] = []
+    errors = []
+
+    # Phase 0: Warmup and initial run for each config.
+    # Also Filter out timeout candidates.
     for i, cfg in enumerate(search_space):
         if not quiet and isatty:
-            progress(i, total, len(errors))
-
+            progress(0, i, total, len(errors))
         grid = grid_fn(cfg)
         hints = hints_fn(cfg) if hints_fn is not None else {}
         updated_kernel = kernel.replace_hints(**hints)
+        candidate = _TimingCandidate(
+            config=cfg,
+            grid=grid,
+            kernel=updated_kernel,
+            get_args=lambda _cfg=cfg: args_fn(_cfg),
+        )
+
         try:
-            avg_us, error_bar, repeats, wall_time_sec = _time_us(
-                stream, grid, updated_kernel,
-                lambda _cfg=cfg: args_fn(_cfg),
-                dynamic_launch_timeout_sec,
-            )
-        except Exception as e:
-            err_type = type(e).__name__
-            msg = str(e)
-            errors.append((cfg, err_type, msg))
-            continue
-        else:
-            measure = Measurement(config=cfg,
-                                  mean_us=avg_us,
-                                  error_margin_us=error_bar,
-                                  num_samples=repeats)
-            successes.append(measure)
-
-            if avg_us < best_time_us:
-                best_time_us = avg_us
-                best_cfg_id = len(successes) - 1
-
+            wall_time_sec = candidate.warmup(
+                stream, _WARM_UP_REPEATS, dynamic_launch_timeout_sec)
+            candidate.run_benchmark(stream, _BATCH_REPEATS)
             if wall_time_sec is not None:
                 # udpate dynamic launch timeout to 2x of the fastest successful launch
                 # wall time and floor by _MIN_DYNAMIC_LAUNCH_TIMEOUT_SEC
@@ -264,15 +267,67 @@ def exhaustive_search(
                     dynamic_launch_timeout_sec,
                     max(_MIN_DYNAMIC_LAUNCH_TIMEOUT_SEC, wall_time_sec * 2),
                 )
+        except Exception as e:
+            errors.append((cfg, type(e).__name__, str(e)))
+            continue
 
-    if len(search_space) == 0:
-        raise ValueError("Search space is empty.")
-    elif best_cfg_id is None:
+        if candidate.converged():
+            converged.append(candidate)
+        else:
+            heapq.heappush(
+                running, (candidate.mean_us, candidate.error_margin_us, i, candidate))
+
+    # Phase 1: Run benchmarks until we have at least _TOP_K converged configs.
+    while len(converged) < _TOP_K and running:
+        _, _, order, candidate = heapq.heappop(running)
+        try:
+            candidate.run_benchmark(stream, _BATCH_REPEATS)
+        except Exception as e:
+            errors.append((candidate.config, type(e).__name__, str(e)))
+            continue
+
+        if candidate.converged():
+            if not quiet and isatty:
+                progress(1, len(converged), min(_TOP_K, total), len(errors))
+            converged.append(candidate)
+        else:
+            heapq.heappush(
+                running, (candidate.mean_us, candidate.error_margin_us, order, candidate))
+
+    # Phase 2: Run remaining candidates until they cannot beat the Top-K.
+    if converged and running:
+        if len(converged) <= _TOP_K:
+            cutoff_mean_us = max(candidate.mean_us for candidate in converged)
+        else:
+            top_k_converged = heapq.nsmallest(
+                _TOP_K,
+                converged,
+                key=lambda candidate: candidate.mean_us,
+            )
+            cutoff_mean_us = max(candidate.mean_us for candidate in top_k_converged)
+        for _, _, _, candidate in running:
+            try:
+                while (not candidate.converged() and
+                       candidate.mean_us - candidate.error_margin_us < cutoff_mean_us):
+                    candidate.run_benchmark(stream, _BATCH_REPEATS)
+            except Exception as e:
+                errors.append((candidate.config, type(e).__name__, str(e)))
+                continue
+
+            if not quiet and isatty:
+                progress(2, len(converged), total, len(errors))
+            converged.append(candidate)
+        running = []
+
+    successes = [candidate.to_measurement() for candidate in converged]
+
+    if not successes:
         cfg, exc_type, msg = errors[0]
         raise ValueError(f"No valid config found in search space."
                          f"\nConfig: {cfg}\n{exc_type}: {msg}")
 
-    result = TuningResult(best=successes[best_cfg_id],
+    best = min(successes, key=lambda measure: measure.mean_us)
+    result = TuningResult(best=best,
                           successes=tuple(successes),
                           failures=tuple(errors))
 
@@ -284,41 +339,59 @@ def exhaustive_search(
 _MAX_DYNAMIC_LAUNCH_TIMEOUT_SEC = 5.0
 _MIN_DYNAMIC_LAUNCH_TIMEOUT_SEC = 0.5
 _MAX_MEASURE_TIME_US = 5_000_000  # 5s
-_MIN_REPEATS = 20
 _MAX_REPEATS = 1000
-_WARM_UP_STEPS = 10
+_MIN_REPEATS = 5
+_BATCH_REPEATS = 5
+_WARM_UP_REPEATS = 3
+_TOP_K = 5
 
 
-def _time_us(
-        stream, grid, kernel, get_args,
-        dynamic_launch_timeout_sec: float) -> tuple[float, float, int, float | None]:
-    _synchronize_context()
+@dataclass
+class _TimingCandidate(Generic[T]):
+    config: T
+    grid: tuple[int, ...]
+    kernel: Any
+    get_args: Callable[[], tuple[Any, ...]]
+    num_samples: int = 0
+    mean_us: float = 0.0
+    m2: float = 0.0
+    error_margin_us: float = 0.0
 
-    # Warmup
-    # First warmup is timed to ensure it doesn't deadlock.
-    _, wall_time_sec = benchmark_with_timeout(
-        stream, grid, kernel, get_args(), dynamic_launch_timeout_sec)
-    for _ in range(_WARM_UP_STEPS - 1):
-        _benchmark(stream, grid, kernel, get_args())
+    def warmup(self, stream, num_times, launch_timeout_sec) -> float | None:
+        assert num_times > 0
 
-    _synchronize_context()
+        # First warmup is timed to ensure it doesn't deadlock.
+        _, wall_time_sec = benchmark_with_timeout(
+            stream, self.grid, self.kernel, self.get_args(), launch_timeout_sec)
+        for _ in range(num_times - 1):
+            _benchmark(stream, self.grid, self.kernel, self.get_args())
+        return wall_time_sec
 
-    repeats = 0
-    running_mean = 0
-    m2 = 0
-    while True:
-        repeats += 1
-        t = _benchmark(stream, grid, kernel, get_args())
+    def run_benchmark(self, stream, num_times):
+        for _ in range(min(num_times, _MAX_REPEATS - self.num_samples)):
+            self._add_sample(_benchmark(stream, self.grid, self.kernel, self.get_args()))
+
+    def converged(self) -> bool:
+        # Stop if ...
+        return self.num_samples >= _MIN_REPEATS and (
+            self.error_margin_us <= 0.01 * self.mean_us  # estimated relative error is <1%,
+            or self.error_margin_us <= 0.5  # ... or estimated absolute error is <=0.5us,
+            or self.num_samples >= _MAX_REPEATS   # ... or we ran too many times,
+            or self.mean_us * self.num_samples > _MAX_MEASURE_TIME_US)  # ... or taking too long
+
+    def to_measurement(self) -> Measurement[T]:
+        return Measurement(config=self.config,
+                           mean_us=self.mean_us,
+                           error_margin_us=self.error_margin_us,
+                           num_samples=self.num_samples)
+
+    def _add_sample(self, elapsed_us: float):
         # Welford algorithm for running mean and variance
-        old_mean = running_mean
-        running_mean += (t - old_mean) / repeats
-        m2 += (t - old_mean) * (t - running_mean)
-        if repeats >= _MIN_REPEATS:
-            sample_var = m2 / (repeats - 1)
-            var = sample_var / repeats
-            estimated_error = math.sqrt(var) * 1.96  # 95% confidence interval
-            # Stop if...
-            if (estimated_error <= 0.01 * running_mean  # estimated relative error is <1%,
-                    or repeats >= _MAX_REPEATS  # ... or we ran too many times,
-                    or running_mean * repeats > _MAX_MEASURE_TIME_US):  # ... or taking too long.
-                return running_mean, estimated_error, repeats, wall_time_sec
+        self.num_samples += 1
+        old_mean = self.mean_us
+        self.mean_us += (elapsed_us - old_mean) / self.num_samples
+        self.m2 += (elapsed_us - old_mean) * (elapsed_us - self.mean_us)
+        if self.num_samples > 1:
+            sample_var = self.m2 / (self.num_samples - 1)
+            var = sample_var / self.num_samples
+            self.error_margin_us = math.sqrt(var) * 1.96  # 95% confidence interval
