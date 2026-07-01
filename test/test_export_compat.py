@@ -187,8 +187,7 @@ def test_export_compat_cutile_python_v2():
                     ct.compilation.ScalarConstraint(ct.int32),
                     ct.compilation.ScalarConstraint(ct.int32),
                 ]),
-            ct.compilation.TupleConstraint(
-                [ct.compilation.ConstantConstraint(10)]),
+            (10,),
             ct.compilation.ArrayConstraint(ct.int32, 0, index_dtype=ct.int32,
                                            stride_lower_bound_incl=0,
                                            alias_groups=(), may_alias_internally=False),

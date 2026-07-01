@@ -231,14 +231,8 @@ class TupleConstraint:
     """
     items: "tuple[ParameterConstraint, ...]"
 
-    def __init__(self,
-                 items: "Sequence[ParameterConstraint]"):
-        items = tuple(items)
-        for i, item_constraint in enumerate(items):
-            if not isinstance(item_constraint, ParameterConstraint):
-                raise TypeError(
-                    f"TupleConstraint item #{i} must be a ParameterConstraint,"
-                    f" got {type(item_constraint).__name__}")
+    def __init__(self, items: "Sequence[ParameterConstraint]"):
+        items = tuple(_to_constraint(x) for x in items)
         object.__setattr__(self, "items", items)
 
 
@@ -277,11 +271,13 @@ ParameterConstraint: TypeAlias = (ScalarConstraint | ArrayConstraint | ListConst
                                   | TupleConstraint | ConstantConstraint)
 
 
-def _to_constraint(c: ParameterConstraint | bool | int | float):
+def _to_constraint(c: ParameterConstraint | bool | int | float | tuple) -> ParameterConstraint:
     if isinstance(c, ParameterConstraint):
         return c
     elif isinstance(c, bool | int | float):
         return ConstantConstraint(c)
+    elif isinstance(c, tuple):
+        return TupleConstraint(c)
     else:
         raise TypeError(f"Can't interpret {c!r} as a parameter constraint")
 
@@ -292,17 +288,24 @@ class KernelSignature:
     Signature of a compiled kernel.
 
     Args:
-        parameters (Sequence[ParameterConstraint | bool | int | float]):
+        parameters (Sequence[ParameterConstraint | bool | int | float | tuple]):
             For each parameter of the kernel's Python function, a corresponding
-            :py:class:`ParameterConstraint` instance. If a parameter is marked with
-            :py:class:`ct.Constant <cuda.tile.Constant>`, the corresponding constraint must be
-            a :py:class:`ConstantConstraint` or a ``bool``, ``int`` or ``float`` value
-            that specifies the compile-time constant.
-            Otherwise, it must be either a :py:class:`ScalarConstraint`,
-            :py:class:`ArrayConstraint` or :py:class:`ListConstraint`.
-            Passing a ``bool``, ``int`` or ``float`` value as a constraint is convenience notation
-            that is equivalent to passing an instance of :py:class:`ConstantConstraint`
-            that wraps said value.
+            :py:class:`ParameterConstraint` instance.
+
+            Possible constraint classes are: :py:class:`ScalarConstraint`,
+            :py:class:`ArrayConstraint`, :py:class:`ListConstraint`, :py:class:`TupleConstraint`,
+            :py:class:`ConstantConstraint`.
+
+            A plain ``bool``, ``int`` or ``float`` value can be used as shorthand for
+            :py:class:`ConstantConstraint` wrapping the given value.
+            Similarly, a plain ``tuple`` is shorthand for a :py:class:`TupleConstraint` .
+
+            Each constraint must be compatible with annotations on the corresponding kernel
+            parameter. For example, if a parameter is marked with
+            :py:class:`ct.Constant <cuda.tile.Constant>`, then the corresponding constraint must be
+            a :py:class:`ConstantConstraint`, or a nested :py:class:`TupleConstraint` thereof
+            (or a plain ``bool``, ``int``, ``float`` or ``tuple``, according to the shorthand
+            notation described above).
         calling_convention (CallingConvention):
             |Calling convention| to use.
         symbol (str | None):
@@ -316,7 +319,7 @@ class KernelSignature:
     symbol: str | None
 
     def __init__(self,
-                 parameters: Sequence[ParameterConstraint | bool | int | float],
+                 parameters: Sequence[ParameterConstraint | bool | int | float | tuple],
                  calling_convention: CallingConvention,
                  symbol: str | None = None):
         if symbol is not None and not isinstance(symbol, str):
