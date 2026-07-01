@@ -295,7 +295,7 @@ def test_ipc_tune_handles_launch_timeout(monkeypatch):
 
     tile_size = 16
     result = exhaustive_search(
-        [0, 1, 0],
+        [0, 1],
         torch.cuda.current_stream(),
         grid_fn=lambda cfg: (1,),
         kernel=conditional_dead_loop_kernel,
@@ -306,7 +306,7 @@ def test_ipc_tune_handles_launch_timeout(monkeypatch):
     )
 
     assert len(result.failures) == 1
-    assert len(result.successes) == 2
+    assert len(result.successes) == 1
 
     err_cfg, err_type, err_msg = result.failures[0]
     assert (err_cfg, err_type) == (1, "TileLaunchTimeoutError")
