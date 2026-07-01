@@ -57,7 +57,7 @@ class Tcgen05MMACollectorOp(Enum):
     USE = 3
 
 
-class Tcgen05LdStShape(Enum):
+class Tcgen05LoadStoreShape(Enum):
     """Load/store shapes supported by tcgen05 tensor memory operations."""
 
     SHAPE_16X64B = "16x64b"
@@ -124,7 +124,7 @@ __all__ = (
     "CTAGroup",
     "Tcgen05MMAKind",
     "Tcgen05MMACollectorOp",
-    "Tcgen05LdStShape",
+    "Tcgen05LoadStoreShape",
     "Tcgen05CopyMulticast",
     "Tcgen05CopyShape",
     "Tcgen05CopySourceFormat",

@@ -64,7 +64,7 @@ def test_alloc(log_ptx, cta_group, expect):
     @cl.kernel
     def kernel():
         p3 = cl.shared_array(1, cl.uint32).get_base_pointer()
-        cl.tcgen05_alloc(p3, 5, cta_group=cta_group)
+        cl.tcgen05_allocate(p3, 5, cta_group=cta_group)
 
     compiled = cl.compile_simt(kernel, [KernelSignature([])])
     ptx = compiled.ptx
@@ -76,7 +76,7 @@ def test_dealloc_requires_tensor_pointer():
     @cl.kernel
     def kernel():
         p3 = cl.shared_array(1, cl.uint32).get_base_pointer()
-        cl.tcgen05_dealloc(p3, 5)
+        cl.tcgen05_deallocate(p3, 5)
 
     with pytest.raises(
         TileTypeError,
@@ -104,9 +104,9 @@ def test_dealloc(log_ptx, cta_group, expect):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_alloc(smem.get_base_pointer(), 128, cta_group=cta_group)
+        cl.tcgen05_allocate(smem.get_base_pointer(), 128, cta_group=cta_group)
         tmem_ptr = smem[0]
-        cl.tcgen05_dealloc(tmem_ptr, 128, cta_group=cta_group)
+        cl.tcgen05_deallocate(tmem_ptr, 128, cta_group=cta_group)
 
     compiled = cl.compile_simt(kernel, [KernelSignature([])])
     ptx = compiled.ptx
@@ -115,11 +115,11 @@ def test_dealloc(log_ptx, cta_group, expect):
 
 
 STORE_VALID_COUNTS_BY_SHAPE = {
-    cl.Tcgen05LdStShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
-    cl.Tcgen05LdStShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
-    cl.Tcgen05LdStShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
-    cl.Tcgen05LdStShape.SHAPE_32X32B: (1, 2, 4, 8, 16, 32, 64, 128),
-    cl.Tcgen05LdStShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
+    cl.Tcgen05LoadStoreShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
+    cl.Tcgen05LoadStoreShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
+    cl.Tcgen05LoadStoreShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
+    cl.Tcgen05LoadStoreShape.SHAPE_32X32B: (1, 2, 4, 8, 16, 32, 64, 128),
+    cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
 }
 
 
@@ -133,13 +133,13 @@ STORE_VALID_COUNTS_BY_SHAPE = {
 )
 @pytest.mark.parametrize("unpack", (False, True))
 def test_store(shape, count, unpack):
-    offset = 1 if shape is cl.Tcgen05LdStShape.SHAPE_16X32BX2 else None
+    offset = 1 if shape is cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2 else None
     registers_per_count = {
-        cl.Tcgen05LdStShape.SHAPE_16X64B: 1,
-        cl.Tcgen05LdStShape.SHAPE_16X128B: 2,
-        cl.Tcgen05LdStShape.SHAPE_16X256B: 4,
-        cl.Tcgen05LdStShape.SHAPE_32X32B: 1,
-        cl.Tcgen05LdStShape.SHAPE_16X32BX2: 1,
+        cl.Tcgen05LoadStoreShape.SHAPE_16X64B: 1,
+        cl.Tcgen05LoadStoreShape.SHAPE_16X128B: 2,
+        cl.Tcgen05LoadStoreShape.SHAPE_16X256B: 4,
+        cl.Tcgen05LoadStoreShape.SHAPE_32X32B: 1,
+        cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2: 1,
     }[shape]
     register_count = count * registers_per_count
 
@@ -148,10 +148,10 @@ def test_store(shape, count, unpack):
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
         storage = cl.shared_array(256, cl.int32)
         v = storage.load_element(0, count=register_count)
-        cl.tcgen05_alloc(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
         cl.tcgen05_store(shape, smem[0], v, unpack=unpack, offset=offset)
         cl.tcgen05_wait_store()
-        cl.tcgen05_dealloc(smem[0], 128)
+        cl.tcgen05_deallocate(smem[0], 128)
 
     expect = (
         f"tcgen05.st.sync.aligned.{shape.value}.x{count}"
@@ -167,7 +167,7 @@ def test_store_rejects_wrong_value_dtype():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
         cl.tcgen05_store(
-            cl.Tcgen05LdStShape.SHAPE_16X64B,
+            cl.Tcgen05LoadStoreShape.SHAPE_16X64B,
             smem[0],
             cl.float32(0),
         )
@@ -187,7 +187,7 @@ def test_store_rejects_invalid_register_count():
 
         # 16x128b requires 2 * count registers; three is invalid.
         cl.tcgen05_store(
-            cl.Tcgen05LdStShape.SHAPE_16X128B,
+            cl.Tcgen05LoadStoreShape.SHAPE_16X128B,
             smem[0],
             value,
         )
@@ -201,8 +201,8 @@ def test_store_rejects_invalid_register_count():
 @pytest.mark.parametrize(
     "shape,offset",
     (
-        (cl.Tcgen05LdStShape.SHAPE_16X32BX2, None),
-        (cl.Tcgen05LdStShape.SHAPE_16X64B, 1),
+        (cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2, None),
+        (cl.Tcgen05LoadStoreShape.SHAPE_16X64B, 1),
     ),
 )
 def test_store_offset_validation(shape, offset):
@@ -230,7 +230,7 @@ def test_copy(shape, cta_group, multicast, source_format):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_alloc(smem.get_base_pointer(), 128, cta_group=allocation_group)
+        cl.tcgen05_allocate(smem.get_base_pointer(), 128, cta_group=allocation_group)
         tmem_ptr = smem[0]
         descriptor = cl.int64(0xDEADBEEF)
         cl.tcgen05_copy(
@@ -241,7 +241,7 @@ def test_copy(shape, cta_group, multicast, source_format):
             multicast=multicast,
             source_format=source_format,
         )
-        cl.tcgen05_dealloc(tmem_ptr, 128, cta_group=allocation_group)
+        cl.tcgen05_deallocate(tmem_ptr, 128, cta_group=allocation_group)
 
     valid_multicasts = {
         cl.Tcgen05CopyShape.SHAPE_128x256b: (None,),
@@ -287,7 +287,7 @@ def test_copy(shape, cta_group, multicast, source_format):
     compile_kernel(kernel, assert_in_ptx=expect, raises=raises)
 
 
-@pytest.mark.parametrize("shape", tuple(cl.Tcgen05LdStShape))
+@pytest.mark.parametrize("shape", tuple(cl.Tcgen05LoadStoreShape))
 @pytest.mark.parametrize("count", (1, 2, 4, 8, 16, 32, 64, 128))
 @pytest.mark.parametrize("pack", (True, False, None))
 @pytest.mark.parametrize("offset", (None, 0, 1))
@@ -296,10 +296,10 @@ def test_load(log_ptx, shape, count, pack, offset):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_alloc(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
         tmem_ptr = smem[0]
         cl.tcgen05_load(shape, tmem_ptr, count=count, pack=pack, offset=offset)
-        cl.tcgen05_dealloc(tmem_ptr, 128)
+        cl.tcgen05_deallocate(tmem_ptr, 128)
 
     def do_compile():
         compiled = cl.compile_simt(kernel, [KernelSignature([])])
@@ -307,8 +307,8 @@ def test_load(log_ptx, shape, count, pack, offset):
         assert ptx is not None
         assert "tcgen05.ld.sync.aligned" in ptx and shape.value in ptx, ptx
 
-    bad_args = offset is not None and shape is not cl.Tcgen05LdStShape.SHAPE_16X32BX2
-    bad_args |= shape is cl.Tcgen05LdStShape.SHAPE_16X256B and count not in (
+    bad_args = offset is not None and shape is not cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2
+    bad_args |= shape is cl.Tcgen05LoadStoreShape.SHAPE_16X256B and count not in (
         1,
         2,
         4,
@@ -316,8 +316,8 @@ def test_load(log_ptx, shape, count, pack, offset):
         16,
         32,
     )
-    bad_args |= shape is cl.Tcgen05LdStShape.SHAPE_16X32BX2 and offset is None
-    bad_args |= shape is cl.Tcgen05LdStShape.SHAPE_16X128B and count not in (
+    bad_args |= shape is cl.Tcgen05LoadStoreShape.SHAPE_16X32BX2 and offset is None
+    bad_args |= shape is cl.Tcgen05LoadStoreShape.SHAPE_16X128B and count not in (
         1,
         2,
         4,

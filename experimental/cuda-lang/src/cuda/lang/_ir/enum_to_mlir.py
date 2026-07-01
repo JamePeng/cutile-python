@@ -80,7 +80,7 @@ cl_enum_to_mlir_attribute.register(
     partial(enum_to_mlir_nvvm_attribute, mlir_enum=mlir.nvvm.Tcgen05MMACollectorOp),
 )
 cl_enum_to_mlir_attribute.register(
-    enums.Tcgen05LdStShape,
+    enums.Tcgen05LoadStoreShape,
     partial(enum_to_mlir_nvvm_attribute, mlir_enum=mlir.nvvm.Tcgen05LdStShape),
 )
 cl_enum_to_mlir_attribute.register(

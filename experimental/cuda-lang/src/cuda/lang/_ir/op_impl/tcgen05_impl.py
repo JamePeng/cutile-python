@@ -8,7 +8,7 @@ from cuda.tile._ir.cast_ops import implicit_cast
 import cuda.lang._datatype as datatype
 from cuda.lang._enums import (
     Tcgen05MMAKind,
-    Tcgen05LdStShape,
+    Tcgen05LoadStoreShape,
     Tcgen05MMACollectorOp,
     CTAGroup,
     Tcgen05CopyMulticast,
@@ -59,57 +59,61 @@ def tcgen05_impl_registry() -> ImplRegistry:
 
 
 TCGEN05_VALID_COUNTS_BY_SHAPE = {
-    Tcgen05LdStShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
-    Tcgen05LdStShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
-    Tcgen05LdStShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
-    Tcgen05LdStShape.SHAPE_32X32B: (1, 2, 4, 8, 16, 32, 64, 128),
-    Tcgen05LdStShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
+    Tcgen05LoadStoreShape.SHAPE_16X64B: (1, 2, 4, 8, 16, 32, 64, 128),
+    Tcgen05LoadStoreShape.SHAPE_16X128B: (1, 2, 4, 8, 16, 32, 64),
+    Tcgen05LoadStoreShape.SHAPE_16X256B: (1, 2, 4, 8, 16, 32),
+    Tcgen05LoadStoreShape.SHAPE_32X32B: (1, 2, 4, 8, 16, 32, 64, 128),
+    Tcgen05LoadStoreShape.SHAPE_16X32BX2: (1, 2, 4, 8, 16, 32, 64, 128),
 }
 
 TCGEN05_REGISTERS_PER_COUNT = {
-    Tcgen05LdStShape.SHAPE_16X64B: 1,
-    Tcgen05LdStShape.SHAPE_16X128B: 2,
-    Tcgen05LdStShape.SHAPE_16X256B: 4,
-    Tcgen05LdStShape.SHAPE_32X32B: 1,
-    Tcgen05LdStShape.SHAPE_16X32BX2: 1,
+    Tcgen05LoadStoreShape.SHAPE_16X64B: 1,
+    Tcgen05LoadStoreShape.SHAPE_16X128B: 2,
+    Tcgen05LoadStoreShape.SHAPE_16X256B: 4,
+    Tcgen05LoadStoreShape.SHAPE_32X32B: 1,
+    Tcgen05LoadStoreShape.SHAPE_16X32BX2: 1,
 }
 
 
-@impl(tcgen05_stub.tcgen05_alloc)
-def tcgen05_alloc_impl(
-    addr: Var,
-    ncols: Var,
+@impl(tcgen05_stub.tcgen05_allocate)
+def tcgen05_allocate_impl(
+    address: Var,
+    number_of_columns: Var,
     cta_group: Var,
 ) -> None:
     require_pointer_in_memory_space(
-        addr, (MemorySpace.SHARED_CLUSTER, MemorySpace.SHARED)
+        address, (MemorySpace.SHARED_CLUSTER, MemorySpace.SHARED)
     )
-    ncols = implicit_cast(ncols, datatype.int32, "cast num columns to int32")
+    number_of_columns = implicit_cast(
+        number_of_columns, datatype.int32, "cast number of columns to int32"
+    )
     cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
     intrinsic = "llvm.nvvm.tcgen05.alloc.shared." + cta_group_value.value
     add_operation_variadic(
         RawNVVMIntrinsic,
         (),
         intrinsic=intrinsic,
-        operands_=(addr, ncols),
+        operands_=(address, number_of_columns),
     )
 
 
-@impl(tcgen05_stub.tcgen05_dealloc)
-def tcgen05_dealloc_impl(
-    addr: Var,
-    ncols: Var,
+@impl(tcgen05_stub.tcgen05_deallocate)
+def tcgen05_deallocate_impl(
+    address: Var,
+    number_of_columns: Var,
     cta_group: Var,
 ) -> None:
-    require_pointer_in_memory_space(addr, (MemorySpace.TENSOR,))
-    ncols = implicit_cast(ncols, datatype.int32, "cast num columns to int32")
+    require_pointer_in_memory_space(address, (MemorySpace.TENSOR,))
+    number_of_columns = implicit_cast(
+        number_of_columns, datatype.int32, "cast number of columns to int32"
+    )
     cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
     intrinsic = "llvm.nvvm.tcgen05.dealloc." + cta_group_value.value
     add_operation_variadic(
         RawNVVMIntrinsic,
         (),
         intrinsic=intrinsic,
-        operands_=(addr, ncols),
+        operands_=(address, number_of_columns),
     )
 
 
@@ -188,13 +192,13 @@ def tcgen05_copy_impl(
 @impl(tcgen05_stub.tcgen05_store)
 def tcgen05_store_impl(
     shape: Var,
-    tmem_addr: Var,
+    tensor_memory_address: Var,
     value: Var,
     unpack: Var,
     offset: Var,
 ):
-    require_pointer_in_memory_space(tmem_addr, (MemorySpace.TENSOR,))
-    shape_value = require_constant_enum(shape, Tcgen05LdStShape)
+    require_pointer_in_memory_space(tensor_memory_address, (MemorySpace.TENSOR,))
+    shape_value = require_constant_enum(shape, Tcgen05LoadStoreShape)
     valid_counts = TCGEN05_VALID_COUNTS_BY_SHAPE[shape_value]
     registers_per_count = TCGEN05_REGISTERS_PER_COUNT[shape_value]
     value_type = value.get_type()
@@ -235,15 +239,16 @@ def tcgen05_store_impl(
         )
 
     count_value = count // registers_per_count
-    needs_offset = shape_value == Tcgen05LdStShape.SHAPE_16X32BX2
+    needs_offset = shape_value == Tcgen05LoadStoreShape.SHAPE_16X32BX2
     has_offset = offset is not None
     if needs_offset != has_offset:
         raise TileTypeError(
-            "offset parameter is only valid with shape Tcgen05LdStShape.SHAPE_16X32BX2"
+            "offset parameter is only valid with shape "
+            "Tcgen05LoadStoreShape.SHAPE_16X32BX2"
         )
 
     operands = (
-        tmem_addr,
+        tensor_memory_address,
         *([offset] if offset is not None else []),
         value,
         unpack,
@@ -260,13 +265,13 @@ def tcgen05_store_impl(
 @impl(tcgen05_stub.tcgen05_load)
 def tcgen05_load_impl(
     shape: Var,
-    tmem_addr: Var,
+    tensor_memory_address: Var,
     count: Var,
     pack: Var,
     offset: Var,
 ) -> Var:
-    require_pointer_in_memory_space(tmem_addr, (MemorySpace.TENSOR,))
-    shape_value = require_constant_enum(shape, Tcgen05LdStShape)
+    require_pointer_in_memory_space(tensor_memory_address, (MemorySpace.TENSOR,))
+    shape_value = require_constant_enum(shape, Tcgen05LoadStoreShape)
     count_value = require_constant_int(count)
     valid_counts = TCGEN05_VALID_COUNTS_BY_SHAPE[shape_value]
     if count_value not in valid_counts:
@@ -276,13 +281,13 @@ def tcgen05_load_impl(
         )
 
     has_offset = not is_none(offset)
-    uses_offset = shape_value is Tcgen05LdStShape.SHAPE_16X32BX2
+    uses_offset = shape_value is Tcgen05LoadStoreShape.SHAPE_16X32BX2
     if uses_offset and not has_offset:
         raise TileTypeError("tcgen05_load with SHAPE_16X32BX2 requires offset")
     if has_offset and not uses_offset:
         raise TileTypeError("tcgen05_load offset is only valid with SHAPE_16X32BX2")
 
-    operands = [tmem_addr]
+    operands = [tensor_memory_address]
     if has_offset:
         require_scalar_type(offset)
         operands.append(astype(offset, datatype.int64))
@@ -345,7 +350,7 @@ def tcgen05_mma_impl(
     matrix_d: Var[Any],
     matrix_a: Var[Any],
     matrix_b: Var[Any],
-    idesc: Var[Any],
+    instruction_descriptor: Var[Any],
     enable_input_d: Var[Any],
     scale_input_d: Var[Any],
     disable_output_lane: Var[Any],
@@ -360,8 +365,10 @@ def tcgen05_mma_impl(
     require_pointer_in_memory_space(matrix_d, (MemorySpace.TENSOR,))
     matrix_a = _require_tcgen05_mma_matrix_a(matrix_a)
     require_integral_scalar_type(matrix_b, bitwidth=64)
-    require_integral_scalar_type(idesc)
-    idesc = implicit_cast(idesc, datatype.int32, "idesc as int32")
+    require_integral_scalar_type(instruction_descriptor)
+    instruction_descriptor = implicit_cast(
+        instruction_descriptor, datatype.int32, "instruction descriptor as int32"
+    )
     enable_input_d = implicit_cast(
         enable_input_d, datatype.bool_, "enable_input_d as bool_"
     )
@@ -374,7 +381,7 @@ def tcgen05_mma_impl(
         .add_operand(matrix_d)
         .add_operand(matrix_a)
         .add_operand(matrix_b)
-        .add_operand(idesc)
+        .add_operand(instruction_descriptor)
         .add_operand(enable_input_d)
     )
 

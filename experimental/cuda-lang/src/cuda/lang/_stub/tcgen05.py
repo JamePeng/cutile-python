@@ -16,7 +16,7 @@ from .._enums import (
     SwizzleMode,
     Tcgen05MMAKind,
     Tcgen05MMACollectorOp,
-    Tcgen05LdStShape,
+    Tcgen05LoadStoreShape,
     Tcgen05CopyMulticast,
     Tcgen05CopyShape,
     Tcgen05CopySourceFormat,
@@ -78,24 +78,24 @@ def tcgen05_shift_down(address, cta_group: CTAGroup = CTAGroup.CTA_1) -> None:
 
 
 @stub
-def tcgen05_alloc(
-    addr: P3,
-    ncols: int,
+def tcgen05_allocate(
+    address: P3,
+    number_of_columns: int,
     *,
     cta_group: CTAGroup = CTAGroup.CTA_1,
 ) -> None:
-    """Allocate tensor memory columns and write the tensor-memory address to ``addr``."""
+    """Allocate tensor memory columns and write their address to ``address``."""
     ...
 
 
 @stub
-def tcgen05_dealloc(
-    addr: P6,
-    ncols: int,
+def tcgen05_deallocate(
+    address: P6,
+    number_of_columns: int,
     *,
     cta_group: CTAGroup = CTAGroup.CTA_1,
 ) -> None:
-    """Deallocate tensor memory columns starting at ``addr``."""
+    """Deallocate tensor memory columns starting at ``address``."""
     ...
 
 
@@ -112,8 +112,8 @@ def tcgen05_commit(
 
 @stub
 def tcgen05_load(
-    shape: Tcgen05LdStShape,
-    tmem_addr: P6,
+    shape: Tcgen05LoadStoreShape,
+    tensor_memory_address: P6,
     *,
     count: int = 1,
     pack: bool | None = None,
@@ -138,7 +138,7 @@ def tcgen05_copy(
     location specified by ``address``.
 
     Args:
-        address: Pointer in tensor memory allocated by tcgen05_alloc.
+        address: Pointer in tensor memory allocated by tcgen05_allocate.
         shared_memory_descriptor: Shared memory descriptor encoded
             as a 64-bit integer.
         cta_group:
@@ -150,8 +150,8 @@ def tcgen05_copy(
 
 @stub
 def tcgen05_store(
-    shape: Tcgen05LdStShape,
-    tmem_addr,
+    shape: Tcgen05LoadStoreShape,
+    tensor_memory_address,
     value,
     *,
     unpack: bool = False,
@@ -162,14 +162,15 @@ def tcgen05_store(
 
     Args:
         shape:
-        tmem_addr: pointer in tensor memory (address space 6)
+        tensor_memory_address: Pointer in tensor memory (address space 6).
         value: 32-bit signless integer or vector of 32-bit signless integer
             values of length 2/4/8/16/32/64/128
         unpack: unpack a 32-bit element in the register into two 16-bit
             elements and store them in adjacent columns.
         offset: When shape 16x32bx2 is used, base address of the first access is
-            specified by tmemAddr and the base address of the second access is
-            specified by tmemAddr + offset, where offset is an immediate argument.
+            specified by ``tensor_memory_address`` and the base address of the second
+            access is specified by ``tensor_memory_address + offset``, where offset is
+            an immediate argument.
     """
 
 
@@ -350,15 +351,15 @@ class Tcgen05Mxf4InstructionDescriptor:
 
 @dataclass(frozen=True)
 class Tcgen05SharedMemoryDescriptor:
-    class LeadingDimMode(IntEnum):
+    class LeadingDimensionMode(IntEnum):
         ByteOffsetRelative = 0
         ByteAddressAbsolute = 1
 
     matrix_start_address: int
-    leading_dim_offset: int
-    stride_dim_offset: int
+    leading_dimension_offset: int
+    stride_dimension_offset: int
     base_offset: int = 0
-    leading_dim_mode: LeadingDimMode = LeadingDimMode.ByteOffsetRelative
+    leading_dimension_mode: LeadingDimensionMode = LeadingDimensionMode.ByteOffsetRelative
     swizzle_mode: SwizzleMode = SwizzleMode.SWIZZLE_NONE
 
     @stub
@@ -373,7 +374,7 @@ def tcgen05_mma(
     matrix_d,
     matrix_a,
     matrix_b,
-    idesc,
+    instruction_descriptor,
     enable_input_d,
     scale_input_d=None,
     disable_output_lane=None,
@@ -387,7 +388,7 @@ def tcgen05_mma(
         matrix_d (P6):
         matrix_a (P6 | int64):
         matrix_b (int64):
-        idesc (int32):
+        instruction_descriptor (int32):
         enable_input_d (bool):
         scale_input_d (int32 | None):
         disable_output_lane (vector | None):
@@ -400,7 +401,7 @@ __all__ = (
     "CTAGroup",
     "Tcgen05MMAKind",
     "Tcgen05MMACollectorOp",
-    "Tcgen05LdStShape",
+    "Tcgen05LoadStoreShape",
     "Tcgen05CopyMulticast",
     "Tcgen05CopyShape",
     "Tcgen05CopySourceFormat",
@@ -408,8 +409,8 @@ __all__ = (
     "Tcgen05Mxf8f6f4InstructionDescriptor",
     "Tcgen05Mxf4InstructionDescriptor",
     "Tcgen05SharedMemoryDescriptor",
-    "tcgen05_alloc",
-    "tcgen05_dealloc",
+    "tcgen05_allocate",
+    "tcgen05_deallocate",
     "tcgen05_commit",
     "tcgen05_load",
     "tcgen05_copy",

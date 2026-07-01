@@ -15,7 +15,7 @@ WaitOrdering = Literal[MemoryOrder.RELAXED, MemoryOrder.ACQUIRE]
 
 
 @stub
-def mbarrier_init(mbar, participants: int) -> None:
+def mbarrier_initialize(mbar, participants: int) -> None:
     """Initialize an mbarrier with the expected participant count."""
     ...
 
@@ -43,7 +43,7 @@ def mbarrier_arrive(
 
 
 @stub
-def mbarrier_arrive_expect_tx(
+def mbarrier_arrive_expect_transaction(
     mbar,
     bytes: int,
     *,
@@ -56,7 +56,7 @@ def mbarrier_arrive_expect_tx(
 
 
 @stub
-def mbarrier_expect_tx(
+def mbarrier_expect_transaction(
     mbar,
     bytes: int,
     *,
@@ -67,7 +67,7 @@ def mbarrier_expect_tx(
 
 
 @stub
-def mbarrier_complete_tx(
+def mbarrier_complete_transaction(
     mbar,
     bytes: int,
     *,
@@ -128,12 +128,12 @@ def mbarrier_try_wait_parity(
 
 
 __all__ = (
-    "mbarrier_init",
+    "mbarrier_initialize",
     "mbarrier_invalidate",
     "mbarrier_arrive",
-    "mbarrier_arrive_expect_tx",
-    "mbarrier_expect_tx",
-    "mbarrier_complete_tx",
+    "mbarrier_arrive_expect_transaction",
+    "mbarrier_expect_transaction",
+    "mbarrier_complete_transaction",
     "mbarrier_test_wait",
     "mbarrier_test_wait_parity",
     "mbarrier_try_wait",

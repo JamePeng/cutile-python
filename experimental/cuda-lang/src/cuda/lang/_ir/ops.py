@@ -900,7 +900,9 @@ def tcgen05_shared_memory_descriptor_encode_impl(self: Var) -> Var:
         value_and_clear_mask = binary_bitwise_tensorlike("and_", value, clear_mask)
         return binary_bitwise_tensorlike("or_", value_and_clear_mask, insert)
 
-    leading_dim_mode = require_constant_int(descriptor.get_field("leading_dim_mode"))
+    leading_dimension_mode = require_constant_int(
+        descriptor.get_field("leading_dimension_mode")
+    )
     swizzle_mode = descriptor.get_field("swizzle_mode")
     swizzle_mode = require_constant_enum(swizzle_mode, SwizzleMode)
     swizzle_encoding = {
@@ -920,8 +922,8 @@ def tcgen05_shared_memory_descriptor_encode_impl(self: Var) -> Var:
     value = strictly_typed_const(0, uint64_ty)
     for field_name in (
         "matrix_start_address",
-        "leading_dim_offset",
-        "stride_dim_offset",
+        "leading_dimension_offset",
+        "stride_dimension_offset",
     ):
         c_0x3ffff = strictly_typed_const(0x3FFFF, uint64_ty)
         c_4 = strictly_typed_const(4, uint64_ty)
@@ -936,8 +938,8 @@ def tcgen05_shared_memory_descriptor_encode_impl(self: Var) -> Var:
     base_offset = astype(descriptor.get_field("base_offset"), datatype.uint64)
     value = set_bits(value, base_offset, 49, 3)
 
-    leading_dim_mode = strictly_typed_const(leading_dim_mode, uint64_ty)
-    value = set_bits(value, leading_dim_mode, 52, 1)
+    leading_dimension_mode = strictly_typed_const(leading_dimension_mode, uint64_ty)
+    value = set_bits(value, leading_dimension_mode, 52, 1)
 
     swizzle_value = strictly_typed_const(swizzle_encoding[swizzle_mode], uint64_ty)
     value = set_bits(value, swizzle_value, 61, 3)
@@ -1062,8 +1064,8 @@ def _call_foreign_function_impl(func: Var, return_type: Var, parameters: Var):
         )
 
 
-@impl(mbarrier_stub.mbarrier_init)
-def mbarrier_init_impl(mbar: Var, participants: Var) -> Var:
+@impl(mbarrier_stub.mbarrier_initialize)
+def mbarrier_initialize_impl(mbar: Var, participants: Var) -> Var:
     require_mbarrier_ptr(mbar)
     participants = astype(participants, datatype.int32)
     add_operation_variadic(
@@ -1148,8 +1150,8 @@ def mbarrier_arrive_impl(
     return results[0] if return_type else None
 
 
-@impl(mbarrier_stub.mbarrier_arrive_expect_tx)
-def mbarrier_arrive_expect_tx_impl(
+@impl(mbarrier_stub.mbarrier_arrive_expect_transaction)
+def mbarrier_arrive_expect_transaction_impl(
     mbar: Var,
     bytes: Var,
     drop: Var,
@@ -1179,8 +1181,8 @@ def mbarrier_arrive_expect_tx_impl(
     return results[0] if return_type else None
 
 
-@impl(mbarrier_stub.mbarrier_expect_tx)
-def mbarrier_expect_tx_impl(mbar: Var, bytes: Var, scope: Var):
+@impl(mbarrier_stub.mbarrier_expect_transaction)
+def mbarrier_expect_transaction_impl(mbar: Var, bytes: Var, scope: Var):
     space = require_mbarrier_ptr(mbar).memory_space
     bytes = astype(bytes, datatype.int32)
     scope = require_constant_enum(scope, MbarrierScope)
@@ -1194,8 +1196,8 @@ def mbarrier_expect_tx_impl(mbar: Var, bytes: Var, scope: Var):
     )
 
 
-@impl(mbarrier_stub.mbarrier_complete_tx)
-def mbarrier_complete_tx_impl(mbar: Var, bytes: Var, scope: Var) -> Var:
+@impl(mbarrier_stub.mbarrier_complete_transaction)
+def mbarrier_complete_transaction_impl(mbar: Var, bytes: Var, scope: Var) -> Var:
     space = require_mbarrier_ptr(mbar).memory_space
     bytes = astype(bytes, datatype.int32)
     scope = require_constant_enum(scope, MbarrierScope)

@@ -76,7 +76,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
     phase = 0
 
     if tx == 0:
-        cl.mbarrier_init(mbar, 1)
+        cl.mbarrier_initialize(mbar, 1)
 
     alpha = compute()
     while True:
@@ -85,7 +85,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
         if tx == 0:
             cl._nvvm.fence_proxy_async_generic_acquire_sync_restrict_space_cluster_scope_cluster()
             cl.clusterlaunchcontrol_try_cancel(clc_resp, mbar)
-            cl.mbarrier_arrive_expect_tx(
+            cl.mbarrier_arrive_expect_transaction(
                 mbar,
                 clc_bytes,
                 memory_order=cl.MemoryOrder.RELAXED,
@@ -121,7 +121,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
     phase = 0
 
     if tx == 0:
-        cl.mbarrier_init(mbar, 1)
+        cl.mbarrier_initialize(mbar, 1)
         cl._nvvm.fence_mbarrier_init_release_cluster()
 
     alpha = compute()
@@ -135,7 +135,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
             cl.clusterlaunchcontrol_try_cancel(clc_resp, mbar, multicast=True)
 
         if tx == 0:
-            cl.mbarrier_arrive_expect_tx(
+            cl.mbarrier_arrive_expect_transaction(
                 mbar,
                 clc_bytes,
                 scope=cl.MbarrierScope.CLUSTER,

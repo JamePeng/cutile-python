@@ -47,7 +47,7 @@ def test_cp_async_bulk_tensor_mlir_interface():
         smem = cl.shared_array(64, dtype=cl.int32, alignment=512)
 
         if cl.thread_index(0) == 0:
-            cl.mbarrier_init(mbar, cl.thread_count(0))
+            cl.mbarrier_initialize(mbar, cl.thread_count(0))
 
         cl.barrier_sync_block()
         if cl.elect_sync():
@@ -60,7 +60,7 @@ def test_cp_async_bulk_tensor_mlir_interface():
                 mode=nvvm.TMALoadMode.TILE,
                 is_cta_only=True,
             )
-            token = cl.mbarrier_arrive_expect_tx(mbar, 64 * 4)
+            token = cl.mbarrier_arrive_expect_transaction(mbar, 64 * 4)
         else:
             token = cl.mbarrier_arrive(mbar)
 

@@ -58,7 +58,7 @@ def compile_empty_kernel_with_call(func, **kwargs):
 @pytest.mark.parametrize(
     "func, expect",
     (
-        (cl.fence_mbarrier_init, "fence.mbarrier_init.release.cluster"),
+        (cl.fence_mbarrier_initialize, "fence.mbarrier_init.release.cluster"),
         (cl.fence_sc_cluster, "fence.sc.cluster"),
     ),
 )

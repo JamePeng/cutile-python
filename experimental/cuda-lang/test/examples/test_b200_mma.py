@@ -43,7 +43,7 @@ def p3_to_u64(pointer):
 
 def epilogue_store_tile(c_ptr, tmem_base, warp, base_col, g_row, g_col, n):
     tmem_ptr = tcgen05_tmem_ptr_from_warp_row_col(tmem_base, warp, base_col)
-    regs = cl.tcgen05_load(cl.Tcgen05LdStShape.SHAPE_32X32B, tmem_ptr, count=16)
+    regs = cl.tcgen05_load(cl.Tcgen05LoadStoreShape.SHAPE_32X32B, tmem_ptr, count=16)
     cl.tcgen05_wait_load()
 
     for pair_idx in ct.static_iter(range(8)):
@@ -110,17 +110,17 @@ def make_mma_kernel(
 
         if warp_id == 0 and cl.elect_sync():
             for stage in ct.static_iter(range(num_stages)):
-                cl.mbarrier_init(tma_mbars.get_element_pointer(stage), cta_group)
-                cl.mbarrier_init(mma_mbars.get_element_pointer(stage), 1)
+                cl.mbarrier_initialize(tma_mbars.get_element_pointer(stage), cta_group)
+                cl.mbarrier_initialize(mma_mbars.get_element_pointer(stage), 1)
 
             for stage in ct.static_iter(range(2)):
-                cl.mbarrier_init(mainloop_mbars.get_element_pointer(stage), 1)
-                cl.mbarrier_init(
+                cl.mbarrier_initialize(mainloop_mbars.get_element_pointer(stage), 1)
+                cl.mbarrier_initialize(
                     epilogue_mbars.get_element_pointer(stage),
                     4 * cta_group * WARP_SIZE,
                 )
 
-            cl.fence_mbarrier_init()
+            cl.fence_mbarrier_initialize()
 
         if cta_group > 1:
             cl.barrier_sync_cluster(aligned=True)
@@ -189,7 +189,7 @@ def make_mma_kernel(
                                 b_tma_dst,
                                 tma_arrive_mbar,
                             )
-                        cl.mbarrier_arrive_expect_tx(
+                        cl.mbarrier_arrive_expect_transaction(
                             tma_expect_mbar,
                             (BLOCK_M + block_n // cta_group) * BLOCK_K * 2,
                             scope=cl.MbarrierScope.BLOCK,
@@ -202,7 +202,7 @@ def make_mma_kernel(
                     this_bid = this_bid + num_bids
 
         elif warp_id == NUM_WARPS - 1:
-            cl.tcgen05_alloc(
+            cl.tcgen05_allocate(
                 tmem_storage.get_base_pointer(),
                 block_n * 2,
                 cta_group=cta_group_kind,
@@ -234,20 +234,20 @@ def make_mma_kernel(
                     for iter_k in range(num_iters):
                         a_stage_ptr = a_smem.get_element_pointer((tma_stage, 0))
                         b_stage_ptr = b_smem.get_element_pointer((tma_stage, 0))
-                        tmem_addr = mainloop_stage * block_n
+                        tensor_memory_address = mainloop_stage * block_n
 
                         a_smem_addr = p3_to_u64(a_stage_ptr)
                         b_smem_addr = p3_to_u64(b_stage_ptr)
                         a_desc = cl.Tcgen05SharedMemoryDescriptor(
                             matrix_start_address=a_smem_addr,
-                            leading_dim_offset=0,
-                            stride_dim_offset=8 * 128,
+                            leading_dimension_offset=0,
+                            stride_dimension_offset=8 * 128,
                             swizzle_mode=(cl.SwizzleMode.SWIZZLE_128B),
                         ).encode()
                         b_desc = cl.Tcgen05SharedMemoryDescriptor(
                             matrix_start_address=b_smem_addr,
-                            leading_dim_offset=0,
-                            stride_dim_offset=8 * 128,
+                            leading_dimension_offset=0,
+                            stride_dimension_offset=8 * 128,
                             swizzle_mode=(cl.SwizzleMode.SWIZZLE_128B),
                         ).encode()
 
@@ -259,7 +259,7 @@ def make_mma_kernel(
                         cl.tcgen05_mma(
                             cl.Tcgen05MMAKind.F16,
                             cta_group_kind,
-                            tmem_ptr + tmem_addr,
+                            tmem_ptr + tensor_memory_address,
                             cl.int64(a_desc),
                             cl.int64(b_desc),
                             cl.int32(i_desc),
@@ -269,7 +269,7 @@ def make_mma_kernel(
                             cl.tcgen05_mma(
                                 cl.Tcgen05MMAKind.F16,
                                 cta_group_kind,
-                                tmem_ptr + tmem_addr,
+                                tmem_ptr + tensor_memory_address,
                                 cl.int64(a_desc + (32 >> 4) * kk),
                                 cl.int64(b_desc + (32 >> 4) * kk),
                                 cl.int32(i_desc),
@@ -360,7 +360,7 @@ def make_mma_kernel(
                 cl.barrier_sync_block(barrier_id=1, number_of_threads=4 * WARP_SIZE)
 
             if warp_id == 0:
-                cl.tcgen05_dealloc(
+                cl.tcgen05_deallocate(
                     tmem_storage[0],
                     block_n * 2,
                     cta_group=cta_group_kind,

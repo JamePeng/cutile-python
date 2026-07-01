@@ -29,7 +29,7 @@ def test_cluster_barriers():
         mbar = mbar.get_base_pointer()
 
         if tx == 0:
-            cl.mbarrier_init(mbar, cdx * bdx)
+            cl.mbarrier_initialize(mbar, cdx * bdx)
 
         cl._nvvm.fence_mbarrier_init_release_cluster()
         cl.barrier_sync_block()
@@ -76,13 +76,13 @@ def _get_intrinsics(kernel):
 
 
 @require_hopper_or_newer()
-def test_init_and_invalidate():
+def test_initialize_and_invalidate():
     @cl.kernel
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
         ).get_base_pointer()
-        cl.mbarrier_init(mbar, 32)
+        cl.mbarrier_initialize(mbar, 32)
         cl.mbarrier_invalidate(mbar)
 
     names = _get_intrinsics(kernel)
@@ -98,15 +98,15 @@ WAIT_ORDERINGS = [cl.MemoryOrder.ACQUIRE, cl.MemoryOrder.RELAXED]
 @pytest.mark.parametrize("scope", SCOPES)
 @pytest.mark.parametrize("ordering", ARRIVE_ORDERINGS)
 @pytest.mark.parametrize("drop", [False, True])
-@pytest.mark.parametrize("expect_tx", [False, True])
-def test_arrive_intrinsic_name(expect_tx, drop, ordering, scope):
+@pytest.mark.parametrize("expect_transaction", [False, True])
+def test_arrive_intrinsic_name(expect_transaction, drop, ordering, scope):
     @cl.kernel
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
         ).get_base_pointer()
-        if expect_tx:
-            cl.mbarrier_arrive_expect_tx(
+        if expect_transaction:
+            cl.mbarrier_arrive_expect_transaction(
                 mbar, 128, drop=drop, scope=scope, memory_order=ordering
             )
         else:
@@ -115,7 +115,7 @@ def test_arrive_intrinsic_name(expect_tx, drop, ordering, scope):
     expected = "llvm.nvvm.mbarrier.arrive"
     if drop:
         expected += ".drop"
-    if expect_tx:
+    if expect_transaction:
         expected += ".expect.tx"
     if ordering is cl.MemoryOrder.RELAXED:
         expected += ".relaxed"
@@ -125,21 +125,23 @@ def test_arrive_intrinsic_name(expect_tx, drop, ordering, scope):
 
 @require_hopper_or_newer()
 @pytest.mark.parametrize("scope", SCOPES)
-@pytest.mark.parametrize("op", ["expect_tx", "complete_tx"])
-def test_expect_complete_tx_intrinsic_name(op, scope):
-    fn = getattr(cl, f"mbarrier_{op}")
+@pytest.mark.parametrize(
+    ("operation", "intrinsic"),
+    (
+        (cl.mbarrier_expect_transaction, "llvm.nvvm.mbarrier.expect.tx"),
+        (cl.mbarrier_complete_transaction, "llvm.nvvm.mbarrier.complete.tx"),
+    ),
+)
+def test_expect_complete_transaction_intrinsic_name(operation, intrinsic, scope):
 
     @cl.kernel
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
         ).get_base_pointer()
-        fn(mbar, 64, scope=scope)
+        operation(mbar, 64, scope=scope)
 
-    expected = (
-        f"llvm.nvvm.mbarrier.{op.replace('_', '.')}"
-        + f".scope.{scope.value}.space.cta"
-    )
+    expected = intrinsic + f".scope.{scope.value}.space.cta"
     assert expected in _get_intrinsics(kernel)
 
 

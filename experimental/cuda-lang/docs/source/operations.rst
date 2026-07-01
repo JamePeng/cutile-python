@@ -174,12 +174,12 @@ Synchronization
     barrier_wait_cluster
     barrier_sync_cluster
 
-    mbarrier_init
+    mbarrier_initialize
     mbarrier_invalidate
     mbarrier_arrive
-    mbarrier_arrive_expect_tx
-    mbarrier_expect_tx
-    mbarrier_complete_tx
+    mbarrier_arrive_expect_transaction
+    mbarrier_expect_transaction
+    mbarrier_complete_transaction
     mbarrier_test_wait
     mbarrier_test_wait_parity
     mbarrier_try_wait
@@ -209,8 +209,8 @@ TensorCore (Gen5)
    :toctree: generated
    :nosignatures:
 
-    tcgen05_alloc
-    tcgen05_dealloc
+    tcgen05_allocate
+    tcgen05_deallocate
     tcgen05_commit
     tcgen05_load
     tcgen05_store
@@ -220,7 +220,7 @@ TensorCore (Gen5)
    :nosignatures:
    :template: autosummary/class_no_init.rst
 
-    Tcgen05LdStShape
+    Tcgen05LoadStoreShape
     CTAGroup
 
 

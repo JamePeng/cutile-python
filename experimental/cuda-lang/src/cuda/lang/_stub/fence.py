@@ -15,7 +15,7 @@ def fence_sc_cluster() -> None:
 
 
 @function
-def fence_mbarrier_init() -> None:
+def fence_mbarrier_initialize() -> None:
     _mlir.fence_mbarrier_init()
 
 
@@ -85,7 +85,7 @@ __all__ = (
     "FenceProxyKind",
     "fence_sync_restrict",
     "fence_sc_cluster",
-    "fence_mbarrier_init",
+    "fence_mbarrier_initialize",
     "fence_proxy_sync_restrict",
     "fence_proxy",
     "fence_proxy_acquire",

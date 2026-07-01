@@ -19,14 +19,14 @@ def test_mbar_manager():
         smem = cl.shared_array(shape=(W * H,), dtype=cl.int32, alignment=512)
 
         if cl.thread_index(0) == 0:
-            cl.mbarrier_init(mbar, cl.thread_count(0))
+            cl.mbarrier_initialize(mbar, cl.thread_count(0))
 
         cl.barrier_sync_block()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
                 x_tm, (j, i), smem.get_base_pointer(), mbar
             )
-            tok = cl.mbarrier_arrive_expect_tx(mbar, W * H * 4)
+            tok = cl.mbarrier_arrive_expect_transaction(mbar, W * H * 4)
         else:
             tok = cl.mbarrier_arrive(mbar)
 
@@ -59,7 +59,7 @@ def test_tensor_map_tiled():
         x_tm = cl.tensor_map_tiled(x, (W, H), order="F")
 
         if cl.thread_index(0) == 0:
-            cl.mbarrier_init(barrier.get_base_pointer(), cl.thread_count(0))
+            cl.mbarrier_initialize(barrier.get_base_pointer(), cl.thread_count(0))
 
         cl.barrier_sync_block()
         if cl.elect_sync():
@@ -69,7 +69,9 @@ def test_tensor_map_tiled():
                 smem.get_base_pointer(),
                 barrier.get_base_pointer(),
             )
-            tok = cl.mbarrier_arrive_expect_tx(barrier.get_base_pointer(), W * H * 4)
+            tok = cl.mbarrier_arrive_expect_transaction(
+                barrier.get_base_pointer(), W * H * 4
+            )
         else:
             tok = cl.mbarrier_arrive(barrier.get_base_pointer())
 
