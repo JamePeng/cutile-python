@@ -27,13 +27,17 @@ from cuda.lang._ir.type_checking_helpers import (
     require_scalar_or_vector_type,
 )
 from cuda.tile._datatype import is_float, is_integral
+from cuda.tile._stub import cdiv
 from cuda.tile._ir.arithmetic_ops import (
     UNARY_INT_FLOAT,
     astype,
     binary_arithmetic_tensorlike,
+    binary_bitwise_tensorlike,
+    compare_tensorlike,
     mod_tensorlike,
     promote_and_broadcast_to,
     unary,
+    where,
 )
 from cuda.tile._ir.core_ops import strictly_typed_const
 from cuda.tile._ir.op_impl import (
@@ -51,6 +55,7 @@ def math_impl_registry() -> ImplRegistry:
     return _registry
 
 
+@impl(cdiv, fixed_args=["cdiv"])
 @impl(cl_math.add, fixed_args=["add"])
 @impl(cl_math.sub, fixed_args=["sub"])
 @impl(cl_math.mul, fixed_args=["mul"])
@@ -60,9 +65,73 @@ def math_binary_arithmetic_impl(fn: str, x: Var, y: Var):
     return binary_arithmetic_tensorlike(fn, x, y)
 
 
+def get_libdevice_fmod_function(dtype):
+    match dtype:
+        case datatype.float32:
+            entrypoint = "__nv_fmodf"
+        case datatype.float64:
+            entrypoint = "__nv_fmod"
+        case _:
+            raise TileTypeError(f"mod is not valid for dtype {dtype}")
+    return lambda x, y: add_operation(
+        ForeignFunction,
+        ScalarTy(dtype),
+        function_name=entrypoint,
+        operands_=(x, y),
+    )
+
+
+def float_modulo_with_corrected_sign(value: Var, y: Var) -> Var:
+    """
+    Python modulo takes the sign from the second operand
+
+    https://docs.python.org/3.14/reference/expressions.html
+    > The modulo operator always yields a result with the same sign as its
+    > second operand
+
+    but libdevice's mod gives the same sign as the first argument, so we correct
+    the sign after calling libdevice.
+
+    https://docs.nvidia.com/cuda/libdevice-users-guide/__nv_fmod.html
+    """
+    ty = value.get_type()
+    assert ty == y.get_type()
+    zero = strictly_typed_const(0, ty)
+    value_sign = compare_tensorlike("lt", value, zero)
+    y_sign = compare_tensorlike("lt", y, zero)
+
+    sign_mismatch = binary_bitwise_tensorlike("xor", value_sign, y_sign)
+    fixed_value = binary_arithmetic_tensorlike("add", value, y)
+    corrected_value = where(sign_mismatch, fixed_value, value)
+
+    value_is_zero = compare_tensorlike("eq", value, zero)
+    negative_zero = unary("neg", UNARY_INT_FLOAT, zero)
+    signed_zero = where(y_sign, negative_zero, zero)
+    return where(value_is_zero, signed_zero, corrected_value)
+
+
+@impl(operator.mod, overload=(TensorLikeTy, TensorLikeTy))
 @impl(cl_math.mod)
 def math_mod_impl(x: Var, y: Var):
-    return mod_tensorlike(x, y)
+    require_scalar_or_vector_type(x)
+    require_scalar_or_vector_type(y)
+    ty = common_type(x, y)
+    dtype = ty.tensor_dtype()
+    if not is_float(dtype):
+        return mod_tensorlike(x, y)
+
+    x = promote_and_broadcast_to(x, ty)
+    y = promote_and_broadcast_to(y, ty)
+    call_dtype = datatype.float32 if dtype.bitwidth < 32 else dtype
+    call_x = astype(x, call_dtype)
+    call_y = astype(y, call_dtype)
+    scalar_fn = get_libdevice_fmod_function(call_dtype)
+    if isinstance(ty, ScalarTy):
+        value = scalar_fn(call_x, call_y)
+    else:
+        value = vector_elementwise_apply(scalar_fn, call_x, call_y)
+    value = astype(value, dtype)
+    return float_modulo_with_corrected_sign(value, y)
 
 
 @impl(cl_math.negative)

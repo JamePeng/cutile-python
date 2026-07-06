@@ -141,6 +141,12 @@ Math
     isnormal
 .. currentmodule:: cuda.lang
 
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+    cdiv
+
 
 Warp shuffle
 ------------

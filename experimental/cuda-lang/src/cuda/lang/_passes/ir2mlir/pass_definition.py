@@ -117,6 +117,16 @@ class _OpForDType:
     float_op: mlir.Operation | None
 
 
+def _add_float_floordiv_op(lhs: mlir.Value, rhs: mlir.Value) -> mlir.Value:
+    quotient = mlir.arith.add_DivFOp(lhs=lhs, rhs=rhs)
+    return mlir.add_operation(
+        name="math.floor",
+        result_type=quotient.type,
+        operands=(quotient,),
+        properties=(),
+    )
+
+
 def _get_mlir_op_for_op_and_dtype(
     fn: str, dtype: datatype.DType
 ) -> Callable[[mlir.Value, mlir.Value], mlir.Value] | None:
@@ -125,6 +135,12 @@ def _get_mlir_op_for_op_and_dtype(
             None,
             mlir.arith.add_FloorDivSIOp,
             mlir.arith.add_DivUIOp,
+            _add_float_floordiv_op,
+        ),
+        "cdiv": _OpForDType(
+            None,
+            mlir.arith.add_CeilDivSIOp,
+            mlir.arith.add_CeilDivUIOp,
             None,
         ),
         "add": _OpForDType(

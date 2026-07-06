@@ -95,7 +95,8 @@ from ._stub.core_api import (
     bitcast,
 )
 from cuda.tile._stub import (
-    Constant
+    Constant,
+    cdiv,
 )
 
 from cuda.lang._stub import libdevice as _libdevice  # noqa: F401
@@ -243,6 +244,7 @@ __all__ = (
     "uint32",
     "uint64",
     "Constant",
+    "cdiv",
     "shared_array",
     "local_array",
     "address_space_cast",

@@ -2,8 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from test.util import compile_kernel
 import cuda.lang as cl
 import cuda.lang._datatype as datatype
+import cuda.tile as ct
 import builtins
 import math as host_math
 import operator
@@ -60,6 +62,12 @@ OPERATOR_ALIAS_BINARY_OPS = (
     (device_math.truediv, operator.truediv, cl.float32),
     (device_math.floordiv, operator.floordiv, cl.int32),
     (device_math.mod, operator.mod, cl.int32),
+    (device_math.floordiv, operator.floordiv, cl.float16),
+    (device_math.mod, operator.mod, cl.float16),
+    (device_math.floordiv, operator.floordiv, cl.float32),
+    (device_math.mod, operator.mod, cl.float32),
+    (device_math.floordiv, operator.floordiv, cl.float64),
+    (device_math.mod, operator.mod, cl.float64),
 )
 
 FPCLASS_OPS = (
@@ -78,6 +86,16 @@ def assert_close_float(actual, expected, dtype):
 def approx_float(expected, dtype):
     tol = FLOAT_TOLERANCES[dtype]
     return pytest.approx(expected, rel=tol["rel"], abs=tol["abs"])
+
+
+def assert_special_float_values(actual, expected):
+    for got, want in zip(actual.tolist(), expected, strict=True):
+        if host_math.isnan(want):
+            assert host_math.isnan(got)
+        else:
+            assert got == want
+            if want == 0.0:
+                assert host_math.copysign(1.0, got) == host_math.copysign(1.0, want)
 
 
 @pytest.mark.parametrize("dtype", FLOAT_TYPES)
@@ -180,7 +198,7 @@ def test_pow(lhs_dt, rhs_dt, result_dt, vector):
             lhs_v = lhs.get_base_pointer().load(count=4)
             rhs_v = rhs.get_base_pointer().load(count=4)
             v = device_math.pow(lhs_v, rhs_v)
-            operator_v = lhs_v ** rhs_v
+            operator_v = lhs_v**rhs_v
             for i in range(4):
                 out[i] = out.dtype(v[i])
                 operator_out[i] = operator_out.dtype(operator_v[i])
@@ -238,7 +256,7 @@ def test_pow_scalar_vector_broadcast(lhs_dt, rhs_dt, result_dt, vector_side):
             lhs_value = lhs[0]
             rhs_value = rhs.get_base_pointer().load(count=4)
         out.get_base_pointer().store(device_math.pow(lhs_value, rhs_value))
-        operator_out.get_base_pointer().store(lhs_value ** rhs_value)
+        operator_out.get_base_pointer().store(lhs_value**rhs_value)
 
     lhs_count = 4 if lhs_vector else 1
     rhs_count = 1 if lhs_vector else 4
@@ -275,20 +293,16 @@ def test_pow_scalar_vector_broadcast(lhs_dt, rhs_dt, result_dt, vector_side):
         # fpowf no promotion
         (datatype.float32, datatype.float32, "__nv_powf"),
         (datatype.float64, datatype.float64, "__nv_pow"),
-
         # fpowi no promotion
         (datatype.float32, datatype.int32, "__nv_powif"),
         (datatype.float64, datatype.int32, "__nv_powi"),
-
         # fpowi integer exponent cast to i32
         (datatype.float64, datatype.int8, "__nv_powi"),
         (datatype.float64, datatype.int16, "__nv_powi"),
         (datatype.float64, datatype.int64, "__nv_powi"),
-
         # promote floats to same type
         (datatype.float32, datatype.float64, "__nv_pow"),
         (datatype.float64, datatype.float32, "__nv_pow"),
-
         # half precision promotion
         (datatype.float16, datatype.float16, "__nv_powf"),
     ),
@@ -432,6 +446,216 @@ def test_operator_alias_binary_math(device_op, python_op, dtype, vector):
     )
     torch.testing.assert_close(out.cpu(), expected)
     torch.testing.assert_close(operator_out.cpu(), expected)
+
+
+@pytest.mark.parametrize(
+    "operation,lhs_values,rhs_values,expected",
+    (
+        (
+            "floordiv",
+            (-0.0, 0.0, 1.0, 0.0, float("inf"), float("-inf"), 1.0, -1.0),
+            (2.0, -2.0, 0.0, 0.0, 2.0, 2.0, float("inf"), float("inf")),
+            (
+                -0.0,
+                -0.0,
+                float("inf"),
+                float("nan"),
+                float("inf"),
+                float("-inf"),
+                0.0,
+                -0.0,
+            ),
+        ),
+        (
+            "mod",
+            (
+                -4.0,
+                4.0,
+                -0.0,
+                0.0,
+                float("inf"),
+                float("-inf"),
+                3.0,
+                -3.0,
+                1.0,
+                0.0,
+                5.5,
+                -5.5,
+            ),
+            (
+                2.0,
+                -2.0,
+                2.0,
+                -2.0,
+                2.0,
+                2.0,
+                float("-inf"),
+                float("inf"),
+                0.0,
+                0.0,
+                -2.0,
+                2.0,
+            ),
+            (
+                0.0,
+                -0.0,
+                0.0,
+                -0.0,
+                float("nan"),
+                float("nan"),
+                float("-inf"),
+                float("inf"),
+                float("nan"),
+                float("nan"),
+                -0.5,
+                0.5,
+            ),
+        ),
+    ),
+)
+def test_float_division_edge_cases(operation, lhs_values, rhs_values, expected):
+    count = len(lhs_values)
+
+    @cl.kernel
+    def kernel(lhs, rhs, out, operator_out):
+        lhs_value = lhs.get_base_pointer().load(count=count)
+        rhs_value = rhs.get_base_pointer().load(count=count)
+        if operation == "floordiv":
+            out.get_base_pointer().store(device_math.floordiv(lhs_value, rhs_value))
+            operator_out.get_base_pointer().store(lhs_value // rhs_value)
+        else:
+            out.get_base_pointer().store(device_math.mod(lhs_value, rhs_value))
+            operator_out.get_base_pointer().store(lhs_value % rhs_value)
+
+    lhs = torch.tensor(lhs_values, dtype=torch.float64, device="cuda")
+    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda")
+    out = torch.zeros(count, dtype=torch.float64, device="cuda")
+    operator_out = torch.zeros(count, dtype=torch.float64, device="cuda")
+
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (1,),
+        kernel,
+        (lhs, rhs, out, operator_out),
+    )
+    assert_special_float_values(out.cpu(), expected)
+    assert_special_float_values(operator_out.cpu(), expected)
+
+
+@pytest.mark.parametrize(
+    "device_op,python_op",
+    (
+        (device_math.floordiv, operator.floordiv),
+        (device_math.mod, operator.mod),
+    ),
+)
+@pytest.mark.parametrize("vector_side", ("lhs", "rhs"))
+def test_float_division_scalar_vector_broadcast(device_op, python_op, vector_side):
+    lhs_vector = vector_side == "lhs"
+    lhs_values = (-7.5, 7.5, 5.5, -5.5) if lhs_vector else (-7.5,)
+    rhs_values = (-2.0,) if lhs_vector else (2.0, -2.0, 3.0, -3.0)
+
+    @cl.kernel
+    def kernel(lhs, rhs, out, operator_out):
+        if lhs_vector:
+            lhs_value = lhs.get_base_pointer().load(count=4)
+            rhs_value = rhs[0]
+        else:
+            lhs_value = lhs[0]
+            rhs_value = rhs.get_base_pointer().load(count=4)
+        out.get_base_pointer().store(device_op(lhs_value, rhs_value))
+        operator_out.get_base_pointer().store(python_op(lhs_value, rhs_value))
+
+    lhs = torch.tensor(lhs_values, dtype=torch.float32, device="cuda")
+    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda")
+    out = torch.zeros(4, dtype=torch.float64, device="cuda")
+    operator_out = torch.zeros(4, dtype=torch.float64, device="cuda")
+
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (1,),
+        kernel,
+        (lhs, rhs, out, operator_out),
+    )
+
+    lhs_host = lhs.cpu().tolist()
+    rhs_host = rhs.cpu().tolist()
+    if lhs_vector:
+        expected_values = [python_op(value, rhs_host[0]) for value in lhs_host]
+    else:
+        expected_values = [python_op(lhs_host[0], value) for value in rhs_host]
+    expected = torch.tensor(expected_values, dtype=torch.float64)
+    torch.testing.assert_close(out.cpu(), expected)
+    torch.testing.assert_close(operator_out.cpu(), expected)
+
+
+def test_cdiv_reexport():
+    assert cl.cdiv is ct.cdiv
+    assert cl.cdiv(9, 4) == 3
+    assert cl.cdiv(8, 4) == 2
+
+
+@pytest.mark.parametrize(
+    "dtype,lhs_values,rhs_values",
+    (
+        (cl.int32, (-30, 100, 30, -100), (13, -23, -13, 23)),
+        (cl.uint32, (30, 100, 31, 99), (13, 23, 13, 23)),
+    ),
+)
+@pytest.mark.parametrize("mode", ("scalar", "vector", "vector_scalar"))
+def test_cdiv(dtype, lhs_values, rhs_values, mode):
+    count = 1 if mode == "scalar" else 4
+
+    @cl.kernel
+    def kernel(lhs, rhs, out):
+        if mode == "scalar":
+            out[0] = cl.cdiv(lhs[0], rhs[0])
+        else:
+            lhs_value = lhs.get_base_pointer().load(count=4)
+            rhs_value = (
+                rhs.get_base_pointer().load(count=4) if mode == "vector" else rhs[0]
+            )
+            out.get_base_pointer().store(cl.cdiv(lhs_value, rhs_value))
+
+    torch_dtype = datatype.to_torch_dtype(dtype)
+    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda")
+    rhs_count = count if mode != "vector_scalar" else 1
+    rhs = torch.tensor(rhs_values[:rhs_count], dtype=torch_dtype, device="cuda")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
+
+    rhs_host = rhs.cpu().tolist()
+    expected = [
+        host_math.ceil(lhs_value / rhs_host[i if mode == "vector" else 0])
+        for i, lhs_value in enumerate(lhs.cpu().tolist())
+    ]
+    assert out.cpu().tolist() == expected
+
+
+@pytest.mark.parametrize(
+    "operation,dtype,check",
+    (
+        (operator.floordiv, cl.float32, ("arith.divf", "math.floor")),
+        (operator.mod, cl.float32, "callee = @__nv_fmodf"),
+        (cl.cdiv, cl.int32, "arith.ceildivsi"),
+        (cl.cdiv, cl.uint32, "arith.ceildivui"),
+    ),
+)
+def test_division_mlir(operation, dtype, check):
+    def kernel(lhs, rhs, out):
+        out[0] = operation(lhs[0], rhs[0])
+
+    lhs = make_symbolic_tensor([1], dtype)
+    rhs = make_symbolic_tensor([1], dtype)
+    out = make_symbolic_tensor([1], dtype)
+    compile_kernel(
+        kernel,
+        signature=KernelSignature([lhs, rhs, out]),
+        assert_in_mlir=check,
+    )
 
 
 @pytest.mark.parametrize("dtype", (cl.int32, cl.float32))
