@@ -63,6 +63,10 @@ class SymbolicScalar(Symbol, Scalar):
     def __init__(self, var: "Var[ScalarTy]"):
         Symbol.__init__(self, var)
 
+    @property
+    def dtype(self):
+        return self._var.get_type().dtype
+
     def __bool__(self):
         raise InvalidValueError(
             "Symbolic scalar has no concrete value and thus cannot be converted"
@@ -88,7 +92,7 @@ class SymbolicScalar(Symbol, Scalar):
         )
 
     def __repr__(self):
-        return f"<Scalar[{self._var.get_type().dtype}]>"
+        return f"<scalar[{self.dtype}]>"
 
 
 @dataclass(frozen=True)
@@ -131,6 +135,25 @@ class SymbolicPointer(Symbol, Pointer):
     def __init__(self, var: "Var[PointerTy]"):
         Symbol.__init__(self, var)
 
+    @property
+    def pointer_dtype(self):
+        return self._var.get_type().pointer_dtype
+
+    @property
+    def opaque(self) -> bool:
+        return PointerInfo(self.pointer_dtype).opaque
+
+    @property
+    def pointee_dtype(self) -> DType:
+        return PointerInfo(self.pointer_dtype).pointee_dtype
+
+    @property
+    def memory_space(self) -> MemorySpace:
+        return PointerInfo(self.pointer_dtype).memory_space
+
+    def __repr__(self):
+        return f"<{self.pointer_dtype}>"
+
 
 @dataclass(frozen=True)
 class VectorTy(TensorLikeTy):
@@ -166,12 +189,15 @@ class SymbolicVector(Symbol, Vector):
         Symbol.__init__(self, var)
 
     @property
-    def dtype(self) -> "DType":
-        return self._var.get_type().dtype
+    def element_dtype(self) -> "DType":
+        return self._var.get_type().element_dtype
 
     @property
     def element_count(self) -> int:
         return self._var.get_type().length
+
+    def __repr__(self):
+        return f"<vector[{self.element_dtype}, count={self.element_count}]>"
 
 
 def is_vector_ty(ty: Type) -> bool:

@@ -27,3 +27,4 @@ These terms and abbreviations are permitted in `cuda.lang` source code.
 - mbarrier: [A barrier created in shared memory.](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html?highlight=cp%2520async%2520bulk%2520tensor#parallel-synchronization-and-communication-instructions-mbarrier)
 - src: source
 - dst: destination
+- ndim: number of dimensions

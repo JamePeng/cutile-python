@@ -954,28 +954,6 @@ def tcgen05_shared_memory_descriptor_encode_impl(self: Var) -> Var:
     return value
 
 
-def require_constant_result_dtype(dtype: Var) -> Type:
-    if not dtype.is_constant():
-        raise TypeCheckingError(f"Expected a dtype constructor but got {dtype}")
-
-    const_dtype = dtype.get_constant()
-    if isinstance(const_dtype, datatype.OpaquePointerSpec):
-        if const_dtype == datatype.any_opaque_ptr:
-            raise TypeCheckingError("Result type cannot have no memory space")
-        memory_space = datatype.MemorySpace(const_dtype.value)
-        return PointerTy(opaque_pointer_dtype(memory_space=memory_space))
-    elif isinstance(const_dtype, datatype.DType):
-        return PointerTy(const_dtype) if is_pointer_dtype(const_dtype) else ScalarTy(const_dtype)
-    else:
-        raise TypeCheckingError(f"Expected a type spec but got {dtype}")
-
-
-def require_constant_result_dtypes(result_dtypes: Var) -> tuple[Type, ...]:
-    require_tuple_type(result_dtypes)
-    result_dtypes = result_dtypes.get_aggregate().items
-    return tuple(require_constant_result_dtype(dtype) for dtype in result_dtypes)
-
-
 @impl(clusterlaunchcontrol_try_cancel)
 def clusterlaunchcontrol_try_cancel_impl(addr: Var, mbar: Var, multicast: Var) -> None:
     addr_info = PointerInfo(require_pointer_type(addr).pointer_dtype)
@@ -1049,12 +1027,25 @@ def clusterlaunchcontrol_get_first_block_index_impl(token: Var, axis: Var) -> Va
     return build_tuple(cta_ids) if axis is None else cta_ids[axis]
 
 
+def require_constant_result_dtype(dtype: Var) -> Type:
+    if not dtype.is_constant():
+        raise TypeCheckingError(f"Expected a dtype constructor but got {dtype}")
+
+    const_dtype = dtype.get_constant()
+    if datatype.is_pointer_dtype(const_dtype):
+        return PointerTy(const_dtype)
+    elif isinstance(const_dtype, datatype.DType):
+        return ScalarTy(const_dtype)
+    else:
+        raise TypeCheckingError(f"Expected a type spec but got {dtype}")
+
+
 @impl(foreign_function._call_foreign_function)
 def _call_foreign_function_impl(func: Var, return_type: Var, parameters: Var):
     function_name = require_constant_str(func)
     require_tuple_type(parameters)
     parameters = parameters.get_aggregate().items
-    if return_type.is_constant() and return_type.get_constant() is None:
+    if is_none(return_type):
         add_operation_variadic(
             ForeignFunction,
             (),

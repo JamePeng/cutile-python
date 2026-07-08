@@ -680,14 +680,26 @@ def is_pointer_dtype(dtype: DType) -> bool:
 @stub(host=True)
 def pointer_dtype(pointee_dtype: DType,
                   memory_space: MemorySpace = MemorySpace.GENERIC) -> DType:
-    """Return the dtype for a pointer to ``pointee_dtype`` in ``memory_space``."""
+    """Return the dtype for a pointer to ``pointee_dtype`` in ``memory_space``.
+
+    Args:
+        pointee_dtype (DType): Type of the data pointed to by a pointer
+            described by this dtype.
+        memory_space (MemorySpace): Memory space where the pointer described by
+            this dtype resides.
+    """
     assert pointee_dtype is not None
     return _get_pointer_dtype(pointee_dtype, memory_space)
 
 
 @stub(host=True)
 def opaque_pointer_dtype(memory_space: MemorySpace = MemorySpace.GENERIC) -> DType:
-    """Return the dtype for an opaque pointer in ``memory_space``."""
+    """Return the dtype for an opaque pointer in ``memory_space``.
+
+    Args:
+        memory_space (MemorySpace): Memory space where the pointer described by
+            this dtype resides.
+    """
     return _get_pointer_dtype(None, memory_space)
 
 
