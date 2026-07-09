@@ -12,7 +12,6 @@ from cuda.lang.compilation import KernelSignature
 
 from .util import (
     compile_kernel,
-    filecheck,
     make_symbolic_tensor,
     require_blackwell_or_newer,
     require_hopper_or_newer,
@@ -588,15 +587,10 @@ class TestShuffle:
             i2 = op(1, 1, 1)  # omitted, ensure it's FULL_MASK
             tensor[0] = i1 + i2
 
-        cres = cl.compile_simt(
+        compile_kernel(
             kernel,
-            [KernelSignature([make_symbolic_tensor(1, cl.int32)])],
-            keep_mlir=True,
-        )
-
-        filecheck(
-            cres.mlir,
-            """
+            signature=KernelSignature([make_symbolic_tensor(1, cl.int32)]),
+            filecheck_mlir="""
             CHECK: 1234
             CHECK: 4321
             CHECK: -1
@@ -617,7 +611,7 @@ class TestBarrierSync:
             shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
 
             shmem[lane] = lane * 2
-            cl._nvvm.barrier_cta_sync_all(cl.int32(0))
+            cl.barrier_sync_block()
 
             if lane < 16:
                 out[lane] = shmem[lane + 16]
@@ -641,7 +635,7 @@ class TestBarrierSync:
 
             if lane < 32:
                 shmem[lane] = lane + 100
-                cl._nvvm.barrier_cta_sync_count(1, 32)
+                cl.barrier_sync_block(barrier_id=1, number_of_threads=32)
                 out[lane] = shmem[lane ^ 1]
             else:
                 out[lane] = -1

@@ -125,6 +125,7 @@ from ._stub.core_api import (
     grid_dependency_control_launch_dependents,
     memory_barrier,
     bitcast,
+    assert_,
 )
 from cuda.tile._stub import (
     Constant,
@@ -406,4 +407,5 @@ __all__ = (
     "pow",
     "maximum",
     "minimum",
+    "assert_",
 )

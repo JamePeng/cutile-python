@@ -31,6 +31,22 @@ class Array(TileArray, Generic[T]):
     """
 
     @stub
+    @property
+    def dtype(self): ...
+
+    @stub
+    @property
+    def ndim(self): ...
+
+    @stub
+    @property
+    def shape(self): ...
+
+    @stub
+    @property
+    def strides(self): ...
+
+    @stub
     def get_base_pointer(self) -> "Pointer[T]": ...
 
     @stub
@@ -205,7 +221,7 @@ def warp_index() -> int:
     return tid // lane_count()
 
 
-@function
+@function()
 def warp_count() -> int:
     bdx, bdy, bdz = thread_count(0), thread_count(1), thread_count(2)
     return (bdx * bdy * bdz - 1) // lane_count() + 1
@@ -395,10 +411,8 @@ def _inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
     `cl._inline_ptx(ptx_code, (constraint1, value1), (constraint2, value2), ...)`.
 
     Args:
-
         ptx_code (str):
             The PTX source string.
-
         *constraint_pairs:
             Constraint/value pairs.
             Constraints must be compile-time constant strings.
@@ -1114,9 +1128,32 @@ def grid_dependency_control_launch_dependents() -> None:
 
 @stub
 def bitcast(x, dtype):
+    """Cast a value to another type of the same bitwidth."""
+
+
+def assert_(condition, /, message=None) -> None:
+    """Assert that ``condition`` evaluates to True.
+
+    Args:
+        condition (bool): Boolean scalar.
+        message: Optional message to be shown when the assertion fails.
+
+    Notes:
+        This operation has significant overhead, and should only be used
+        for debugging purpose.
     """
-    Cast a value to another type of the same bitwidth.
-    """
+    if not condition:
+        tid = thread_index(0), thread_index(1), thread_index(2)
+        bid = block_index(0), block_index(1), block_index(2)
+        print(
+            "Assertion failed on thread index",
+            tid,
+            "block index",
+            bid,
+            message if message is not None else "",
+        )
+        nanosleep(10)
+        _inline_ptx("trap;")
 
 
 # Need these imports at the end in order to overcome the circular import problem

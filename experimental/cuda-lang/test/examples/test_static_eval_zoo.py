@@ -2,11 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+from typing import Callable
 from cuda.lang.compilation import KernelSignature
 from cuda.lang._exception import CompilerExecutionError
 from test.util import compile_kernel
 import cuda.lang as cl
-from cuda.tile import static_eval, static_iter
+from cuda.tile import static_eval, static_iter, static_assert
 from cuda.lang._stub.foreign_function import _call_foreign_function as ffi
 from cuda.lang._ir.type import (
     SymbolicArray,
@@ -14,13 +16,14 @@ from cuda.lang._ir.type import (
     SymbolicScalar,
 )
 
+from dataclasses import dataclass, replace
 import functools
 import pytest
 import sys
 import torch
 
 
-def static_def(function):
+def static_define(function):
     """Decorator that wraps every call to ``function`` in ``static_eval``."""
 
     @functools.wraps(function)
@@ -30,10 +33,10 @@ def static_def(function):
     return wrapper
 
 
-static_print = static_def(print)
+static_print = static_define(print)
 
 
-@static_def
+@static_define
 def static_breakpoint(*args, **kwarsg):
     """
     Function allowing users to inspect values inside a cuda.lang kernel at
@@ -56,8 +59,11 @@ def test_static_breakpoint(monkeypatch):
     monkeypatch.setattr(sys, "breakpointhook", spy_breakpointhook)
 
     def kernel():
-        with cl.local_array(1, cl.int32) as arr:
-            static_breakpoint(arr=arr, five=5)
+        with cl.local_array(1, cl.int32) as array:
+            # examine the symbol representing the runtime value ``array``,
+            # and the literal value ``5`` in the Python debugger at compile
+            # time.
+            static_breakpoint(array=array, five=5)
 
     compile_kernel(kernel)
     assert call_count == 1
@@ -268,3 +274,140 @@ def test_static_bitonic_sorting_schedule():
         (inp, out, inp.shape[0]),
     )
     assert out.cpu().tolist() == sorted(inp.cpu().tolist())
+
+
+def test_continuation_passing_style_control_flow():
+    def ite(i, t, e):
+        def thunk(*args, **kwargs):
+            if i(*args, **kwargs):
+                return t(*args, **kwargs)
+            else:
+                return e(*args, **kwargs)
+
+        return thunk
+
+    clamp_max = 5
+
+    @static_overload
+    def build_and_call_dynamic_control_flow(array, i):
+        """At compile time, build dynamic control flow to clamp the input value"""
+
+        def condition(array, i):
+            return array[i] > clamp_max
+
+        def then(array, i):
+            return clamp_max
+
+        def else_(array, i):
+            return array[i]
+
+        return ite(condition, then, else_)
+
+    @cl.kernel
+    def kernel(out):
+        out[0] = build_and_call_dynamic_control_flow(out, 0)
+        out[1] = build_and_call_dynamic_control_flow(out, 1)
+
+    out = torch.tensor([3, 7], dtype=torch.int32).cuda()
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
+    assert out.cpu().tolist() == [3, 5]
+
+
+def test_epilogue_operation_tuple():
+    @dataclass(frozen=True)
+    class ElementWiseApply:
+        fn: Callable[[Any], Any]
+
+        def run(self, tensor: cl.Array):
+            static_assert(tensor.ndim == 1)
+            for i in range(tensor.shape[0]):
+                print(i, tensor[i])
+                tensor[i] = self.fn(tensor[i])
+                print(i, tensor[i])
+
+    @cl.kernel
+    def kernel(out):
+        def plus(how_much):
+            def thunk(value):
+                return value + how_much
+
+            return thunk
+
+        def clamp(minval, maxval):
+            def thunk(value):
+                return cl.minimum(
+                    cl.maximum(
+                        minval,
+                        value,
+                    ),
+                    maxval,
+                )
+
+            return thunk
+
+        operations = (
+            ElementWiseApply(clamp(minval=-2, maxval=8)),
+            ElementWiseApply(plus(3)),
+        )
+        for operation in static_iter(operations):
+            operation.run(out)
+
+    out = torch.tensor(range(16), dtype=torch.int32).cuda()
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
+    assert out.cpu().tolist() == [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+        11,
+    ]
+
+
+def test_dataclass_state_management():
+    """
+    Only frozen dataclasses are supported so that dataclasses can be plain
+    aggregates and don't need backing storage allocated somewhere.
+    This means we can't assign to fields (`self.foo = bar`), but we can use
+    `dataclasses.replace(self, foo=bar)` and static methods to perform setup
+    or validation on construction.
+    """
+
+    @dataclass(frozen=True)
+    class C:
+        state_: int = 0
+
+        @property
+        def state(self):
+            return self.state_
+
+        @staticmethod
+        def new(initial_state):
+            # perform some validation on construction
+            cl.assert_(initial_state >= 0)
+            return C(state_=initial_state)
+
+        def advance(self):
+            # "modify" the state by returning a new object with the updated value
+            return replace(self, state_=self.state + 1)
+
+    @cl.kernel
+    def kernel(trip_count, out):
+        c = C.new(3)
+        for i in range(trip_count):
+            c = c.advance()
+        out[0] = c.state
+
+    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (24, out))
+    assert out.cpu().tolist() == [27]

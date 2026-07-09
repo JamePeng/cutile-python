@@ -16,12 +16,12 @@ if TYPE_CHECKING:
     from cuda.lang.compilation import KernelSignature
 
 
-__all__ = [
+__all__ = (
     "function",
     "kernel",
     "launch",
     "stub",
-]
+)
 
 
 Dim3: TypeAlias = tuple[int] | tuple[int, int] | tuple[int, int, int]
@@ -43,17 +43,40 @@ def launch(
     """Launch a cuda.lang kernel.
 
     Args:
-        stream: Stream-like object, such as ``torch.cuda.current_stream()``.
-            Streams from cuda.bindings, numba, and raw pointers are also
-            supported.
-        block_count (Dim3):
-        thread_count (Dim3):
-        kernel: Kernel to be launched, decorated with ``cl.kernel``
-        kernel_args (tuple[Any, ...]):
-        cooperative (bool):
-        block_in_cluster_count (Dim3 | None):
-        preferred_block_in_cluster_count (Dim3 | None):
-        programmatic_dependent_launch (bool):
+        stream: CUDA stream the kernel launch should be enqueued on. Accepts
+            stream objects from PyTorch, CuPy, Numba and cuda.bindings, as well
+            as integer-valued raw ``CUStream`` handles.
+        block_count (Dim3): Grid dimensions in thread blocks, specified as
+            ``(x,)``, ``(x, y)``, or ``(x, y, z)``. Omitted dimensions default
+            to 1.
+        thread_count (Dim3): Thread-block dimensions in threads, specified as
+            ``(x,)``, ``(x, y)``, or ``(x, y, z)``. Omitted dimensions default
+            to 1.
+        kernel: Kernel to launch. Must be a function decorated with
+            :func:`cuda.lang.kernel`.
+        kernel_args (tuple[Any, ...]): Positional arguments passed to
+            ``kernel``. Their number and order must match the kernel parameters,
+            and each value must be a supported kernel argument type.
+        cooperative (bool): Whether to use a cooperative grid launch.
+        block_in_cluster_count (Dim3 | None): Thread-block cluster dimensions,
+            measured in blocks.Each grid dimension must be divisible by
+            the corresponding cluster dimension. If ``None``, no explicit
+            cluster dimensions are requested.
+        preferred_block_in_cluster_count (Dim3 | None): Preferred substitute
+            cluster dimensions, measured in blocks. These dimensions will be
+            preferred, but when resources are insufficient,
+            ``block_in_cluster_count`` may be used instead. Requires
+            ``block_in_cluster_count``. Each dimension must be a positive
+            integer multiple of the corresponding regular cluster dimension.
+        programmatic_dependent_launch (bool): Whether this kernel may resolve
+            its dependency on the preceding kernel in the same stream,
+            allowing their execution to potentially overlap. The dependent
+            kernel must call :func:`cuda.lang.grid_dependency_control_wait`
+            to wait for the previous kernel to call
+            :func:`cuda.lang.grid_dependency_control_launch_dependents`.
+
+    The launch is asynchronous with respect to the host and is ordered on
+    ``stream``.
     """
     launch_extended(
         stream,
@@ -70,6 +93,7 @@ def launch(
 
 class kernel(_cext.TileDispatcher):
     """A |kernel| is a function executed by each |thread| in each |block| in a |grid|.
+    See :func:`cuda.lang.launch` for how to execute a kernel on the GPU.
 
     Examples:
 
