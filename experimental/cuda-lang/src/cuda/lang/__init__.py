@@ -78,6 +78,7 @@ from ._stub.copy_async import (
     copy_async_bulk_wait_group,
 )
 from ._stub.core_api import (
+    cdiv,
     dtype_of,
     full_mask,
     thread_index,
@@ -129,7 +130,6 @@ from ._stub.core_api import (
 )
 from cuda.tile._stub import (
     Constant,
-    cdiv,
     static_eval,
     static_assert,
     static_iter

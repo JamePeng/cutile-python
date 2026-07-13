@@ -29,11 +29,21 @@ import cuda.lang as cl
 
 @function()
 def tcgen05_wait_load() -> None:
+    """
+    Causes the executing thread to block until all prior
+    :func:`tcgen05_load` operations issued by the executing thread
+    have completed.
+    """
     _nvvm.tcgen05_wait_ld()
 
 
 @function()
 def tcgen05_wait_store() -> None:
+    """
+    Causes the executing thread to block until all prior
+    :func:`tcgen05_store` operations issued by the executing thread
+    have completed.
+    """
     _nvvm.tcgen05_wait_st()
 
 
@@ -57,6 +67,13 @@ def tcgen05_fence_after_thread_sync() -> None:
 
 @function()
 def tcgen05_relinquish_allocation_permit(cta_group: CTAGroup = CTAGroup.CTA_1) -> None:
+    """
+    The block of the executing thread relinquishes the right to allocate
+    tensor memory.
+
+    Args:
+        cta_group (CTAGroup): cta group 1 or 2
+    """
     cl.static_assert(cta_group in (CTAGroup.CTA_1, CTAGroup.CTA_2))
     if cta_group == CTAGroup.CTA_1:
         _nvvm.tcgen05_relinq_alloc_permit_cg1()
@@ -70,8 +87,8 @@ def tcgen05_shift_down(address, cta_group: CTAGroup = CTAGroup.CTA_1) -> None:
     Asynchronously shift down the rows of the matrix in the Tensor Memory for a warp.
 
     Args:
-        address: pointer in tensor memory
-        cta_group: cta group 1 or 2
+        address: Pointer in tensor memory.
+        cta_group (CTAGroup): cta group 1 or 2.
     """
     cl.static_assert(cta_group in (CTAGroup.CTA_1, CTAGroup.CTA_2))
     if cta_group == CTAGroup.CTA_1:
@@ -87,7 +104,15 @@ def tcgen05_allocate(
     *,
     cta_group: CTAGroup = CTAGroup.CTA_1,
 ) -> None:
-    """Allocate tensor memory columns and write their address to ``address``."""
+    """Allocate tensor memory columns and write their address to ``address``.
+
+    Args:
+        address: Location where the address of the allocated memory should be
+            written.
+        number_of_columns: Number of columns to be allocated. Must be a power
+            of two.
+        cta_group (CTAGroup): cta group 1 or 2.
+    """
     ...
 
 
@@ -98,7 +123,15 @@ def tcgen05_deallocate(
     *,
     cta_group: CTAGroup = CTAGroup.CTA_1,
 ) -> None:
-    """Deallocate tensor memory columns starting at ``address``."""
+    """Deallocate tensor memory columns starting at ``address``.
+
+    Args:
+        address: Address in tensor memory to be deallocated. Must be from a
+            previous call to :func:`tcgen05_allocate`
+        number_of_columns: Number of columns to be allocated. Must be a power
+            of two.
+        cta_group (CTAGroup): cta group 1 or 2.
+    """
     ...
 
 
@@ -124,12 +157,19 @@ def tcgen05_tmem_offset(
 
 @stub
 def tcgen05_commit(
-    mbar: P3,
+    mbarrier: P3,
     *,
     multicast_mask: int | None = None,
     cta_group: CTAGroup = CTAGroup.CTA_1,
 ) -> None:
-    """Commit tcgen05 tensor memory operations and arrive at ``mbar``."""
+    """Commit tcgen05 tensor memory operations and arrive at ``mbarrier``.
+
+    Args:
+        mbarrier: Pointer to an initialized mbarrier in shared memory.
+        multicast_mask: 16-bit mask selecting the destination blocks for a
+            multicast commit.
+        cta_group (CTAGroup): cta group 1 or 2.
+    """
     ...
 
 
@@ -142,7 +182,20 @@ def tcgen05_load(
     pack: bool | None = None,
     offset: int | None = None,
 ) -> Any:
-    """Load registers from tensor memory using a tcgen05 load shape."""
+    """Load registers from tensor memory using a tcgen05 load shape.
+
+    Args:
+        shape: Compile-time load shape.
+        tensor_memory_address: Pointer to source in tensor memory.
+        count: Operation count. Supported values depend on ``shape``.
+        pack: Whether to use the packed 16-bit form.
+        offset: Address offset for the second access when the load accesses
+           two elements as indicated by the ``x2`` suffix of the ``shape``
+           argument.
+
+    Returns: Integer or vector of integers determined by ``count`` and
+        ``shape`` arguments.
+    """
     ...
 
 
@@ -164,9 +217,9 @@ def tcgen05_copy(
         address: Pointer in tensor memory allocated by tcgen05_allocate.
         shared_memory_descriptor: Shared memory descriptor encoded
             as a 64-bit integer.
-        cta_group:
-        shape:
-        multicast:
+        cta_group (CTAGroup): cta group 1 or 2.
+        shape: Shape of the copy.
+        multicast: Warp multicast pattern.
         source_format:
     """
 
@@ -184,7 +237,7 @@ def tcgen05_store(
     Store registers to tensor memory using a tcgen05 store shape.
 
     Args:
-        shape:
+        shape: Store shape.
         tensor_memory_address: Pointer in tensor memory (address space 6).
         value: 32-bit signless integer or vector of 32-bit signless integer
             values of length 2/4/8/16/32/64/128

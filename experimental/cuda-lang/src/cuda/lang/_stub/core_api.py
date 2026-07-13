@@ -7,7 +7,7 @@ from typing import TypeVar, Generic, Literal
 import cuda.lang as cl
 from cuda.lang._execution import stub, function
 from cuda.lang._exception import TypeCheckingError
-from cuda.tile._stub import Array as TileArray
+from cuda.tile._stub import Array as TileArray, cdiv as tile_cdiv
 from cuda.tile._memory_model import MemoryOrder, MemoryScope, MemorySpace
 from cuda.lang._datatype import DType, int32
 from .types import Pointer, Scalar, Vector
@@ -1152,6 +1152,19 @@ def assert_(condition, /, message=None) -> None:
         )
         nanosleep(10)
         _inline_ptx("trap;")
+
+
+def cdiv(x, y, /):
+    """Computes ceil(x / y). Can be used on the host.
+
+    Args:
+        x: integer scalar.
+        y: integer scalar.
+
+    Returns:
+        scalar
+    """
+    return tile_cdiv(x, y)
 
 
 # Need these imports at the end in order to overcome the circular import problem

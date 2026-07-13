@@ -11,11 +11,13 @@ from . import nvvm_mlir_interfaces as _mlir
 
 @function()
 def fence_sc_cluster() -> None:
+    """Issue a sequentially consistent memory fence at cluster scope."""
     _mlir.fence_sc_cluster()
 
 
 @function()
 def fence_mbarrier_initialize() -> None:
+    """Release prior mbarrier initializations to the thread-block cluster."""
     _mlir.fence_mbarrier_init()
 
 
@@ -43,8 +45,8 @@ def fence_proxy(
     that may happen through different proxies.
 
     Args:
-        kind (FenceProxyKind):
-        space (MemorySpace):
+        kind (FenceProxyKind): Proxy relationship.
+        space (MemorySpace): Memory space restriction.
     """
     _mlir.fence_proxy(kind=kind, space=space)
 
@@ -62,9 +64,9 @@ def fence_proxy_acquire(
     Uni-directional proxy fence operation with acquire semantics.
 
     Args:
-        address (pointer):
-        size (int):
-        scope (MemoryScope):
+        address: Pointer to the beginning of the affected memory range.
+        size (int): Number of bytes in the range.
+        scope (MemoryScope): Effective scope of the fence.
         from_proxy (FenceProxyKind):
         to_proxy (FenceProxyKind):
     """
@@ -88,7 +90,7 @@ def fence_proxy_release(
     Uni-directional proxy fence operation with release semantics.
 
     Args:
-        scope (MemoryScope):
+        scope (MemoryScope): Effective scope of the fence.
         from_proxy (FenceProxyKind):
         to_proxy (FenceProxyKind):
     """

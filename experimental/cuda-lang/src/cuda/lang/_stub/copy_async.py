@@ -30,15 +30,20 @@ def copy_async_bulk_tensor_global_to_shared(
     for source and destination alignment requirements.
 
     Args:
-        src_tensor_map_descriptor (TensorMap | P0):
-        src_coordinates (tuple[int, ...]):
-        dst_memory (P3 | P7):
-        mbarrier:
-        im2col_offsets (tuple[int, ...]):
-        multicast_mask (int | None):
-        l2_cache_hint (int | None):
-        mode (TMALoadMode):
-        cta_group (CTAGroup | None):
+        src_tensor_map_descriptor: Source :class:`TensorMap` or opaque pointer
+            to tensor map descriptor.
+        src_coordinates (tuple[int, ...]): 32-bit integer source coordinates.
+        dst_memory: Pointer to the destination in shared or shared-cluster
+            memory.
+        mbarrier: Pointer to mbarrier used for the transaction.
+        im2col_offsets (tuple[int, ...]): Integral offsets for image-to-column
+            variants of this operation.
+        multicast_mask (int | None): Mask selecting the destination block ranks
+            within the cluster for multi-block operations.
+        l2_cache_hint (int | None): Integer-encoded L2 cache policy.
+        mode (TMALoadMode): :class:`TMALoadMode` selecting the load behavior.
+        cta_group (CTAGroup | None): Selects the behavior of a multi-block
+            async copy.
         predicate (bool | None):
     """
 
@@ -61,11 +66,13 @@ def copy_async_bulk_tensor_shared_to_global(
     for source and destination alignment requirements.
 
     Args:
-        src_memory (P3):
-        dst_tensor_map_descriptor (TensorMap | P0):
-        dst_coordinates (tuple[int, ...]):
-        l2_cache_hint (int | None):
-        mode (TMAStoreMode):
+        src_memory: Pointer to source data in shared memory.
+        dst_tensor_map_descriptor: Destination :class:`TensorMap` or opaque
+            pointer to tensor map descriptor.
+        dst_coordinates (tuple[int, ...]): Destination coordinates.
+        l2_cache_hint (int | None): Integer-encoded L2 cache policy.
+        mode (TMAStoreMode): :class:`TMAStoreMode` selecting the store
+            behavior.
         predicate (bool | None):
     """
 

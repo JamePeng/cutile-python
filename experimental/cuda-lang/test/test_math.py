@@ -5,7 +5,6 @@
 from test.util import compile_kernel
 import cuda.lang as cl
 import cuda.lang._datatype as datatype
-import cuda.tile as ct
 import builtins
 import math as host_math
 import operator
@@ -594,7 +593,6 @@ def test_float_division_scalar_vector_broadcast(device_op, python_op, vector_sid
 
 
 def test_cdiv_reexport():
-    assert cl.cdiv is ct.cdiv
     assert cl.cdiv(9, 4) == 3
     assert cl.cdiv(8, 4) == 2
 

@@ -18,7 +18,8 @@ def barrier_sync_block(
     *,
     aligned: bool = True,
 ) -> None:
-    """
+    """Synchronize threads participating in a named block barrier.
+
     Args:
         number_of_threads: Specifies the number of threads participating in the
            barrier. When specified, the value must be a multiple of the warp size.
@@ -48,7 +49,8 @@ def barrier_arrive_block(
     *,
     aligned: bool = True,
 ) -> None:
-    """
+    """Arrive at a named block barrier without waiting for other warps.
+
     Args:
         number_of_threads: Specifies the number of threads participating in the
            barrier. When specified, the value must be a multiple of the warp size.
@@ -74,7 +76,8 @@ def barrier_reduce_block(
     *,
     aligned: bool = True,
 ) -> int | bool:
-    """
+    """Synchronize at a named block barrier and reduce a per-thread predicate.
+
     Args:
         op: The operation used to perform the reduction
         predicate: The per-thread predicate fed into the reduction.
@@ -95,7 +98,8 @@ def barrier_arrive_cluster(
         MemoryOrder.RELEASE, MemoryOrder.RELAXED
     ] = MemoryOrder.RELEASE,
 ) -> None:
-    """
+    """Arrive at the current thread-block-cluster barrier without waiting.
+
     Args:
         aligned: Requires every thread in the block to reach this same barrier
             instruction, otherwise the behavior is undefined.
@@ -117,7 +121,8 @@ def barrier_arrive_cluster(
 
 @function()
 def barrier_wait_cluster(*, aligned: bool = True) -> None:
-    """
+    """Wait for completion of the current thread-block-cluster barrier.
+
     Args:
         aligned: Requires every thread in the block to reach this same barrier
             instruction, otherwise the behavior is undefined.
@@ -131,7 +136,8 @@ def barrier_wait_cluster(*, aligned: bool = True) -> None:
 
 @function()
 def barrier_sync_cluster(*, aligned: bool = True) -> None:
-    """
+    """Arrive at and wait for the current thread-block-cluster barrier.
+
     Args:
         aligned: Requires every thread in the block to reach this same barrier
             instruction, otherwise the behavior is undefined.
@@ -142,8 +148,10 @@ def barrier_sync_cluster(*, aligned: bool = True) -> None:
 
 @function()
 def barrier_sync_warp(mask: int = FULL_MASK) -> None:
-    """
-    Synchronize warp lanes selected by ``mask``.
+    """Synchronize the warp lanes selected by ``mask``.
+
+    Args:
+        mask: Mask indicating membership where the ith bit selects lane i.
     """
     _nvvm.bar_warp_sync(mask)
 

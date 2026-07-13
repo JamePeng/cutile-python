@@ -16,13 +16,22 @@ WaitOrdering = Literal[MemoryOrder.RELAXED, MemoryOrder.ACQUIRE]
 
 @stub
 def mbarrier_initialize(mbar, participants: int) -> None:
-    """Initialize an mbarrier with the expected participant count."""
+    """Initialize an mbarrier with the expected participant count.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        participants: Initial expected arrival count for each phase.
+    """
     ...
 
 
 @stub
 def mbarrier_invalidate(mbar) -> None:
-    """Invalidate an mbarrier object before its storage is reused."""
+    """Invalidate an mbarrier object before its storage is reused.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+    """
     ...
 
 
@@ -39,6 +48,17 @@ def mbarrier_arrive(
     an opaque 64-bit value capturing the phase of the mbarrier object _prior_
     to this arrive operation is returned. ``drop=True`` drops a participant
     from the barrier.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        count: The amount by which the pending arrival count is decremented.
+        drop: Whether to decrement the expected arrival count of the mbarrier.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        On a block-local barrier, returns an opaque token.
+        On a cluster barrier, returns ``None``.
     """
 
 
@@ -51,7 +71,19 @@ def mbarrier_arrive_expect_transaction(
     scope: MbarrierScope = MbarrierScope.BLOCK,
     memory_order: ArriveOrdering = MemoryOrder.RELEASE,
 ) -> "uint64 | None":
-    """Arrive at ``mbar`` and add expected transaction bytes."""
+    """Arrive at ``mbar`` and add expected transaction bytes.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        bytes: Transaction bytes added to the current phase.
+        drop: Whether to decrement the expected arrival count of the mbarrier.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        On a block-local barrier, returns an opaque token.
+        On a cluster barrier, returns ``None``.
+    """
     ...
 
 
@@ -62,7 +94,13 @@ def mbarrier_expect_transaction(
     *,
     scope: MbarrierScope = MbarrierScope.BLOCK,
 ) -> None:
-    """Add expected transaction bytes to ``mbar`` without arriving."""
+    """Add expected transaction bytes to ``mbar`` without arriving.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        bytes: Transaction bytes added to the current phase.
+        scope: Visibility scope.
+    """
     ...
 
 
@@ -73,7 +111,13 @@ def mbarrier_complete_transaction(
     *,
     scope: MbarrierScope = MbarrierScope.BLOCK,
 ) -> None:
-    """Mark transaction bytes as complete for ``mbar``."""
+    """Mark transaction bytes as complete for ``mbar``.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        bytes: Number of completed transaction bytes to subtract.
+        scope: Visibility scope.
+    """
     ...
 
 
@@ -85,7 +129,17 @@ def mbarrier_test_wait(
     scope: MbarrierScope = MbarrierScope.BLOCK,
     memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
-    """Non-blocking test whether ``mbar`` has completed."""
+    """Non-blocking test whether ``mbar`` has completed.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        state: Opaque token returned by an arrival on the same barrier.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        Indicates whether the phase is complete.
+    """
 
 
 @stub
@@ -98,6 +152,15 @@ def mbarrier_test_wait_parity(
 ) -> "bool_":
     """Phase-parity variant of ``mbarrier_test_wait``.
     ``parity`` is the 0/1 integer parity of the phase to test for.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        parity: Phase parity, either 0 or 1.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        Indicates whether the selected phase is complete.
     """
 
 
@@ -110,7 +173,18 @@ def mbarrier_try_wait(
     scope: MbarrierScope = MbarrierScope.BLOCK,
     memory_order: WaitOrdering = MemoryOrder.ACQUIRE,
 ) -> "bool_":
-    """Bounded-wait test whether ``mbar`` has completed."""
+    """Bounded-wait test whether ``mbar`` has completed.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        state: Opaque token returned by an arrival on the same mbarrier.
+        time_hint: Optional nonnegative ``int32`` time limit in nanoseconds.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        Indicates whether the phase completed before the instruction resumed.
+    """
 
 
 @stub
@@ -124,6 +198,16 @@ def mbarrier_try_wait_parity(
 ) -> "bool_":
     """Phase-parity variant of ``mbarrier_try_wait``.
     ``parity`` is the 0/1 integer parity of the phase to test for.
+
+    Args:
+        mbar: Pointer to mbarrier in shared memory.
+        parity: Phase parity, either 0 or 1.
+        time_hint: Optional nonnegative ``int32`` time limit in nanoseconds.
+        scope: Visibility scope.
+        memory_order:
+
+    Returns:
+        Indicates whether the phase completed before the instruction resumed.
     """
 
 

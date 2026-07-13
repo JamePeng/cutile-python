@@ -150,12 +150,12 @@ def tcgen05_tmem_offset_impl(
 
 @impl(tcgen05_stub.tcgen05_commit)
 def tcgen05_commit_impl(
-    mbar: Var,
+    mbarrier: Var,
     multicast_mask: Var,
     cta_group: Var,
 ):
-    require_mbarrier_ptr(mbar)
-    operands = [mbar]
+    require_mbarrier_ptr(mbarrier)
+    operands = [mbarrier]
     cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
     intrinsic = "llvm.nvvm.tcgen05.commit"
     if not is_none(multicast_mask):
