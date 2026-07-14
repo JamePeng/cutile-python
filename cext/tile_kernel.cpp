@@ -280,6 +280,66 @@ struct CudaKernel {
     CUkernel kernel;
 };
 
+static Status enable_maximum_dynamic_shared_memory(const DriverApi *driver,
+                                                   const CUkernel kernel,
+                                                   const char *func_name) {
+    int device_count;
+    CUresult res = driver->cuDeviceGetCount(&device_count);
+    if (res != CUDA_SUCCESS) {
+        return raise(PyExc_RuntimeError, "Failed to get device count: %s",
+                     get_cuda_error(driver, res));
+    }
+
+    for (int device_ordinal = 0; device_ordinal < device_count;
+         device_ordinal++) {
+        CUdevice device;
+        res = driver->cuDeviceGet(&device, device_ordinal);
+        if (res != CUDA_SUCCESS) {
+            return raise(PyExc_RuntimeError, "Failed to get device %d: %s",
+                         device_ordinal, get_cuda_error(driver, res));
+        }
+
+        int max_smem;
+        res = driver->cuDeviceGetAttribute(
+            &max_smem, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+            device);
+        if (res != CUDA_SUCCESS) {
+            return raise(PyExc_RuntimeError,
+                         "Failed to get maximum shared memory for device %d: %s",
+                         device_ordinal, get_cuda_error(driver, res));
+        }
+
+        int static_smem;
+        res = driver->cuKernelGetAttribute(
+            &static_smem, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, kernel, device);
+        if (res != CUDA_SUCCESS) {
+            return raise(PyExc_RuntimeError,
+                         "Failed to get static shared memory for kernel %s: %s",
+                         func_name, get_cuda_error(driver, res));
+        }
+
+        if (max_smem < static_smem) {
+            // If the user's program uses more static shared memory than the
+            // current device has available, then we cannot request enough
+            // shared memory. If the user has another device capable of running
+            // their program, they must run on that device and errors will be
+            // reported at launch time.
+            continue;
+        }
+        int largest_possible_dynamic_smem = max_smem - static_smem;
+        res = driver->cuKernelSetAttribute(
+            CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+            largest_possible_dynamic_smem, kernel, device);
+        if (res != CUDA_SUCCESS) {
+            return raise(PyExc_RuntimeError,
+                         "Failed to set dynamic shared memory for kernel %s: %s",
+                         func_name, get_cuda_error(driver, res));
+        }
+    }
+
+    return OK;
+}
+
 static Result<CudaKernel> load_cuda_kernel(const DriverApi* driver,
                                            const char* cubin_data,
                                            size_t cubin_size,
@@ -291,11 +351,12 @@ static Result<CudaKernel> load_cuda_kernel(const DriverApi* driver,
 
     CUkernel kernel;
     CUresult res = driver->cuLibraryGetKernel(&kernel, lib->get(), func_name);
-    if (res == CUDA_SUCCESS)
-        return CudaKernel{std::move(*lib), kernel};
+    if (res != CUDA_SUCCESS) {
+        return raise(PyExc_RuntimeError, "Failed to get kernel %s from library: %s",
+                     func_name, get_cuda_error(driver, res));
+    }
 
-    return raise(PyExc_RuntimeError, "Failed to get kernel %s from library: %s",
-                 func_name, get_cuda_error(driver, res));
+    return CudaKernel{std::move(*lib), kernel};
 }
 
 
@@ -2155,6 +2216,12 @@ static Result<TileKernel> compile(const DriverApi* driver,
 
     Result<CudaKernel> cukernel = load_cuda_kernel(driver, cubin_data, cubin_size, cufunc_name);
     if (!cukernel.is_ok()) return ErrorRaised;
+
+    if (py_dyn_smem_size_prog != Py_None) {
+        Status status = enable_maximum_dynamic_shared_memory(
+            driver, cukernel->kernel, cufunc_name);
+        if (!status) return ErrorRaised;
+    }
 
     Result<HostProgram> dyn_smem_size_prog = host_program_parse(py_dyn_smem_size_prog, 1);
     if (!dyn_smem_size_prog.is_ok()) return ErrorRaised;

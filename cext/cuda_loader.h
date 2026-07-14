@@ -26,6 +26,7 @@
     X(cuCtxGetDevice, 2000) \
     X(cuCtxGetId, 12000) \
     X(cuDeviceGet, 2000) \
+    X(cuDeviceGetCount, 2000) \
     X(cuDeviceGetAttribute, 2000) \
     X(cuDevicePrimaryCtxRetain, 7000) \
     X(cuDriverGetVersion, 2020) \
@@ -34,6 +35,8 @@
     X(cuEventQuery, 2000) \
     X(cuEventRecord, 2000) \
     X(cuKernelGetFunction, 12000) \
+    X(cuKernelGetAttribute, 12000) \
+    X(cuKernelSetAttribute, 12000) \
     X(cuMemAlloc, 3020) \
     X(cuMemAllocHost, 3020) \
     X(cuMemFree, 3020) \

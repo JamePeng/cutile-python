@@ -172,10 +172,8 @@ def test_dynamic_shared_alignment_pads_final_allocation_to_current_alignment():
 def test_dynamic_shared_alignment_runtime_round_up_launch():
     @cl.kernel
     def kern(x, n):
-        smem = cl.shared_array(
-            shape=(n,), dtype=cl.uint8, dynamic=True, alignment=128
-        )
-        values = cl.shared_array(shape=(1,), dtype=cl.int32, dynamic=True)
+        smem = cl.shared_array(n, cl.uint8, dynamic=True, alignment=128)
+        values = cl.shared_array(1, cl.int32, dynamic=True)
         smem[0] = cl.uint8(0)
         values[0] = 42
         x[0] = values[0] + cl.int32(smem[0])
@@ -186,6 +184,48 @@ def test_dynamic_shared_alignment_runtime_round_up_launch():
 
     assert x[0] == 42
     assert spy.get_dynamic_smem_size() == 128 + 4
+
+
+def test_dynamic_shared_memory_over_device_limit():
+    properties = torch.cuda.get_device_properties(torch.cuda.current_device())
+    max_smem_bytes = properties.shared_memory_per_block_optin
+
+    @cl.kernel
+    def kern():
+        smem = cl.shared_array(max_smem_bytes + 1, cl.int8, dynamic=True)
+        if cl.thread_index(0) == 0:
+            smem[max_smem_bytes] = cl.int8(0)
+
+    with pytest.raises(RuntimeError, match="Failed to launch"):
+        cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, ())
+
+
+def test_max_shared_memory_with_static_allocation():
+    properties = torch.cuda.get_device_properties(torch.cuda.current_device())
+    max_smem_bytes = properties.shared_memory_per_block_optin
+    static_smem_bytes = 1024
+    dynamic_smem_bytes = max_smem_bytes - static_smem_bytes
+
+    @cl.kernel
+    def kern(output):
+        static_smem = cl.shared_array(
+            static_smem_bytes, cl.int8, alignment=1024
+        )
+        dynamic_smem = cl.shared_array(
+            dynamic_smem_bytes, cl.int8, dynamic=True
+        )
+        if cl.thread_index(0) == 0:
+            static_smem[static_smem_bytes - 1] = cl.int8(3)
+            dynamic_smem[dynamic_smem_bytes - 1] = cl.int8(4)
+            output[0] = (
+                static_smem[static_smem_bytes - 1]
+                + dynamic_smem[dynamic_smem_bytes - 1]
+            )
+
+    output = torch.zeros(1, dtype=torch.int8, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (output,))
+
+    assert output.item() == 7
 
 
 def test_dynamic_1d_array_and_static_1d_array():
