@@ -594,6 +594,7 @@ def tcgen05_mma_impl(
     if not has_disable_output_lane:
         operands.append(_i32_const(1 if cta_group_value is CTAGroup.CTA_1 else 2))
     operands.append(_i32_const(_collector_op_flag(collector_op_value)))
+    operands.append(_i32_const(0))
 
     add_operation_variadic(
         RawNVVMIntrinsic,
@@ -671,6 +672,7 @@ def tcgen05_mma_block_scale_impl(
         (
             _i32_const(1 if cta_group_value is CTAGroup.CTA_1 else 2),
             _i32_const(_collector_op_flag(collector_op_value)),
+            _i32_const(0),
         )
     )
     add_operation_variadic(
