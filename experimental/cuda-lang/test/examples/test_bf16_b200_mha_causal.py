@@ -4,7 +4,7 @@
 
 """
 Two-CTA, four-warpgroup pipeline and fixed 192/128 head dimensions.
-See thunderkittens bf16_b300_mha_noncausal.cu for reference.
+See thunderkittens bf16_b300_mha_causal.cu for reference.
 """
 
 import math
@@ -35,6 +35,8 @@ SCALE_LOG2 = 1.44269504089 / math.sqrt(HEAD_DIM_QK)
 LN2 = math.log(2.0)
 MAX_SHARED_MEMORY = 227 * 1024
 DYNAMIC_SHARED_MEMORY = MAX_SHARED_MEMORY - 1024
+L2_SIZE = 50 * 1024 * 1024
+PERSISTENT_SEQUENCE_LIMIT = 4096
 
 Q_TILE_ELEMENTS = BLOCK_M * HEAD_DIM_QK
 KV_TILE_ELEMENTS = (BLOCK_N // 2) * HEAD_DIM_QK
@@ -50,6 +52,33 @@ DYNAMIC_STORAGE_BYTES = (
 def wait_mbarrier(mbar, phase):
     while not cl.mbarrier_try_wait_parity(mbar, phase, time_hint=10_000):
         pass
+
+
+def get_tile_coordinates(block_idx, batch, q_sequence, heads, swizzle):
+    cluster_linear = block_idx // CLUSTER_SIZE
+    blocks_m = (q_sequence // BLOCK_M) // 4
+    head_batches = heads * batch
+    full_groups = head_batches // swizzle
+    remainder = head_batches - full_groups * swizzle
+    l2_major = swizzle * blocks_m
+    head_batch_group = cluster_linear // l2_major
+    l2_offset = cluster_linear - head_batch_group * l2_major
+
+    if head_batch_group < full_groups:
+        m_cluster = l2_offset // swizzle
+        head_batch_residual = l2_offset - m_cluster * swizzle
+    else:
+        divisor = remainder
+        if divisor == 0:
+            divisor = 1
+        m_cluster = l2_offset // divisor
+        head_batch_residual = l2_offset - m_cluster * divisor
+
+    head_batch = head_batch_group * swizzle + head_batch_residual
+    batch_idx = head_batch // heads
+    head_idx = head_batch - batch_idx * heads
+    m_cluster = blocks_m - 1 - m_cluster
+    return batch_idx, m_cluster * 4, head_idx
 
 
 def p3_to_u64(pointer):
@@ -69,15 +98,31 @@ def fast_log2(value):
     return cl._nvvm.lg2_approx_ftz_f(value)
 
 
-def max_vector32(values, current):
+def causal_score(value, key_block, m_tile, row, column):
+    score = cl.bitcast(value, cl.float32)
+    masked = key_block > m_tile
+    if key_block == m_tile:
+        masked = column > row
+    if masked:
+        score = cl.float32(-float("inf"))
+    return score
+
+
+def max_vector32(values, current, key_block, m_tile, row, column_base):
     for i in cl.static_iter(range(32)):
-        current = cl.maximum(current, cl.bitcast(values[i], cl.float32))
+        current = cl.maximum(
+            current,
+            causal_score(values[i], key_block, m_tile, row, column_base + i),
+        )
     return current
 
 
-def probability_vector(values, scale, offset):
+def probability_vector(values, scale, offset, key_block, m_tile, row, column_base):
     exps = tuple(
-        fast_exp2(cl.bitcast(values[i], cl.float32) * scale + offset)
+        fast_exp2(
+            causal_score(values[i], key_block, m_tile, row, column_base + i) * scale
+            + offset
+        )
         for i in cl.static_iter(range(32))
     )
     total = exps[0]
@@ -148,6 +193,8 @@ def mha_kernel(
     q_sequence: cl.Constant[int],
     kv_sequence: cl.Constant[int],
     heads: cl.Constant[int],
+    persistent: cl.Constant[bool],
+    swizzle: cl.Constant[int],
 ):
     q_smem = cl.shared_array(
         (2, Q_TILE_ELEMENTS), cl.bfloat16, dynamic=True, alignment=1024
@@ -240,7 +287,9 @@ def mha_kernel(
         cl.setmaxregister_increase(168)
 
     total_bids = batch * heads * (q_sequence // (BLOCK_M * 2))
-    iterations = kv_sequence // BLOCK_N
+    bid_stride = total_bids
+    if cl.static_eval(persistent):
+        bid_stride = NUM_SMS
 
     if warp == 15 and cl.elect_sync():
         kv_index = 0
@@ -248,16 +297,14 @@ def mha_kernel(
         q_phase = 1
         current_bid = cl.block_index(0)
         while current_bid < total_bids:
-            cluster_linear = current_bid // CLUSTER_SIZE
-            clusters_m = (q_sequence // BLOCK_M) // 4
-            clusters_per_batch = heads * clusters_m
-            batch_idx = cluster_linear // clusters_per_batch
-            rem = cluster_linear - batch_idx * clusters_per_batch
-            head_idx = rem // clusters_m
-            m_base = (rem - head_idx * clusters_m) * 4
+            batch_idx, m_base, head_idx = get_tile_coordinates(
+                current_bid, batch, q_sequence, heads, swizzle
+            )
+            iterations = m_base + 4
 
             for qid in cl.static_iter(range(2)):
-                wait_mbarrier(q_finished.get_element_pointer(qid), q_phase)
+                if cl.static_eval(persistent):
+                    wait_mbarrier(q_finished.get_element_pointer(qid), q_phase)
                 q_dst = cl.map_shared_to_cluster(
                     q_smem.get_element_pointer((qid, 0)), rank
                 )
@@ -315,7 +362,7 @@ def mha_kernel(
                     kv_phase ^= 1
 
             q_phase ^= 1
-            current_bid += NUM_SMS
+            current_bid += bid_stride
 
     elif warp == 12 and rank == 0 and cl.elect_sync():
         qk_instruction = cl.Tcgen05InstructionDescriptor(
@@ -336,11 +383,15 @@ def mha_kernel(
 
         kv_index = 0
         kv_phase = 0
+        norm_phase = 0
         current_bid = cl.block_index(0)
         task_number = 0
         while current_bid < total_bids:
+            _, m_base, _ = get_tile_coordinates(
+                current_bid, batch, q_sequence, heads, swizzle
+            )
+            iterations = m_base + 4
             q_phase = task_number & 1
-            norm_phase = (task_number * iterations) & 1
             for qid in cl.static_iter(range(2)):
                 cl.mbarrier_arrive_expect_transaction(
                     q_arrived.get_element_pointer(qid),
@@ -387,13 +438,6 @@ def mha_kernel(
                     multicast_mask=0b11,
                     cta_group=cl.CTAGroup.CTA_2,
                 )
-            if iterations == 1:
-                for qid in cl.static_iter(range(2)):
-                    cl.tcgen05_commit(
-                        q_finished.get_element_pointer(qid),
-                        multicast_mask=0b11,
-                        cta_group=cl.CTAGroup.CTA_2,
-                    )
             kv_index += 1
             if kv_index == LOAD_STAGES:
                 kv_index = 0
@@ -493,7 +537,7 @@ def mha_kernel(
                             multicast_mask=0b11,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
-                    if key_block + 2 == iterations:
+                    if cl.static_eval(persistent) and key_block + 2 == iterations:
                         for qid in cl.static_iter(range(2)):
                             cl.tcgen05_commit(
                                 q_finished.get_element_pointer(qid),
@@ -514,7 +558,7 @@ def mha_kernel(
                         )
                     norm_phase ^= 1
 
-            current_bid += NUM_SMS
+            current_bid += bid_stride
             task_number += 1
 
     elif warpgroup < 2:
@@ -523,6 +567,11 @@ def mha_kernel(
         rescale_phase = 1
         current_bid = cl.block_index(0)
         while current_bid < total_bids:
+            _, m_base, _ = get_tile_coordinates(
+                current_bid, batch, q_sequence, heads, swizzle
+            )
+            iterations = m_base + 4
+            m_tile = m_base + rank * 2 + qid
             row_sum = cl.float32(0.0)
             row_max = cl.float32(-float("inf"))
             wait_mbarrier(rescale_finished.get_element_pointer(qid), rescale_phase)
@@ -537,15 +586,21 @@ def mha_kernel(
                 )
                 old_max = row_max
                 for quarter in cl.static_iter(range(4)):
+                    column = quarter * 32
                     scores = cl.tcgen05_load(
                         cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
-                        cl.tcgen05_tmem_offset(
-                            row_tmem, column_offset=quarter * 32
-                        ),
+                        cl.tcgen05_tmem_offset(row_tmem, column_offset=column),
                         count=32,
                     )
                     cl.tcgen05_wait_load()
-                    row_max = max_vector32(scores, row_max)
+                    row_max = max_vector32(
+                        scores,
+                        row_max,
+                        key_block,
+                        m_tile,
+                        lane_in_group,
+                        column,
+                    )
 
                 correction = cl.float32(1.0)
                 if key_block > 0:
@@ -554,7 +609,7 @@ def mha_kernel(
                         row_max = old_max
                     else:
                         correction = fast_exp2(correction_log2)
-                    max_vec[(qid, lane_in_group)] = correction
+                    max_vec[qid, lane_in_group] = correction
                 cl.barrier_sync_warp()
                 if cl.elect_sync():
                     cl.mbarrier_arrive(corr_arrived.get_element_pointer(qid))
@@ -565,16 +620,21 @@ def mha_kernel(
                 # live without the 624 stack bytes per thread seen today.
                 block_sum = cl.float32(0.0)
                 for quarter in cl.static_iter(range(4)):
+                    column = quarter * 32
                     scores = cl.tcgen05_load(
                         cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
-                        cl.tcgen05_tmem_offset(
-                            row_tmem, column_offset=quarter * 32
-                        ),
+                        cl.tcgen05_tmem_offset(row_tmem, column_offset=column),
                         count=32,
                     )
                     cl.tcgen05_wait_load()
                     probabilities, quarter_sum = probability_vector(
-                        scores, scale, offset
+                        scores,
+                        scale,
+                        offset,
+                        key_block,
+                        m_tile,
+                        lane_in_group,
+                        column,
                     )
                     if cl.static_eval(quarter == 0):
                         block_sum = quarter_sum
@@ -610,12 +670,12 @@ def mha_kernel(
                 row_sum = row_sum * correction + block_sum
                 score_phase ^= 1
 
-            lse_vec[(qid, lane_in_group)] = row_max
-            max_vec[(qid, lane_in_group)] = row_sum
+            lse_vec[qid, lane_in_group] = row_max
+            max_vec[qid, lane_in_group] = row_sum
             cl.barrier_sync_warp()
             if cl.elect_sync():
                 cl.mbarrier_arrive(corr_arrived.get_element_pointer(qid))
-            current_bid += NUM_SMS
+            current_bid += bid_stride
 
     elif warpgroup == 2:
         correction_phase = 0
@@ -630,6 +690,10 @@ def mha_kernel(
 
         current_bid = cl.block_index(0)
         while current_bid < total_bids:
+            batch_idx, m_base, head_idx = get_tile_coordinates(
+                current_bid, batch, q_sequence, heads, swizzle
+            )
+            iterations = m_base + 4
             for qid in cl.static_iter(range(2)):
                 wait_mbarrier(corr_arrived.get_element_pointer(qid), correction_phase)
                 if warp == 8 and cl.elect_sync():
@@ -641,7 +705,7 @@ def mha_kernel(
                     wait_mbarrier(
                         corr_arrived.get_element_pointer(qid), correction_phase
                     )
-                    correction = max_vec[(qid, lane_in_group)]
+                    correction = max_vec[qid, lane_in_group]
                     needs_rescale = cl._nvvm.vote_any_sync(
                         cl.int32(-1), correction < cl.float32(1.0)
                     )
@@ -676,18 +740,10 @@ def mha_kernel(
                         cl.mbarrier_arrive(rescale_finished.get_element_pointer(qid))
                 correction_phase ^= 1
 
-            cluster_linear = current_bid // CLUSTER_SIZE
-            clusters_m = (q_sequence // BLOCK_M) // 4
-            clusters_per_batch = heads * clusters_m
-            batch_idx = cluster_linear // clusters_per_batch
-            rem = cluster_linear - batch_idx * clusters_per_batch
-            head_idx = rem // clusters_m
-            m_base = (rem - head_idx * clusters_m) * 4
-
             for qid in cl.static_iter(range(2)):
                 wait_mbarrier(corr_arrived.get_element_pointer(qid), correction_phase)
-                row_sum = max_vec[(qid, lane_in_group)]
-                row_max = lse_vec[(qid, lane_in_group)]
+                row_sum = max_vec[qid, lane_in_group]
+                row_max = lse_vec[qid, lane_in_group]
                 if warp == 8 and cl.elect_sync():
                     cl.mbarrier_arrive(rescale_finished.get_element_pointer(qid))
                 invalid = row_sum == cl.float32(0.0) or row_sum != row_sum
@@ -747,7 +803,7 @@ def mha_kernel(
 
             correction_phase ^= 1
             end_phase ^= 1
-            current_bid += NUM_SMS
+            current_bid += bid_stride
 
     if warp == 8:
         cl.copy_async_bulk_wait_group(0)
@@ -766,15 +822,26 @@ def make_tma_view(x, segment=64):
     )
 
 
-def run_mha(q, k, v):
+def run_mha(q, k, v, persistent=None):
     batch, q_sequence, heads, qk_dim = q.shape
     kv_sequence = k.shape[1]
     assert q.dtype == k.dtype == v.dtype == torch.bfloat16
     assert qk_dim == HEAD_DIM_QK
     assert k.shape == (batch, kv_sequence, heads, HEAD_DIM_QK)
     assert v.shape == (batch, kv_sequence, heads, HEAD_DIM_V)
-    assert q_sequence % 512 == 0 and kv_sequence % BLOCK_N == 0
+    assert q_sequence == kv_sequence and q_sequence % 512 == 0
     assert q.is_contiguous() and k.is_contiguous() and v.is_contiguous()
+
+    if persistent is None:
+        persistent = q_sequence <= PERSISTENT_SEQUENCE_LIMIT
+
+    total_bids = batch * heads * (q_sequence // (BLOCK_M * 2))
+    grid = NUM_SMS if persistent else total_bids
+    size_one_head = kv_sequence * (HEAD_DIM_QK + HEAD_DIM_V) * 2
+    swizzle = 1
+    if L2_SIZE >= size_one_head:
+        ratio = L2_SIZE // size_one_head
+        swizzle = 1 << (ratio.bit_length() - 1)
 
     output = torch.empty(
         (batch, q_sequence, heads, HEAD_DIM_V), dtype=v.dtype, device=v.device
@@ -784,7 +851,7 @@ def run_mha(q, k, v):
     )
     cl.launch(
         torch.cuda.current_stream(),
-        (NUM_SMS,),
+        (grid,),
         (THREADS,),
         mha_kernel,
         (
@@ -797,6 +864,8 @@ def run_mha(q, k, v):
             q_sequence,
             kv_sequence,
             heads,
+            persistent,
+            swizzle,
         ),
         block_in_cluster_count=(CLUSTER_SIZE, 1, 1),
     )
@@ -804,46 +873,62 @@ def run_mha(q, k, v):
 
 
 def reference_mha(q, k, v):
+    assert q.device.type == k.device.type == v.device.type == "cpu"
+    q = q.float()
+    k = k.float()
+    v = v.float()
     scale = 1.0 / math.sqrt(HEAD_DIM_QK)
-    scores = torch.einsum("bqhd,bkhd->bhqk", q.float(), k.float()) * scale
+    scores = torch.einsum("bqhd,bkhd->bhqk", q, k) * scale
+    mask = torch.ones(
+        (q.shape[1], k.shape[1]), dtype=torch.bool, device=scores.device
+    ).triu(1)
+    scores.masked_fill_(mask, -float("inf"))
     lse = torch.logsumexp(scores, dim=-1).unsqueeze(2)
     probabilities = torch.softmax(scores, dim=-1)
-    output = torch.einsum("bhqk,bkhd->bqhd", probabilities, v.float())
+    output = torch.einsum("bhqk,bkhd->bqhd", probabilities, v)
     return output, lse
 
 
 @pytest.mark.parametrize(
-    "batch,q_sequence,kv_sequence,heads",
-    ((1, 512, 512, 1), (1, 512, 1024, 1), (2, 512, 512, 2)),
+    "batch,sequence,heads,persistent",
+    (
+        (1, 512, 1, True),
+        (1, 1024, 1, True),
+        (1, 512, 1, False),
+        (2, 512, 2, True),
+    ),
 )
-def test_bf16_b200_mha_noncausal(batch, q_sequence, kv_sequence, heads):
+def test_bf16_b200_mha_causal(batch, sequence, heads, persistent):
     torch.manual_seed(0)
-    q = torch.randn(
-        (batch, q_sequence, heads, HEAD_DIM_QK),
-        device="cuda",
+    q_cpu = torch.randn(
+        (batch, sequence, heads, HEAD_DIM_QK),
         dtype=torch.bfloat16,
     )
-    k = torch.randn(
-        (batch, kv_sequence, heads, HEAD_DIM_QK),
-        device="cuda",
+    k_cpu = torch.randn(
+        (batch, sequence, heads, HEAD_DIM_QK),
         dtype=torch.bfloat16,
     )
-    v = torch.randn(
-        (batch, kv_sequence, heads, HEAD_DIM_V),
-        device="cuda",
+    v_cpu = torch.randn(
+        (batch, sequence, heads, HEAD_DIM_V),
         dtype=torch.bfloat16,
     )
+    expected, expected_lse = reference_mha(q_cpu, k_cpu, v_cpu)
+    q = q_cpu.cuda()
+    k = k_cpu.cuda()
+    v = v_cpu.cuda()
+    expected = expected.cuda()
+    expected_lse = expected_lse.cuda()
 
-    actual, actual_lse = run_mha(q, k, v)
+    actual, actual_lse = run_mha(q, k, v, persistent=persistent)
     torch.cuda.synchronize()
-    expected, expected_lse = reference_mha(q, k, v)
 
     torch.testing.assert_close(actual.float(), expected, atol=2e-2, rtol=2e-2)
     torch.testing.assert_close(actual_lse, expected_lse, atol=2e-3, rtol=2e-3)
 
 
 if __name__ == "__main__":
-    test_bf16_b200_mha_noncausal(1, 512, 512, 1)
-    test_bf16_b200_mha_noncausal(1, 512, 1024, 1)
-    test_bf16_b200_mha_noncausal(2, 512, 512, 2)
+    test_bf16_b200_mha_causal(1, 512, 1, True)
+    test_bf16_b200_mha_causal(1, 1024, 1, True)
+    test_bf16_b200_mha_causal(1, 512, 1, False)
+    test_bf16_b200_mha_causal(2, 512, 2, True)
     print("success")

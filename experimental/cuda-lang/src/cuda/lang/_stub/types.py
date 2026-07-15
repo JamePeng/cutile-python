@@ -104,7 +104,12 @@ class Vector(Generic[T]):
 
     @stub
     def __init__(self, *elements: T, dtype: DType | None = None) -> None:
-        """Constructs a vector from scalar elements, optionally with an explicit dtype."""
+        """Constructs a vector from scalar elements, optionally with an explicit dtype.
+
+        Args:
+            elements: Variable number of elements used to construct the vector.
+            dtype: Data type of the vector.
+        """
 
     @property
     @stub
