@@ -6,7 +6,7 @@ import enum
 import sys
 from functools import partial
 from dataclasses import dataclass, field
-from typing import Callable, ClassVar, Literal, Sequence, get_type_hints
+from typing import Callable, Sequence, get_type_hints
 
 from cuda.lang._compiler_options import CompilerOptions
 from cuda.lang._enums import (
@@ -357,10 +357,9 @@ def _get_mlir_comparison_op(
 class MLIRLoweringContext:
     """Mutable data shared by host and device MLIR operation lowering."""
 
-    execution_space: ClassVar[Literal["host", "device"]]
     region: ir.Region
     ir_context: ir.IRContext
-    target_info: TargetInfo
+    target_info: TargetInfo | None = None
     var_map: dict[str, mlir.Value] = field(default_factory=dict)
     block_map: dict[ir.Block, mlir.Block] = field(default_factory=dict)
     module_op: mlir.Operation | None = None
@@ -414,7 +413,6 @@ class MLIRLoweringContext:
 class DeviceLoweringContext(MLIRLoweringContext):
     """Data required while lowering a CUDA Lang device function."""
 
-    execution_space = "device"
     signature: KernelSignature
     gpu_module_op: mlir.Operation | None = None
     seen_foreign_functions: dict[
@@ -460,7 +458,9 @@ class _MLIROperationLoweringRegistry:
         self, context: MLIRLoweringContext, operation: ir.Operation
     ) -> Sequence[mlir.Value] | None:
         try:
-            handler = self._handlers[context.execution_space][type(operation)]
+            handler = self._handlers[context.ir_context.execution_space][
+                type(operation)
+            ]
         except KeyError:
             raise NotImplementedError(f"Unable to lower {operation=} to MLIR") from None
         return handler(context, operation)
@@ -472,6 +472,13 @@ _MLIR_OP_LOWERING = _MLIROperationLoweringRegistry()
 def mlir_op_lowering(handler=None, *, host: bool = True, device: bool = True):
     decorator = _MLIR_OP_LOWERING.register(host=host, device=device)
     return decorator if handler is None else decorator(handler)
+
+
+def lower_mlir_op(
+    context: MLIRLoweringContext, operation: ir.Operation
+) -> Sequence[mlir.Value] | None:
+    """Lower one operation using the handler for the context's execution space."""
+    return _MLIR_OP_LOWERING.lower(context, operation)
 
 
 # TODO(ajm): need to bump LLVM bindings to get this enum.
@@ -869,6 +876,72 @@ def lower_dummy(
     return [mlir_constant_of_type(result_type, zero)]
 
 
+def create_mlir_blocks(context: MLIRLoweringContext) -> None:
+    """Create one typed MLIR block for every block in the CUDA Lang IR."""
+    for ir_block in context.region.blocks:
+        args = tuple(
+            mlir.Value(ir_type_to_mlir_type(param.get_type()), param.name)
+            for param in ir_block.params
+        )
+        context.block_map[ir_block] = context.function_region.new_block(
+            args=args,
+            block_id=ir_block._name,
+        )
+
+
+def _bind_mlir_block_arguments(
+    context: MLIRLoweringContext, ir_block: ir.Block
+) -> None:
+    mlir_block = context.block_map[ir_block]
+    assert len(mlir_block.args) == len(ir_block.params), (
+        "MLIR block parameters do not match IR block parameters: "
+        f"{ir_block._name}"
+    )
+    for mlir_arg, ir_arg in zip(mlir_block.args, ir_block.params, strict=True):
+        assert mlir_arg.type == ir_type_to_mlir_type(ir_arg.get_type()), (
+            "MLIR argument type does not match IR argument type: "
+            f"{ir_arg.name}"
+        )
+        context.def_var(ir_arg, mlir_arg)
+
+
+def _lower_mlir_block(
+    context: MLIRLoweringContext, ir_block: ir.Block, *, debug_info: bool = False
+) -> None:
+    with context.block_map[ir_block].append_here():
+        for operation in ir_block.operations:
+            context.current_op = operation
+            operation_loc = ir_loc_to_mlir_location(operation.loc) if debug_info else None
+            with mlir.use_location(operation_loc):
+                results = lower_mlir_op(context, operation)
+            if results is None:
+                continue
+            assert len(operation.result_vars) == len(results)
+            for lhs, rhs in zip(operation.result_vars, results, strict=True):
+                context.def_var(lhs, rhs)
+
+
+def lower_mlir_region(
+    context: MLIRLoweringContext, *, debug_info: bool = False
+) -> None:
+    """Lower a typed CUDA Lang CFG using the context's operation set."""
+    try:
+        for ir_block in context.region.blocks:
+            _bind_mlir_block_arguments(context, ir_block)
+            _lower_mlir_block(context, ir_block, debug_info=debug_info)
+    except Exception:
+        if context.ir_context.log_ir_on_error:
+            highlight_loc = (
+                context.current_op.loc if context.current_op is not None else None
+            )
+            ir_str = context.region.to_string(highlight_loc=highlight_loc)
+            print(
+                f"==== Encountered error converting IR to MLIR: ====\n\n{ir_str}\n\n",
+                file=sys.stderr,
+            )
+        raise
+
+
 class DeviceIR2MLIR:
     def __init__(
         self,
@@ -888,87 +961,17 @@ class DeviceIR2MLIR:
 
     def __call__(self) -> mlir.Operation:
         context = self.context
+        debug_info = self.compiler_options.debug_info == "line"
         entry_loc = None
-        if self.compiler_options.debug_info == "line":
+        if debug_info:
             entry_loc = ir_loc_to_mlir_location(context.region.blocks[0].loc)
         with mlir.use_location(entry_loc):
             self.setup_func_op()
-        self.setup_blocks()
-
-        try:
-            self.lower_region()
-        except Exception:
-            if context.ir_context.log_ir_on_error:
-                highlight_loc = (
-                    context.current_op.loc
-                    if context.current_op is not None
-                    else None
-                )
-                ir_str = context.region.to_string(highlight_loc=highlight_loc)
-                print(
-                    f"==== Encountered error converting IR to MLIR: ====\n\n{ir_str}\n\n",
-                    file=sys.stderr,
-                )
-            raise
+        create_mlir_blocks(context)
+        lower_mlir_region(context, debug_info=debug_info)
 
         assert context.module_op is not None, "MLIR module not initialized"
         return context.module_op
-
-    def lower_region(self) -> None:
-        context = self.context
-        for ir_block in context.region.blocks:
-            mlir_block = context.block_map[ir_block]
-            assert len(mlir_block.args) == len(ir_block.params), (
-                "MLIR block parameters do not match IR block parameters: "
-                f"{ir_block._name}"
-            )
-            for mlir_arg, ir_arg in zip(mlir_block.args, ir_block.params):
-                assert mlir_arg.type == ir_type_to_mlir_type(ir_arg.get_type()), (
-                    "MLIR argument type does not match IR argument type: "
-                    f"{ir_arg.name}"
-                )
-                context.def_var(ir_arg, mlir_arg)
-
-            self.lower_block(ir_block)
-
-    def lower_block(self, ir_block: ir.Block) -> None:
-        context = self.context
-        mlir_block = context.block_map[ir_block]
-        with mlir_block.append_here():
-            for operation in ir_block.operations:
-                context.current_op = operation
-
-                operation_loc = None
-                if self.compiler_options.debug_info == "line":
-                    operation_loc = ir_loc_to_mlir_location(operation.loc)
-                with mlir.use_location(operation_loc):
-                    results = _MLIR_OP_LOWERING.lower(self.context, operation)
-
-                # Aggregate assignments do not materialize an MLIR SSA value.
-                if isinstance(operation, ops.Assign):
-                    continue
-
-                assert len(operation.result_vars) == len(results)
-                for lhs, rhs in zip(operation.result_vars, results):
-                    context.def_var(lhs, rhs)
-
-    def setup_blocks(self):
-        context = self.context
-        assert context.func_op is not None, "MLIR GPU function not initialized"
-        func_region = context.func_op.regions[0]
-        for ir_block in context.region.blocks:
-            mlir_block_param_types = tuple(
-                ir_type_to_mlir_type(param.get_type()) for param in ir_block.params
-            )
-            block_param_names = tuple(param.name for param in ir_block.params)
-            args = tuple(
-                mlir.Value(param_type, param_name)
-                for param_type, param_name in zip(
-                    mlir_block_param_types, block_param_names
-                )
-            )
-            mlir_block = func_region.new_block(args=args, block_id=ir_block._name)
-            context.block_map[ir_block] = mlir_block
 
     def setup_func_op(self):
         context = self.context

@@ -5,7 +5,11 @@
 import cuda.lang as cl
 import cuda.lang._compile as compile_module
 import cuda.lang._logging as logging_module
+import pytest
 from cuda.lang._compiler_options import CompilerOptions
+from cuda.tile._exception import UnsupportedCallError
+from cuda.tile._execution import is_function_allowed_in
+
 from cuda.lang._ir import hir, ir
 from cuda.lang._logging import LoggingConfig
 from cuda.lang._timing import CompilationTimings
@@ -14,6 +18,37 @@ from cuda.lang.compilation import KernelSignature
 
 def _disable_environment_logs(monkeypatch):
     monkeypatch.setattr(compile_module, "get_log_flags", LoggingConfig)
+
+
+def test_function_execution_spaces():
+    @cl.function
+    def simt_function():
+        pass
+
+    assert not is_function_allowed_in(simt_function, "host")
+    assert is_function_allowed_in(simt_function, "device")
+
+    @cl.function(host=True, tile=False)
+    def host_function():
+        pass
+
+    assert is_function_allowed_in(host_function, "host")
+    assert not is_function_allowed_in(host_function, "device")
+
+
+def test_compile_simt_honors_execution_space():
+    @cl.function(host=True, tile=False)
+    def host_only():
+        pass
+
+    def kernel():
+        host_only()
+
+    with pytest.raises(
+        UnsupportedCallError,
+        match=r"host_only\(\) is not supported in device code",
+    ):
+        cl.compile_simt(kernel, [KernelSignature([])])
 
 
 def test_compile_simt_does_not_keep_ir_by_default(monkeypatch):

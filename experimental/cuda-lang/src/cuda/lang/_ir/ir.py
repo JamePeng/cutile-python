@@ -9,6 +9,7 @@ from collections import defaultdict
 from cuda.tile._ir.ir import (
     Block as TileBlock,
     Builder as TileBuilder,
+    ExecutionSpace,
     IRContext as TileIRContext,
     Operation,
     Var,
@@ -86,12 +87,18 @@ class Block(TileBlock):
 
 
 class IRContext(TileIRContext):
-    def __init__(self, log_ir_on_error: bool = True):
+    def __init__(
+        self,
+        log_ir_on_error: bool = True,
+        *,
+        execution_space: ExecutionSpace = "device",
+    ):
         from cuda.lang._ir.type import LangTypingHooks
         self._block_names: dict[int, str] = {}
         self._block_counter: dict[str, itertools.count] = defaultdict(itertools.count)
         super().__init__(log_ir_on_error, tileiras_version=None,
-                         typing_hooks=LangTypingHooks())
+                         typing_hooks=LangTypingHooks(),
+                         execution_space=execution_space)
 
     def make_block(self, name: str, loc: Loc, params: tuple[Var, ...] = ()) -> Block:
         block = Block(self, loc)

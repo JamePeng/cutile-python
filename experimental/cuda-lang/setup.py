@@ -5,9 +5,10 @@
 import sys
 from distutils import file_util
 
-from setuptools import setup, Command
+from setuptools import setup, Command, Extension
 from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.build import build
+from setuptools.command.build_ext import build_ext
 import os
 
 
@@ -69,11 +70,26 @@ class BuildBinaries(Command):
         return os.path.abspath(build_py.get_package_dir(package))
 
 
+class BuildExtWithCmake(build_ext):
+    def run(self):
+        build_dir = os.getenv("CUDA_TILE_CEXT_BUILD_DIR")
+        if build_dir is None:
+            build_dir = guess_cuda_tile_build_dir()
+        command = ["cmake", "--build", build_dir, "--target", "_host_jit"]
+        self.spawn(command)
+
+        src_path = os.path.join(build_dir, "internal", "host_jit", "_host_jit.so")
+        ext_path = self.get_ext_fullpath("cuda.lang._host_jit")
+        os.makedirs(os.path.dirname(ext_path), exist_ok=True)
+        link = "sym" if self.editable_mode else None
+        file_util.copy_file(src_path, ext_path, update=1, link=link)
+
+
 class CustomBuild(build):
     sub_commands = [*build.sub_commands, ("build_binaries", None)]
 
 
-# Force an "unpure" wheel name even though we are not including any C extensions
+# The bundled native compiler also makes this a platform-specific wheel.
 class CustomBdistWheel(bdist_wheel):
     def finalize_options(self):
         super().finalize_options()
@@ -83,7 +99,9 @@ class CustomBdistWheel(bdist_wheel):
 setup(
     cmdclass=dict(
         build=CustomBuild,
+        build_ext=BuildExtWithCmake,
         build_binaries=BuildBinaries,
         bdist_wheel=CustomBdistWheel,
-    )
+    ),
+    ext_modules=[Extension("cuda.lang._host_jit", [])],
 )

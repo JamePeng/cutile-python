@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import (
     List, Optional, Dict, Tuple, Any, TYPE_CHECKING, Sequence, Iterator, Callable, TypeVar, Generic
 )
+from typing import Literal, TypeAlias
 
 from cuda.tile._ir.aggregate_value import AggregateValue
 from cuda.tile._ir.type import Type, InvalidType, LooselyTypedScalar, TensorLikeTy
@@ -30,6 +31,9 @@ if TYPE_CHECKING:
     from cuda.tile._ir2bytecode import BytecodeContext
 
 
+ExecutionSpace: TypeAlias = Literal["host", "device"]
+
+
 class TypingHooks:
     def get_tensor_like_type(self, dtype: DType, shape: Sequence[int]) -> TensorLikeTy:
         raise NotImplementedError()
@@ -37,7 +41,10 @@ class TypingHooks:
 
 class IRContext:
     def __init__(self, log_ir_on_error: bool, tileiras_version: BytecodeVersion,
-                 typing_hooks: TypingHooks):
+                 typing_hooks: TypingHooks, *,
+                 execution_space: ExecutionSpace = "device"):
+        if execution_space not in ("host", "device"):
+            raise ValueError(f"Unknown execution space: {execution_space}")
         self._all_vars: Dict[str, str] = {}
         self._counter_by_name: Dict[str, Iterator[int]] = defaultdict(itertools.count)
         self._temp_counter = itertools.count()
@@ -49,6 +56,7 @@ class IRContext:
         self.tileiras_version: BytecodeVersion = tileiras_version
         self._function_specialization_id_counter = itertools.count()
         self.typing_hooks = typing_hooks
+        self.execution_space = execution_space
 
     def next_function_specialization_id(self) -> str:
         # Monotonic counter used as a unique id when creating concrete FunctionDescs

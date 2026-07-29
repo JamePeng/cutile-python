@@ -14,6 +14,7 @@ from cuda.tile._dispatch_mode import DispatchMode
 
 if TYPE_CHECKING:
     from cuda.tile.compilation import KernelSignature
+    from cuda.tile._ir.ir import ExecutionSpace
 
 __all__ = ("function", "kernel", "stub")
 
@@ -43,12 +44,16 @@ def function(func=None, /, *, host=False, tile=True):
     """
     def decorator(func):
         if host:
+            func._cutile_host_function = host
+            func._cutile_tile_function = tile
             return func
         else:
             @functools.wraps(func)
             def wrapped(*args, **kwargs):
                 return DispatchMode.get_current().call_tile_function_from_host(
                         wrapped, args, kwargs)
+            wrapped._cutile_host_function = host
+            wrapped._cutile_tile_function = tile
             wrapped._cutile_function_wrapper = True
             return wrapped
 
@@ -226,3 +231,13 @@ def is_static_def(func):
 
 def is_function_wrapper(func) -> bool:
     return getattr(func, "_cutile_function_wrapper", False)
+
+
+def is_function_allowed_in(func, execution_space: "ExecutionSpace") -> bool:
+    """Return whether an explicitly annotated function supports an execution space.
+
+    Unannotated Python helpers inherit the execution space of their caller.
+    """
+    assert execution_space in ("host", "device")
+    attribute = "host" if execution_space == "host" else "tile"
+    return getattr(func, f"_cutile_{attribute}_function", True)

@@ -16,7 +16,7 @@ from .._coroutine_util import resume_after, run_coroutine
 from .._dispatch_mode import StaticEvalMode
 from .._exception import Loc, FunctionDesc, TileInternalError, TileError, TileRecursionError, \
     TileValueError, UnsupportedCallError, TypeCheckingError, UnsupportedSyntaxError
-from .._execution import is_stub, is_static_def
+from .._execution import is_function_allowed_in, is_stub, is_static_def
 from .._ir.hir import StaticEvalKind
 from .._ir import hir, ir, hir_stubs
 from .._ir.ir import Var, IRContext, Builder
@@ -275,10 +275,18 @@ async def _call_function(callee: Callable,
                          args: Sequence[Var],
                          kwargs: Mapping[str, Var],
                          builder: ir.Builder):
+    execution_space = builder.ir_ctx.execution_space
+    if not is_function_allowed_in(callee, execution_space):
+        raise UnsupportedCallError(
+            f"{callee.__name__}() is not supported in {execution_space} code"
+        )
+
     impl = _try_find_function_impl(callee)
     if impl is not None or is_stub(callee) or isinstance(callee, BuiltinFunctionType):
         if impl is None:
-            raise UnsupportedCallError(f"{callee.__name__}() is not supported in device code")
+            raise UnsupportedCallError(
+                f"{callee.__name__}() is not supported in {execution_space} code"
+            )
         return await _call_builtin(callee, impl, args, kwargs, builder)
     elif is_static_def(callee):
         return _call_static_def_function(callee, args, kwargs)
@@ -411,7 +419,8 @@ async def _call_constructor(ty, args, kwargs, builder):
         impl = _try_find_function_impl(ty)
         if impl is None:
             raise UnsupportedCallError(f'Creating instances of type "{ty.__name__}"'
-                                       f' is not supported in device code')
+                                       f' is not supported in '
+                                       f'{builder.ir_ctx.execution_space} code')
         return await _call_builtin(ty, impl, args, kwargs, builder)
 
 
