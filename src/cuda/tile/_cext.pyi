@@ -78,6 +78,11 @@ class TileDispatcher:
         ...
 
 
+class HostDispatcher:
+    def __init__(self, parameter_annotations: Sequence):
+        ...
+
+
 class TileContext:
     def __init__(self, config: TileContextConfig):
         ...

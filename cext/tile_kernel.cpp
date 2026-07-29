@@ -5,6 +5,7 @@
 #include "tile_kernel.h"
 
 #include "check.h"
+#include "compiled_host.h"
 #include "cuda_loader.h"
 #include "cuda_helper.h"
 #include "hash_map.h"
@@ -478,6 +479,7 @@ struct KernelImage {
 };
 
 using KernelMap = HashMap<Vec<int64_t>, TileKernel>;
+using HostProgramMap = HashMap<Vec<int64_t>, PyPtr>;
 
 
 static ArenaOffset arena_alloc_words(Arena& arena, size_t count) {
@@ -650,11 +652,14 @@ struct ParameterKind {
     }
 };
 
-struct KernelFamily : SimpleRefcount<KernelFamily> {
+struct ArgumentFamily : SimpleRefcount<ArgumentFamily> {
     Vec<ParameterKind> param_kinds;
     KernelMap kernels_by_constants;
+    HostProgramMap host_programs_by_constants;
 
-    explicit KernelFamily(Vec<ParameterKind>&& param_kinds) : param_kinds(std::move(param_kinds)) {}
+    explicit ArgumentFamily(Vec<ParameterKind>&& param_kinds)
+        : param_kinds(std::move(param_kinds))
+    {}
 };
 
 
@@ -1005,7 +1010,7 @@ struct ParameterAnnotationNode;
 
 namespace { struct ExpandAggregates; }
 
-// ProfileMap enables us to quickly find a KernelFamily given the Python types
+// ProfileMap enables us to quickly find an ArgumentFamily given the Python types
 // of the kernel arguments (expressed as a sequence of PyTypeObject*).
 // It is organized as a tree, with ProfileMapNode serving as a base class for the node.
 // Each node is either a leaf (PythonArgProfile) or an intermediate node (ExpandAggregates).
@@ -1117,7 +1122,7 @@ namespace { struct ExpandAggregates : ProfileMapNode {
 
 // Leaf node of a ProfileMap tree.
 namespace { struct PythonArgProfile : ProfileMapNode {
-    RefPtr<KernelFamily> family;
+    RefPtr<ArgumentFamily> family;
 
     // Indices into `pyarg_objs_breadth_first` to obtain leaf arguments in the depth-first order.
     Vec<size_t> leaf_pyarg_breadth_first_indices;
@@ -1129,7 +1134,7 @@ namespace { struct PythonArgProfile : ProfileMapNode {
     explicit PythonArgProfile(Vec<PyPtr> arg_types,
                               ExpandAggregates* parent,
                               int depth,
-                              KernelFamily* family,
+                              ArgumentFamily* family,
                               Vec<size_t> leaf_pyarg_breadth_first_indices,
                               Vec<PythonArgKind> arg_kinds,
                               Vec<RefPtr<LeafAnnotationNode>> flat_param_annotations)
@@ -1488,7 +1493,6 @@ struct ArrayTypeConstantBuilder {
         for (int64_t dim : dims) {
             Result<size_t> normalized_dim = normalize_dim(dim, ndim, annotation);
             if (!normalized_dim.is_ok()) return ErrorRaised;
-
             int64_t expected = first_words[*normalized_dim].i64;
             int64_t actual = words[*normalized_dim].i64;
             if (expected != actual)
@@ -2327,7 +2331,8 @@ static Result<PythonArgKind> classify_list_item(PyObject* item, size_t index) {
 }
 
 static Status extract_py_list(const DriverApi* driver, PyObject* pyobj,
-                              const ListAnnotation& list_ann, LaunchHelper& helper) {
+                              const ListAnnotation& list_ann,
+                              LaunchHelper& helper) {
     size_t len = PyList_GET_SIZE(pyobj);
     if (len > INT32_MAX)
         return raise(PyExc_TypeError, "List is too long");
@@ -2601,7 +2606,8 @@ flatten_parameter_annotation_nodes(const Vec<RefPtr<ParameterAnnotationNode>>& n
 static RefPtr<ParameterAnnotationNode> parse_parameter_annotation_node(PyObject* obj);
 
 static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind kind,
-                          LeafAnnotationNode* annotation, LaunchHelper& helper) {
+                          LeafAnnotationNode* annotation,
+                          LaunchHelper& helper) {
     switch (kind) {
     case PythonArgKind::ConstantBool:
         return extract_bool_constant(obj, &helper.constants);
@@ -2825,9 +2831,13 @@ namespace { struct TileContext {
 }; }
 
 
-struct TileContextDispatcher {
+struct Dispatcher {
+    Vec<RefPtr<ParameterAnnotationNode>> param_annotations;
     ProfileMap arg_profiles;
-    Vec<RefPtr<KernelFamily>> kernel_families;
+    Vec<RefPtr<ArgumentFamily>> argument_families;
+
+    static PyTypeObject tile_pytype;
+    static PyTypeObject host_pytype;
 };
 
 
@@ -3115,14 +3125,6 @@ static Status hoisted_tensor_map_encode(const DriverApi& driver,
     }
     return OK;
 }
-
-
-namespace { struct TileDispatcher {
-    Vec<RefPtr<ParameterAnnotationNode>> param_annotations;
-    TileContextDispatcher default_context_dispatcher;
-
-    static PyTypeObject pytype;
-}; }
 
 
 static Result<TileKernel> compile(const DriverApi* driver,
@@ -3607,13 +3609,13 @@ get_parameter_kinds(const Vec<ArgumentStructureEntry>& argument_structure,
     return ret;
 }
 
-static KernelFamily* get_or_create_kernel_family(Vec<RefPtr<KernelFamily>>* families,
-                                                 Vec<ParameterKind>&& param_kinds) {
-    for (const RefPtr<KernelFamily>& fam : *families) {
+static ArgumentFamily* get_or_create_argument_family(Vec<RefPtr<ArgumentFamily>>* families,
+                                                     Vec<ParameterKind>&& param_kinds) {
+    for (const RefPtr<ArgumentFamily>& fam : *families) {
         if (fam->param_kinds == param_kinds)
             return fam.get();
     }
-    families->push_back(steal(new KernelFamily(std::move(param_kinds))));
+    families->push_back(steal(new ArgumentFamily(std::move(param_kinds))));
     return families->back().get();
 }
 
@@ -3810,7 +3812,7 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
         PyObject* const* pyargs,
         Py_ssize_t num_pyargs,
         const Vec<RefPtr<ParameterAnnotationNode>>& param_annotations,
-        Vec<RefPtr<KernelFamily>>* kernel_families,
+        Vec<RefPtr<ArgumentFamily>>* argument_families,
         Vec<PyObject*>* pyarg_objs_breadth_first,
         Vec<PyTypeObject*>* pyarg_types_breadth_first,
         Vec<PyObject*>* leaf_pyarg_objs,
@@ -3881,7 +3883,7 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
                 if (!flat_param_annotations.is_ok())
                     return nullptr;
 
-                // Classify the arguments and get the matching KernelFamily.
+                // Classify the arguments and get the matching ArgumentFamily.
                 Result<Vec<PythonArgKind>> arg_kinds = get_pyarg_kinds(
                         pyarg_types_depth_first, aggregate_types,
                         *leaf_pyarg_objs, *flat_param_annotations);
@@ -3890,8 +3892,8 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
                 Vec<ParameterKind> param_kinds = get_parameter_kinds(
                         argument_structure, *arg_kinds);
 
-                KernelFamily* family = get_or_create_kernel_family(
-                        kernel_families, std::move(param_kinds));
+                ArgumentFamily* family = get_or_create_argument_family(
+                        argument_families, std::move(param_kinds));
 
                 RefPtr<PythonArgProfile> new_profile = steal(new PythonArgProfile(
                             query.to_owned(), parent, depth, family,
@@ -3927,28 +3929,28 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
     return nullptr;
 }
 
-static PythonArgProfile* python_arg_profile_lookup(PyObject* const* pyargs,
-                                                   Py_ssize_t num_pyargs,
-                                                   TileDispatcher* dispatcher,
-                                                   LaunchHelper* helper) {
-    TileContextDispatcher* ctx_dispatcher = &dispatcher->default_context_dispatcher;
+static PythonArgProfile* python_arg_profile_lookup(
+        PyObject* const* pyargs,
+        Py_ssize_t num_pyargs,
+        Dispatcher& dispatcher,
+        LaunchHelper& helper) {
     return python_arg_profile_lookup_impl(
-            &ctx_dispatcher->arg_profiles,
+            &dispatcher.arg_profiles,
             pyargs,
             num_pyargs,
-            dispatcher->param_annotations,
-            &ctx_dispatcher->kernel_families,
-            &helper->pyarg_objs_breadth_first,
-            &helper->pyarg_types_breadth_first,
-            &helper->leaf_pyarg_objs,
-            &helper->pyarg_refs);
+            dispatcher.param_annotations,
+            &dispatcher.argument_families,
+            &helper.pyarg_objs_breadth_first,
+            &helper.pyarg_types_breadth_first,
+            &helper.leaf_pyarg_objs,
+            &helper.pyarg_refs);
 }
 
 static Result<PreparedLaunch> prepare_launch_with_extracted_args(
         const DriverApi* driver,
         PyObject* dispatcher_pyobj,
         CUstream launch_stream,
-        KernelFamily* family,
+        ArgumentFamily* family,
         const Vec<RefPtr<LeafAnnotationNode>>& flat_param_annotations,
         LaunchHelperPtr helper,
         bool capture_kernel_image,
@@ -4043,9 +4045,9 @@ static Result<PreparedLaunch> prepare_launch(
     if (!stream_context.is_ok()) return ErrorRaised;
     helper->cuda_context = *stream_context;
 
-    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(dispatcher_pyobj);
+    Dispatcher& dispatcher = py_unwrap<Dispatcher>(dispatcher_pyobj);
     PythonArgProfile* profile = python_arg_profile_lookup(
-            pyargs, num_pyargs, &dispatcher, helper.get());
+            pyargs, num_pyargs, dispatcher, *helper);
     if (!profile) return ErrorRaised;
 
     if (!extract_cuda_args(driver, helper->leaf_pyarg_objs, profile->arg_kinds,
@@ -4070,7 +4072,7 @@ struct NativeArgument {
 
 struct NativeLaunchSite {
     PyPtr dispatcher;
-    RefPtr<KernelFamily> family;
+    RefPtr<ArgumentFamily> family;
     Vec<RefPtr<LeafAnnotationNode>> flat_param_annotations;
     Vec<NativeArgument> arguments;
 };
@@ -4240,11 +4242,11 @@ Result<NativeLaunchSite*> native_launch_site_create(
 #endif
 
     LaunchHelperPtr helper = launch_helper_get();
-    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(dispatcher_object);
+    Dispatcher& dispatcher = py_unwrap<Dispatcher>(dispatcher_object);
 
     // pyargs contains symbolic array and symbolic scalar
     PythonArgProfile* profile = python_arg_profile_lookup(
-            pyargs, num_pyargs, &dispatcher, helper.get());
+            pyargs, num_pyargs, dispatcher, *helper);
     if (!profile) return ErrorRaised;
 
     Result<const DriverApi*> driver_result = get_driver_api();
@@ -4950,7 +4952,7 @@ PyTypeObject TileContext::pytype = {
 };
 
 
-static int TileDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
+static int Dispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs) {
     const char* keywords[] = {"", nullptr};
     PyObject* py_parameter_annotations = nullptr;
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", const_cast<char**>(keywords),
@@ -4961,19 +4963,114 @@ static int TileDispatcher_init(PyObject* self, PyObject* args, PyObject* kwargs)
             = parse_parameter_annotation_nodes_seq(py_parameter_annotations);
     if (!param_annotations.is_ok()) return -1;
 
-    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(self);
+    Dispatcher& dispatcher = py_unwrap<Dispatcher>(self);
     dispatcher.param_annotations = std::move(*param_annotations);
     return 0;
 }
 
-PyTypeObject TileDispatcher::pytype = {
+PyTypeObject Dispatcher::tile_pytype = {
     .tp_name = "cuda.tile._cext.TileDispatcher",
-    .tp_basicsize = sizeof(PythonWrapper<TileDispatcher>),
-    .tp_dealloc = pywrapper_dealloc<TileDispatcher>,
+    .tp_basicsize = sizeof(PythonWrapper<Dispatcher>),
+    .tp_dealloc = pywrapper_dealloc<Dispatcher>,
     .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-    .tp_init = TileDispatcher_init,
-    .tp_new = pywrapper_new<TileDispatcher>,
+    .tp_init = Dispatcher_init,
+    .tp_new = pywrapper_new<Dispatcher>,
 };
+
+
+static PyObject* HostDispatcher_call(
+        PyObject* self,
+        PyObject* args,
+        PyObject* kwargs) {
+#ifdef Py_GIL_DISABLED
+    PyCriticalSectionGuard guard(&g_launch_mutex);
+#endif
+    if (kwargs && PyDict_Size(kwargs)) {
+        raise(
+                PyExc_TypeError,
+                "host entries accept positional arguments only");
+        return nullptr;
+    }
+    if (!PyTuple_Check(args)) {
+        raise(PyExc_TypeError, "host entry arguments must be a tuple");
+        return nullptr;
+    }
+
+    Py_ssize_t num_args = PyTuple_GET_SIZE(args);
+    Vec<PyObject*> pyargs;
+    pyargs.reserve(num_args);
+    for (Py_ssize_t i = 0; i < num_args; ++i)
+        pyargs.push_back(PyTuple_GET_ITEM(args, i));
+
+    Dispatcher& dispatcher = py_unwrap<Dispatcher>(self);
+    LaunchHelperPtr helper = launch_helper_get();
+    PythonArgProfile* profile = python_arg_profile_lookup(
+            pyargs.empty() ? nullptr : pyargs.data(), num_args, dispatcher, *helper);
+    if (!profile) return nullptr;
+
+    for (const ParameterKind& kind : profile->family->param_kinds) {
+        if (kind.category == ParameterKind::List) {
+            raise(
+                    PyExc_TypeError,
+                    "lists are not supported by host entries yet");
+            return nullptr;
+        }
+    }
+
+    Result<const DriverApi*> driver = get_driver_api();
+    if (!driver.is_ok()) return nullptr;
+    if (!extract_cuda_args(
+                *driver,
+                helper->leaf_pyarg_objs,
+                profile->arg_kinds,
+                profile->flat_param_annotations,
+                *helper)) {
+        return nullptr;
+    }
+
+    HostProgramMap& programs = profile->family->host_programs_by_constants;
+    HostProgramMap::Item* program_item = programs.find(helper->constants);
+    if (!program_item) {
+        PyPtr signature = make_signature(
+                helper->constants,
+                helper->identity_constants,
+                profile->family->param_kinds,
+                profile->flat_param_annotations);
+        if (!signature) return nullptr;
+
+        PyPtr program = steal(PyObject_CallMethod(
+                self, "_compile", "(O)", signature.get()));
+        if (!program) return nullptr;
+        if (!compiled_host_program_check(program.get())) {
+            raise(
+                    PyExc_TypeError,
+                    "expected _compile() to return a compiled host program, got ",
+                    Py_TYPE(program.get())->tp_name);
+            return nullptr;
+        }
+
+        // The compiled program retains its signature, which keeps identity
+        // constants encoded as addresses in the cache key alive.
+        program_item = programs.insert(
+                std::move(helper->constants), std::move(program));
+    }
+
+    return compiled_host_program_invoke(
+            program_item->value.get(),
+            make_launch_params(*helper));
+}
+
+
+PyTypeObject Dispatcher::host_pytype = {
+    .tp_name = "cuda.tile._cext.HostDispatcher",
+    .tp_basicsize = sizeof(PythonWrapper<Dispatcher>),
+    .tp_dealloc = pywrapper_dealloc<Dispatcher>,
+    .tp_call = HostDispatcher_call,
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
+    .tp_init = Dispatcher_init,
+    .tp_new = pywrapper_new<Dispatcher>,
+};
+
 
 static PyObject* get_parameter_constraints_from_pyargs(PyObject* self, PyObject* args) {
 #ifdef Py_GIL_DISABLED
@@ -4983,13 +5080,13 @@ static PyObject* get_parameter_constraints_from_pyargs(PyObject* self, PyObject*
     PyObject* pyargs = nullptr;
     PyObject* cconv = nullptr;
     if (!PyArg_ParseTuple(args, "O!O!O!",
-                          &TileDispatcher::pytype, &dispatcher_pyobj,
+                          &Dispatcher::tile_pytype, &dispatcher_pyobj,
                           &PyTuple_Type, &pyargs,
                           &CallingConvention::pytype, &cconv)) {
         return nullptr;
     }
 
-    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(dispatcher_pyobj);
+    Dispatcher& dispatcher = py_unwrap<Dispatcher>(dispatcher_pyobj);
 
     PyObject** kernel_args = reinterpret_cast<PyTupleObject*>(pyargs)->ob_item;
     Py_ssize_t num_kernel_args = PyTuple_GET_SIZE(pyargs);
@@ -4997,7 +5094,7 @@ static PyObject* get_parameter_constraints_from_pyargs(PyObject* self, PyObject*
     LaunchHelperPtr helper = launch_helper_get();
 
     PythonArgProfile* profile = python_arg_profile_lookup(
-            kernel_args, num_kernel_args, &dispatcher, helper.get());
+            kernel_args, num_kernel_args, dispatcher, *helper);
     if (!profile) return nullptr;
 
     Result<const DriverApi*> driver = get_driver_api();
@@ -5189,7 +5286,7 @@ static Status parse_launch_args(PyObject* const* args, Py_ssize_t nargs, const c
     }
 
     PyObject* dispatcher_pyobj = args[2 + with_block];
-    if (!PyObject_TypeCheck(dispatcher_pyobj, &TileDispatcher::pytype)) {
+    if (!PyObject_TypeCheck(dispatcher_pyobj, &Dispatcher::tile_pytype)) {
         const char* which = with_block ? "fourth" : "third";
         return raise(PyExc_TypeError,
                 signature, " expects a tile kernel as the ", which, " argument, got ",
@@ -5652,7 +5749,10 @@ Status tile_kernel_init(PyObject* m) {
     if (PyType_Ready(&TileContext::pytype) < 0)
         return ErrorRaised;
 
-    if (PyType_Ready(&TileDispatcher::pytype) < 0)
+    if (PyType_Ready(&Dispatcher::tile_pytype) < 0)
+        return ErrorRaised;
+
+    if (PyType_Ready(&Dispatcher::host_pytype) < 0)
         return ErrorRaised;
 
     if (PyModule_AddObjectRef(m, "CallingConvention",
@@ -5664,7 +5764,11 @@ Status tile_kernel_init(PyObject* m) {
         return ErrorRaised;
 
     if (PyModule_AddObjectRef(m, "TileDispatcher",
-                reinterpret_cast<PyObject*>(&TileDispatcher::pytype)) < 0)
+                reinterpret_cast<PyObject*>(&Dispatcher::tile_pytype)) < 0)
+        return ErrorRaised;
+
+    if (PyModule_AddObjectRef(m, "HostDispatcher",
+                reinterpret_cast<PyObject*>(&Dispatcher::host_pytype)) < 0)
         return ErrorRaised;
 
     if (PyModule_AddFunctions(m, functions) < 0)

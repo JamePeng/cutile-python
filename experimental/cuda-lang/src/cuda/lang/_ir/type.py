@@ -287,6 +287,12 @@ class KernelTy(Type):
         return "cuda.lang kernel"
 
 
+@dataclass(frozen=True)
+class HostEntryTy(Type):
+    def __str__(self):
+        return "cuda.lang host entry"
+
+
 class LangTypingHooks(TypingHooks):
     @override
     def get_tensor_like_type(self, dtype: DType, shape: Sequence[int]) -> TensorLikeTy:
@@ -302,10 +308,12 @@ class LangTypingHooks(TypingHooks):
 
     @override
     def get_python_constant_type(self, value) -> Type | None:
-        from cuda.lang._execution import kernel
+        from cuda.lang._execution import host_entry, kernel
 
         if isinstance(value, kernel):
             return KernelTy()
+        if isinstance(value, host_entry):
+            return HostEntryTy()
         return None
 
 
@@ -351,6 +359,7 @@ __all__ = (
     "TupleValue",
     "PointerInfoTy",
     "KernelTy",
+    "HostEntryTy",
     "LangTypingHooks",
     "SymbolicArray",
     "SymbolicClosure",

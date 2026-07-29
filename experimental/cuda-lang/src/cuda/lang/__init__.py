@@ -8,6 +8,7 @@ from cuda.tile._memory_model import (
 )
 from ._execution import (
     function,
+    host_entry,
     static_def,
     kernel,
     launch,
@@ -176,8 +177,9 @@ from ._stub.pointer import (
     atomic_store,
 )
 from cuda.tile._stub import (
-    Constant,
     ArrayAnnotation,
+    Constant,
+    ScalarInt64,
     static_eval,
     static_assert,
     static_iter,
@@ -296,6 +298,7 @@ __all__ = (
     "is_pointer_dtype",
     "PointerInfo",
     "function",
+    "host_entry",
     "static_def",
     "kernel",
     "launch",
@@ -351,8 +354,9 @@ __all__ = (
     "uint16",
     "uint32",
     "uint64",
-    "Constant",
     "ArrayAnnotation",
+    "Constant",
+    "ScalarInt64",
     "cdiv",
     "shared_array",
     "local_array",

@@ -3571,7 +3571,10 @@ def make_array_value_with_constants(val: ArrayValue, ty: ArrayTy) -> ArrayValue:
             if s is None:
                 x = assume_bounded(x, 0, None)
             else:
-                x = strictly_typed_const(s, TileTy(ty.index_dtype))
+                scalar_ty = ty.typing_hooks.get_tensor_like_type(
+                    ty.index_dtype, ()
+                )
+                x = strictly_typed_const(s, scalar_ty)
             shape_or_strides.append(x)
         return shape_or_strides
 

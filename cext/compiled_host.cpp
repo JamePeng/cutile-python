@@ -219,8 +219,7 @@ PyObject* CompiledHostProgram_invoke(PyObject* self, PyObject* argument_addresse
         if (PyErr_Occurred()) return nullptr;
         arguments.push_back(address);
     }
-    CompiledHostProgram& program = py_unwrap<CompiledHostProgram>(self);
-    return invoke_host_entry(program, arguments.data());
+    return compiled_host_program_invoke(self, arguments.data());
 }
 
 
@@ -278,6 +277,24 @@ PyMethodDef compiled_host_methods[] = {
 };
 
 }  // namespace
+
+
+bool compiled_host_program_check(PyObject* object) {
+    return PyObject_TypeCheck(object, &CompiledHostProgram::pytype);
+}
+
+
+PyObject* compiled_host_program_invoke(PyObject* program_object, void** arguments) {
+    if (!compiled_host_program_check(program_object)) {
+        raise(
+                PyExc_TypeError,
+                "expected a compiled host program, got ",
+                Py_TYPE(program_object)->tp_name);
+        return nullptr;
+    }
+    CompiledHostProgram& program = py_unwrap<CompiledHostProgram>(program_object);
+    return invoke_host_entry(program, arguments);
+}
 
 
 Status compiled_host_init(PyObject* module) {

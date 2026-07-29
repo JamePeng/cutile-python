@@ -7,4 +7,6 @@
 #include "py.h"
 
 
+bool compiled_host_program_check(PyObject* object);
+PyObject* compiled_host_program_invoke(PyObject* program, void** arguments);
 Status compiled_host_init(PyObject* module);

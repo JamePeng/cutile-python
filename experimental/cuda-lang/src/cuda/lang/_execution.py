@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 __all__ = (
     "function",
+    "host_entry",
     "kernel",
     "launch",
     "stub",
@@ -92,6 +93,53 @@ def launch(
         preferred_block_in_cluster_count=preferred_block_in_cluster_count,
         programmatic_dependent_launch=programmatic_dependent_launch,
     )
+
+
+class host_entry(_cext.HostDispatcher):
+    """Compile and cache a native host entry specialization when called.
+
+    Array arguments specialize by dtype and rank. Explicit annotations such as
+    :class:`cuda.lang.Constant` and static-shape annotations add the requested
+    specialization properties.
+    """
+
+    def __new__(cls, function=None, /, **kwargs):
+        if function is None:
+
+            def decorate(func):
+                return host_entry(func, **kwargs)
+
+            return decorate
+
+        return super().__new__(cls, function, **kwargs)
+
+    def __init__(
+        self,
+        function=None,
+        /,
+    ):
+        if not isinstance(function, FunctionType):
+            raise TypeError("`host_entry` decorator must be applied to a Python function")
+
+        from cuda.tile._annotated_function import get_annotated_function
+
+        function._cutile_host_function = True
+        function._cutile_tile_function = False
+        annotated = get_annotated_function(function)
+        super().__init__(annotated.parameter_annotations)
+        self._annotated_function = annotated
+
+    def _compile(self, signature: KernelSignature):
+        from cuda.lang._compile_host import _compile as compile_host
+
+        return compile_host(
+            self._annotated_function.pyfunc,
+            signature,
+        )
+
+    @property
+    def _pyfunc(self):
+        return self._annotated_function.pyfunc
 
 
 class kernel(_cext.TileDispatcher):
