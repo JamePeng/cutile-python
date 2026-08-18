@@ -1981,32 +1981,51 @@ struct ListAnnotation {
 typedef Result<ArrayRepr> (*ArrayReprFunc)(PyObject*, unsigned, Arena&);
 
 
+static Status extract_array_repr(const DriverApi* driver,
+                                 const ArrayRepr& ar,
+                                 const ArrayAnnotation& array_ann,
+                                 LaunchHelper& helper) {
+    size_t num_words = 1 + 2 * ar.arrty.ndim;
+    helper.array_ptr_arena_offsets.push_back(ar.repr);
+    for (size_t i = 0; i < num_words; ++i)
+        helper.cuarg_offsets.push_back(ar.repr + i);
+
+    ArrayTypeConstantBuilder builder;
+    if (!builder.update(helper.arena, ar, array_ann.static_shape_dims,
+                        array_ann.static_stride_dims, helper.can_specialize_for_shape))
+        return ErrorRaised;
+    if (!builder.finalize(driver, ar.arrty, array_ann.static_shape_dims,
+                          array_ann.static_stride_dims, helper))
+        return ErrorRaised;
+    return OK;
+}
+
+
 template <ArrayReprFunc F>
 static Status extract_array(const DriverApi* driver, PyObject* pyobj,
                             const ArrayAnnotation& array_ann,
                             LaunchHelper& helper) {
     Result<ArrayRepr> ar = F(pyobj, array_ann.index_bitwidth, helper.arena);
     if (!ar.is_ok()) return ErrorRaised;
-
-    size_t num_words = 1 + 2 * ar->arrty.ndim;
-    helper.array_ptr_arena_offsets.push_back(ar->repr);
-    for (size_t i = 0; i < num_words; ++i)
-        helper.cuarg_offsets.push_back(ar->repr + i);
-
-    ArrayTypeConstantBuilder builder;
-    if (!builder.update(helper.arena, *ar, array_ann.static_shape_dims,
-                        array_ann.static_stride_dims, helper.can_specialize_for_shape))
-        return ErrorRaised;
-    if (!builder.finalize(driver, ar->arrty, array_ann.static_shape_dims,
-                          array_ann.static_stride_dims, helper))
-        return ErrorRaised;
-    return OK;
+    return extract_array_repr(driver, *ar, array_ann, helper);
 }
 
 enum class PylongConstantEncoding : int64_t {
     I64,
     U64
 };
+
+static inline void append_signed_int_constant(int64_t value, Vec<int64_t>* constants) {
+    constants->push_back(static_cast<int64_t>(PylongConstantEncoding::I64));
+    constants->push_back(value);
+}
+
+static inline void append_float_constant(double value, Vec<int64_t>* constants) {
+    int64_t bits;
+    static_assert(sizeof(bits) == sizeof(value));
+    mem_copy(&bits, &value, sizeof(bits));
+    constants->push_back(bits);
+}
 
 static inline Status extract_bool_constant(PyObject* pyobj, Vec<int64_t>* constants) {
     int val = PyObject_IsTrue(pyobj);
@@ -2056,8 +2075,7 @@ static inline Status extract_int_constant(PyObject* pyobj, Vec<int64_t>* constan
         if (PyErr_Occurred()) return ErrorRaised;
         constants->push_back(uval);
     } else {
-        constants->push_back(static_cast<int64_t>(PylongConstantEncoding::I64));
-        constants->push_back(value);
+        append_signed_int_constant(value, constants);
     }
     return OK;
 }
@@ -2091,11 +2109,7 @@ static inline Status extract_py_long(PyObject* pyobj, unsigned bitwidth, LaunchH
 }
 
 static void extract_float_constant(PyObject* pyobj, Vec<int64_t>* constants) {
-    double value = PyFloat_AS_DOUBLE(pyobj);
-    int64_t i64_val = 0;
-    static_assert(sizeof(i64_val) == sizeof(value));
-    mem_copy(&i64_val, &value, sizeof(i64_val));
-    constants->push_back(i64_val);
+    append_float_constant(PyFloat_AS_DOUBLE(pyobj), constants);
 }
 
 static void extract_py_float(PyObject* pyobj, LaunchHelper& helper) {
@@ -2291,19 +2305,34 @@ static PyPtr parse_list_constraint(ConstantCursor& cursor,
     return steal(PyObject_Call(constraint_class.get(), args.get(), kwargs.get()));
 }
 
+struct ArgumentStructureEntry {
+    bool aggregate_end = false;
+    std::optional<AggregateArgType> aggregate_type;
+};
+
 struct AggregateCursor {
-    Cursor<PyTypeObject*> pytype_cursor;
-    Cursor<std::optional<AggregateArgType>> agg_cursor;
+    Cursor<ArgumentStructureEntry> cursor;
 
     bool at_aggregate_end() const {
-        return pytype_cursor.peek() == nullptr;
+        return cursor.peek().aggregate_end;
     }
 
     const std::optional<AggregateArgType>& next() {
-        pytype_cursor.next();
-        return agg_cursor.next();
+        return cursor.next().aggregate_type;
     }
 };
+
+static Vec<ArgumentStructureEntry> make_argument_structure(
+        const Vec<PyTypeObject*>& pyarg_types_depth_first,
+        const Vec<std::optional<AggregateArgType>>& aggregate_types) {
+    CHECK(pyarg_types_depth_first.size() == aggregate_types.size());
+    Vec<ArgumentStructureEntry> ret;
+    ret.reserve(pyarg_types_depth_first.size());
+    for (size_t i = 0; i < pyarg_types_depth_first.size(); ++i) {
+        ret.push_back({pyarg_types_depth_first[i] == nullptr, aggregate_types[i]});
+    }
+    return ret;
+}
 
 struct ParameterAnnotationNode : SimpleRefcount<ParameterAnnotationNode> {
     enum Kind { Leaf, HomogeneousTuple, HeterogeneousTuple };
@@ -2416,18 +2445,16 @@ static Status flatten_parameter_annotation_node(ParameterAnnotationNode* node,
 
 static Result<Vec<RefPtr<LeafAnnotationNode>>>
 flatten_parameter_annotation_nodes(const Vec<RefPtr<ParameterAnnotationNode>>& nodes,
-                                   const Vec<PyTypeObject*>& pyarg_types_depth_first,
-                                   const Vec<std::optional<AggregateArgType>>& agg_types,
+                                   const Vec<ArgumentStructureEntry>& argument_structure,
                                    size_t num_leaves) {
     Vec<RefPtr<LeafAnnotationNode>> ret;
     ret.reserve(num_leaves);
-    AggregateCursor cursor{{pyarg_types_depth_first}, {agg_types}};
+    AggregateCursor cursor{{argument_structure}};
     for (const RefPtr<ParameterAnnotationNode>& node : nodes) {
         if (!flatten_parameter_annotation_node(node.get(), &cursor, &ret))
             return ErrorRaised;
     }
-    CHECK(cursor.pytype_cursor.len == 1);
-    CHECK(cursor.agg_cursor.len == 1);
+    CHECK(cursor.cursor.len == 1);
     CHECK(cursor.at_aggregate_end());
     CHECK(ret.size() == num_leaves);
     return ret;
@@ -2472,13 +2499,7 @@ static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind 
     CHECK_UNREACHABLE;
 }
 
-static Status extract_cuda_args(const DriverApi* driver,
-                                const Vec<PyObject*>& pyarg_objs,
-                                const Vec<PythonArgKind>& arg_kinds,
-                                const Vec<RefPtr<LeafAnnotationNode>>& flat_param_annotations,
-                                LaunchHelper& helper) {
-    CHECK(pyarg_objs.size() == arg_kinds.size());
-    CHECK(flat_param_annotations.size() == arg_kinds.size());
+static void reset_extracted_arguments(LaunchHelper& helper) {
     helper.arena.clear();
     helper.cuarg_offsets.clear();
     helper.array_ptr_arena_offsets.clear();
@@ -2486,6 +2507,16 @@ static Status extract_cuda_args(const DriverApi* driver,
     helper.total_list_data_size_words = 0;
     helper.constants.clear();
     helper.identity_constants.clear();
+}
+
+static Status extract_cuda_args(const DriverApi* driver,
+                                const Vec<PyObject*>& pyarg_objs,
+                                const Vec<PythonArgKind>& arg_kinds,
+                                const Vec<RefPtr<LeafAnnotationNode>>& flat_param_annotations,
+                                LaunchHelper& helper) {
+    CHECK(pyarg_objs.size() == arg_kinds.size());
+    CHECK(flat_param_annotations.size() == arg_kinds.size());
+    reset_extracted_arguments(helper);
     for (size_t i = 0; i < arg_kinds.size(); ++i) {
         PythonArgKind kind = arg_kinds[i];
         if (!extract_arg(driver, pyarg_objs[i], kind, flat_param_annotations[i].get(), helper))
@@ -3413,21 +3444,18 @@ get_pyarg_kinds(const Vec<PyTypeObject*>& pyarg_types_depth_first,
 }
 
 static Vec<ParameterKind>
-get_parameter_kinds(const Vec<PyTypeObject*>& pyarg_types_depth_first,
-                    const Vec<std::optional<AggregateArgType>>& agg_types,
+get_parameter_kinds(const Vec<ArgumentStructureEntry>& argument_structure,
                     const Vec<PythonArgKind>& pyarg_kinds) {
     Vec<ParameterKind> ret;
-    ret.reserve(pyarg_types_depth_first.size());
+    ret.reserve(argument_structure.size());
     size_t leaf_idx = 0;
-    for (size_t depth_first_idx = 0;
-            depth_first_idx < pyarg_types_depth_first.size(); ++depth_first_idx) {
-        if (pyarg_types_depth_first[depth_first_idx] == nullptr) {
+    for (const ArgumentStructureEntry& entry : argument_structure) {
+        if (entry.aggregate_end) {
             ret.push_back({ParameterKind::AggregateEnd, {}});
             continue;
         }
-        const std::optional<AggregateArgType>& agg_ty = agg_types[depth_first_idx];
-        if (agg_ty.has_value()) {
-            ret.push_back({ParameterKind::AggregateBegin, *agg_ty});
+        if (entry.aggregate_type.has_value()) {
+            ret.push_back({ParameterKind::AggregateBegin, *entry.aggregate_type});
         } else {
             PythonArgKind arg_kind = pyarg_kinds[leaf_idx++];
             ret.push_back({param_category_from_pyarg_kind(arg_kind), {}});
@@ -3699,11 +3727,13 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
                                      &aggregate_types);
                 gather_leaf_pyargs(*pyarg_objs_breadth_first, leaf_pyarg_breadth_first_indices,
                                    leaf_pyarg_objs);
+                Vec<ArgumentStructureEntry> argument_structure = make_argument_structure(
+                        pyarg_types_depth_first, aggregate_types);
 
                 // Flatten the parameter annotations against this argument structure.
                 Result<Vec<RefPtr<LeafAnnotationNode>>> flat_param_annotations
                        = flatten_parameter_annotation_nodes(
-                           param_annotations, pyarg_types_depth_first, aggregate_types,
+                           param_annotations, argument_structure,
                            leaf_pyarg_objs->size());
                 if (!flat_param_annotations.is_ok())
                     return nullptr;
@@ -3715,7 +3745,7 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
                 if (!arg_kinds.is_ok()) return nullptr;
 
                 Vec<ParameterKind> param_kinds = get_parameter_kinds(
-                        pyarg_types_depth_first, aggregate_types, *arg_kinds);
+                        argument_structure, *arg_kinds);
 
                 KernelFamily* family = get_or_create_kernel_family(
                         kernel_families, std::move(param_kinds));
@@ -3771,32 +3801,17 @@ static PythonArgProfile* python_arg_profile_lookup(PyObject* const* pyargs,
             &helper->pyarg_refs);
 }
 
-static Result<PreparedLaunch> prepare_launch(
+static Result<PreparedLaunch> prepare_launch_with_extracted_args(
         const DriverApi* driver,
         PyObject* dispatcher_pyobj,
         CUstream launch_stream,
-        PyObject* const* pyargs,
-        Py_ssize_t num_pyargs,
+        KernelFamily* family,
+        const Vec<RefPtr<LeafAnnotationNode>>& flat_param_annotations,
+        LaunchHelperPtr helper,
         bool capture_kernel_image,
         bool stage_list_args,
         StreamBufferTransaction& tx,
         CudaContextGuard& ctx_guard) {
-    LaunchHelperPtr helper = launch_helper_get();
-
-    Result<CUcontext> stream_context = get_stream_context(driver, launch_stream);
-    if (!stream_context.is_ok()) return ErrorRaised;
-    helper->cuda_context = *stream_context;
-
-    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(dispatcher_pyobj);
-    PythonArgProfile* profile = python_arg_profile_lookup(
-            pyargs, num_pyargs, &dispatcher, helper.get());
-    if (!profile) return ErrorRaised;
-
-    if (!extract_cuda_args(driver, helper->leaf_pyarg_objs, profile->arg_kinds,
-                           profile->flat_param_annotations, *helper)) {
-        return ErrorRaised;
-    }
-
     // Get the compute capability of the device this launch targets.
     // Devices with the same compute capability can share a compiled kernel.
     CUdevice dev;
@@ -3812,7 +3827,7 @@ static Result<PreparedLaunch> prepare_launch(
     // Append the compute capability to the constants so that it takes part in the cache key.
     helper->constants.push_back(compute_capability->as_key());
 
-    KernelMap& kernel_map = profile->family->kernels_by_constants;
+    KernelMap& kernel_map = family->kernels_by_constants;
     KernelMap::Item* kernel_item = kernel_map.find(helper->constants);
     std::optional<KernelImage> kernel_image;
     if (!kernel_item || capture_kernel_image) {
@@ -3821,8 +3836,8 @@ static Result<PreparedLaunch> prepare_launch(
         PyPtr signature = make_signature(
                 constants_cursor,
                 helper->identity_constants,
-                profile->family->param_kinds,
-                profile->flat_param_annotations);
+                family->param_kinds,
+                flat_param_annotations);
         if (!signature) return ErrorRaised;
 
         PyPtr py_compute_capability = steal(Py_BuildValue(
@@ -3865,6 +3880,41 @@ static Result<PreparedLaunch> prepare_launch(
     return PreparedLaunch{std::move(helper), kernel_item->value.cukernel.kernel,
                           static_cast<unsigned>(dyn_smem_size),
                           &kernel_item->value, std::move(kernel_image)};
+}
+
+
+static Result<PreparedLaunch> prepare_launch(
+        const DriverApi* driver,
+        PyObject* dispatcher_pyobj,
+        CUstream launch_stream,
+        PyObject* const* pyargs,
+        Py_ssize_t num_pyargs,
+        bool capture_kernel_image,
+        bool stage_list_args,
+        StreamBufferTransaction& tx,
+        CudaContextGuard& ctx_guard) {
+
+    LaunchHelperPtr helper = launch_helper_get();
+
+    Result<CUcontext> stream_context = get_stream_context(driver, launch_stream);
+    if (!stream_context.is_ok()) return ErrorRaised;
+    helper->cuda_context = *stream_context;
+
+    TileDispatcher& dispatcher = py_unwrap<TileDispatcher>(dispatcher_pyobj);
+    PythonArgProfile* profile = python_arg_profile_lookup(
+            pyargs, num_pyargs, &dispatcher, helper.get());
+    if (!profile) return ErrorRaised;
+
+    if (!extract_cuda_args(driver, helper->leaf_pyarg_objs, profile->arg_kinds,
+                           profile->flat_param_annotations, *helper)) {
+        return ErrorRaised;
+    }
+
+    return prepare_launch_with_extracted_args(
+            driver, dispatcher_pyobj, launch_stream,
+            profile->family.get(), profile->flat_param_annotations,
+            std::move(helper), capture_kernel_image, stage_list_args,
+            tx, ctx_guard);
 }
 
 
