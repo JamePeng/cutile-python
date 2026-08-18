@@ -11,6 +11,7 @@ function(_CUDAToolkit_find root)
     endif()
 
     set(CUDAToolkit_INCLUDE_DIR "${root}/include" CACHE PATH "" FORCE)
+    set(CUDAToolkit_NVVM_INCLUDE_DIR "${root}/nvvm/include" CACHE PATH "" FORCE)
 endfunction()
 
 if (NOT CUDAToolkit_INCLUDE_DIRS)

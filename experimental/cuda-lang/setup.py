@@ -38,10 +38,6 @@ class BuildBinaries(Command):
         build_dir = os.getenv("CUDA_TILE_CEXT_BUILD_DIR")
         if build_dir is None:
             build_dir = guess_cuda_tile_build_dir()
-        self.spawn(["cmake", "--build", build_dir])
-
-        binary_name = "mlir2cubin"
-        src_path = os.path.join(build_dir, "internal", "mlir2cubin", binary_name)
 
         if self.editable_mode:
             bin_dir = os.path.join(self.get_package_dir(), "bin")
@@ -50,10 +46,21 @@ class BuildBinaries(Command):
                                    "cuda", "lang", "bin")
 
         os.makedirs(bin_dir, exist_ok=True)
-        dst_path = os.path.join(bin_dir, binary_name)
-        # Create a symlink to the build directory if in editable mode, otherwise copy
         link = "sym" if self.editable_mode else None
-        file_util.copy_file(src_path, dst_path, update=1, link=link)
+
+        files = [
+            (os.path.join(build_dir, "internal/mlir2cubin"), "mlir2cubin", True),
+            (os.path.join(build_dir, "experimental/cuda-lang"), "libnvvm.so", False),
+            (os.path.join(build_dir, "experimental/cuda-lang"), "ptxas", False),
+        ]
+
+        for src_dir, basename, required in files:
+            src_path = os.path.join(src_dir, basename)
+            dst_path = os.path.join(bin_dir, basename)
+            if not required and not os.path.exists(src_path):
+                continue
+            # Create a symlink to the build directory if in editable mode, otherwise copy
+            file_util.copy_file(src_path, dst_path, update=1, link=link)
 
     def get_package_dir(self) -> str:
         package = "cuda.lang"

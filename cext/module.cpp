@@ -8,6 +8,8 @@
 #include "cuda_helper.h"
 #include "coroutine_util.h"
 #include "xla_ffi_py.h"
+#include "bitstream.h"
+#include "pynvvm.h"
 
 #ifdef _WIN32
 extern "C" int _fltused = 0;
@@ -42,6 +44,11 @@ PyMODINIT_FUNC PyInit__cext() {
     if (!xla_ffi_init(m.get()))
         return nullptr;
 
+    if (!bitstream_init(m.get()))
+        return nullptr;
+
+    if (!pynvvm_init(m.get()))
+        return nullptr;
 
     return m.release();
 }

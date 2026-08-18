@@ -36,23 +36,28 @@ else()
 endif()
 
 
+set(NVVM_INCLUDE_DIR ${CUDAToolkit_NVVM_INCLUDE_DIR})
+
 set(cext_include_dirs
     ${dlpack_INCLUDE_DIR}
     ${xla_INCLUDE_DIR}
     ${Python_INCLUDE_DIRS}
     ${CUDAToolkit_INCLUDE_DIRS}
+    ${NVVM_INCLUDE_DIR}
 )
 
 
 # Build a static library first, so that we could reuse it for several build targets
 
 add_library(_cext_static STATIC
+    bitstream.cpp
     coroutine_util.cpp
     cuda_loader.cpp
     cuda_helper.cpp
     ipc_util.cpp
     memory.cpp
     py.cpp
+    pynvvm.cpp
     stream_buffer.cpp
     tile_kernel.cpp
     xla_ffi.cpp

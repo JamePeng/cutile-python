@@ -7,6 +7,8 @@ import subprocess
 import sys
 import zipfile
 
+from cuda.tile._exception import Loc
+
 
 def _run_crash_dump():
     import torch
@@ -17,7 +19,7 @@ def _run_crash_dump():
 
     def fail_compilation(*args, **kwargs):
         raise TileCompilerExecutionError(
-            1, "error: compiler error", "--compiler-flag", "13.3"
+            1, "error: compiler error", Loc.unknown(), "--compiler-flag", "13.3"
         )
 
     tile_compile.compile_cubin = fail_compilation

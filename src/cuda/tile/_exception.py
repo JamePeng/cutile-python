@@ -4,7 +4,6 @@
 import dataclasses
 import linecache
 import os.path
-import re
 from dataclasses import dataclass
 from typing import Optional
 from unicodedata import east_asian_width
@@ -210,44 +209,6 @@ class ConstantNotFoundError(Exception):
     pass
 
 
-# Simple: loc("file":line:col): error: ...
-LOC_RE_SIMPLE = re.compile(
-    r'loc\("([^"]+)"(?::(\d+):(\d+))?\):\s*error:\s*(.*)',
-    re.I,
-)
-
-# Fused/debug wrapper: loc(fused<...>["file":line:col]): error: ...
-LOC_RE_FUSED = re.compile(
-    r'loc\((?:[^)]*?)\["([^"]+)":(\d+):(\d+)\]\):\s*error:\s*(.*)',
-    re.I,
-)
-
-# error: ...
-ERROR_RE = re.compile(r'^\s*error:\s*(.*)', re.I)
-
-
-def _parse_tileir_stderr(stderr: str) -> tuple[str, Optional[Loc]]:
-    msgs = []
-    loc = None
-    for line in stderr.splitlines():
-        msg = None
-        for loc_re in (LOC_RE_SIMPLE, LOC_RE_FUSED):
-            if m := loc_re.search(line):
-                file, line, col, msg = m.groups()
-                if loc is None:
-                    # Only capture the first location
-                    loc = Loc(int(line) if line else None, int(col) if col else None, file)
-                msg = msg.strip()
-                break
-        if msg is None and (m := ERROR_RE.search(line)):
-            msg = m.group(1).strip()
-        if msg is None:
-            # fallback to the original line
-            msg = line
-        msgs.append(msg)
-    return "\n".join(msgs), loc
-
-
 class InternalCompilerError(InternalError):
     def __init__(self,
                  message: str,
@@ -266,12 +227,10 @@ class CompilerExecutionError(InternalCompilerError):
     """Exception when compiler throws an error."""
     def __init__(self,
                  return_code: int,
-                 stderr: str,
+                 message: str,
+                 loc: Loc,
                  compiler_flags: str,
                  compiler_version: Optional[str]):
-        message, loc = _parse_tileir_stderr(stderr)
-        if loc is None:
-            loc = _unknown_loc
         super().__init__(f"Return code {return_code}\n{message}", loc,
                          compiler_flags, compiler_version)
 

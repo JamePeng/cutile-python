@@ -50,6 +50,8 @@ from ._ir._host_program import HostProgram, get_host_programs_by_var
 from ._timing import CompilationTimer, CompilationTimings
 import contextlib
 
+from ..tile._exception import Loc
+
 
 @dataclass(frozen=True)
 class MLIR2CubinResult:
@@ -133,8 +135,9 @@ def mlir2cubin(
         except subprocess.CalledProcessError as e:
             raise CompilerExecutionError(
                 return_code=e.returncode,
-                stderr=e.stderr.decode(),
-                compiler_flags=argv,
+                message=e.stderr.decode(),
+                loc=Loc.unknown(),
+                compiler_flags=" ".join(argv),
                 compiler_version=None,
             )
 

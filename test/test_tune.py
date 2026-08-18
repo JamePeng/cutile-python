@@ -9,7 +9,7 @@ import math
 from functools import partial
 from util import assert_equal
 
-from cuda.tile._exception import TileCompilerTimeoutError, TileCompilerExecutionError
+from cuda.tile._exception import TileCompilerTimeoutError, TileCompilerExecutionError, Loc
 from cuda.tile.tune import _tune as tune_mod
 from cuda.tile.tune import _tune_utils as tune_utils
 from cuda.tile.tune import exhaustive_search, TuningResult
@@ -129,7 +129,7 @@ def test_skips_failed_configs(monkeypatch):
 
     failures = {
         64: TileCompilerTimeoutError("simulated timeout", "", None),
-        256: TileCompilerExecutionError(1, "simulated error", "", None),
+        256: TileCompilerExecutionError(1, "simulated error", Loc.unknown(), "", None),
     }
 
     def fake_benchmark(stream, grid, kernel, pyargs):

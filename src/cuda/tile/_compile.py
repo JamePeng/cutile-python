@@ -689,13 +689,53 @@ class _CompilerBinary:
             subprocess.run(command + flags, env=env, check=True, capture_output=True,
                            timeout=timeout_sec)
         except subprocess.CalledProcessError as e:
-            raise TileCompilerExecutionError(e.returncode, e.stderr.decode(), ' '.join(flags),
+            stderr = e.stderr.decode()
+            message, loc = _parse_tileir_stderr(stderr)
+            raise TileCompilerExecutionError(e.returncode, message, loc, ' '.join(flags),
                                              _try_get_compiler_version(self.path))
         except subprocess.TimeoutExpired:
             message = (f"`tileiras` compiler exceeded timeout {timeout_sec}s. "
                        "Using a smaller tile size may reduce compilation time.")
             raise TileCompilerTimeoutError(message, ' '.join(flags),
                                            _try_get_compiler_version(self.path))
+
+
+def _parse_tileir_stderr(stderr: str) -> tuple[str, Loc]:
+    msgs = []
+    loc = Loc.unknown()
+    for line in stderr.splitlines():
+        msg = None
+        for loc_re in (LOC_RE_SIMPLE, LOC_RE_FUSED):
+            if m := loc_re.search(line):
+                file, line, col, msg = m.groups()
+                if loc.is_unknown():
+                    # Only capture the first location
+                    loc = Loc(int(line) if line else None, int(col) if col else None, file)
+                msg = msg.strip()
+                break
+        if msg is None and (m := ERROR_RE.search(line)):
+            msg = m.group(1).strip()
+        if msg is None:
+            # fallback to the original line
+            msg = line
+        msgs.append(msg)
+    return "\n".join(msgs), loc
+
+
+# Simple: loc("file":line:col): error: ...
+LOC_RE_SIMPLE = re.compile(
+    r'loc\("([^"]+)"(?::(\d+):(\d+))?\):\s*error:\s*(.*)',
+    re.I,
+)
+
+# Fused/debug wrapper: loc(fused<...>["file":line:col]): error: ...
+LOC_RE_FUSED = re.compile(
+    r'loc\((?:[^)]*?)\["([^"]+)":(\d+):(\d+)\]\):\s*error:\s*(.*)',
+    re.I,
+)
+
+# error: ...
+ERROR_RE = re.compile(r'^\s*error:\s*(.*)', re.I)
 
 
 _PIP_TILEIRAS_PACKAGES = (
@@ -771,7 +811,9 @@ def _find_compiler_bin() -> _CompilerBinary:
             return _CompilerBinary(res, bin_path, ld_path, pass_cuda_home_var=True)
 
     # Try default CUDA Toolkit installation paths as a fallback
-    res = _find_compiler_in_default_cuda_toolkit_paths()
+    binary_name = "tileiras.exe" if is_windows() else "tileiras"
+    res = _find_file(_get_default_cuda_toolkit_paths(), ["bin"], [binary_name],
+                     require_executable=True)
     if res is not None:
         tileiras_path, bin_path = res
         return _CompilerBinary(tileiras_path, bin_path, ld_path, pass_cuda_home_var=False)
@@ -830,13 +872,19 @@ def _tileiras_supports_remarks(temp_dir: str) -> bool:
     return max_supported_version >= BytecodeVersion.V_13_4
 
 
-def _find_compiler_in_default_cuda_toolkit_paths() -> tuple[str, str] | None:
-    binary_name = "tileiras.exe" if is_windows() else "tileiras"
-    for toolkit_path in _get_default_cuda_toolkit_paths():
-        bin_path = os.path.join(toolkit_path, "bin")
-        p = os.path.join(bin_path, binary_name)
-        if os.path.exists(p) and os.access(p, os.X_OK) and not os.path.isdir(p):
-            return p, bin_path
+def _find_file(prefixes: Sequence[str],
+               subdir_names: Sequence[str],
+               basenames: Sequence[str],
+               require_executable: bool) -> tuple[str, str] | None:
+    for prefix in prefixes:
+        for subdir in subdir_names:
+            dir_path = os.path.join(prefix, subdir)
+            for name in basenames:
+                p = os.path.join(dir_path, name)
+                if (os.path.exists(p)
+                        and (not require_executable or os.access(p, os.X_OK))
+                        and not os.path.isdir(p)):
+                    return p, dir_path
     return None
 
 

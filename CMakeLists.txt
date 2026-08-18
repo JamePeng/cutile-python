@@ -94,7 +94,20 @@ endif()
 include(cmake/FetchXLAHeaders.cmake)
 fetch_xla_headers()
 
+
+set(CUSTOM_STATIC_LIBNVVM "" CACHE FILEPATH "Custom NVVM static library to include in the package")
+if (CUSTOM_STATIC_LIBNVVM)
+    message(STATUS "Using custom NVVM static library at ${CUSTOM_STATIC_LIBNVVM}")
+endif()
+
+set(CUSTOM_PTXAS "" CACHE FILEPATH "Custom ptxas binary to include in the package")
+if (CUSTOM_PTXAS)
+    message(STATUS "Using custom ptxas binary at ${CUSTOM_PTXAS}")
+endif()
+
+
 add_subdirectory(cext)
+add_subdirectory(experimental/cuda-lang/)
 
 
 option(DISABLE_INTERNAL "disable internal" OFF)
