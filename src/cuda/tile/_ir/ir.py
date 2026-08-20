@@ -271,40 +271,27 @@ class BlockRestriction:
 
 
 class Mapper:
-    """Maps operands and definitions while cloning IR.
+    """Maps old variables to their replacements.
 
-    Operand uses always honor explicit mappings. When ``preserve_vars`` is true, definitions use
-    explicit mappings too unless ``remap_uses_only`` is enabled.
+    Cloning an operation creates fresh definitions and records them here.
+    Remapping operands only applies existing mappings and preserves definitions.
     """
 
-    def __init__(self,
-                 ctx: IRContext,
-                 preserve_vars: bool = False,
-                 remap_uses_only: bool = False):
-        assert preserve_vars or not remap_uses_only, \
-            "remap_uses_only requires preserve_vars=True"
+    def __init__(self, ctx: IRContext):
         self._ctx = ctx
         self._var_map: Dict[str, Var] = dict()
-        self._preserve_vars = preserve_vars
-        self._remap_uses_only = remap_uses_only
-
-    def is_empty(self):
-        return len(self._var_map) == 0
 
     def clone_var(self, var: Var) -> Var:
-        if self._preserve_vars:
-            return var if self._remap_uses_only else self.get_var(var)
-        else:
-            new_var = self._ctx.make_var_like(var)
-            self._var_map[var.name] = new_var
-            self._ctx.copy_type_information(var, new_var)
-            return new_var
+        new_var = self._ctx.make_var_like(var)
+        self.set_var(var, new_var)
+        self._ctx.copy_type_information(var, new_var)
+        return new_var
 
     def clone_vars(self, vars: Sequence[Var]) -> Tuple[Var, ...]:
         return tuple(self.clone_var(v) for v in vars)
 
-    def get_var(self, old_var: Var) -> Var:
-        return self._var_map.get(old_var.name, old_var)
+    def get_var(self, var: Var) -> Var:
+        return self._var_map.get(var.name, var)
 
     def set_var(self, old_var: Var, new_var: Var):
         assert old_var.name not in self._var_map
@@ -606,6 +593,18 @@ class Operation:
             new_fields[name] = new_block
 
         return type(self)(result_vars=tuple(result_vars), loc=self.loc, **new_fields)
+
+    def remap_operands(self, mapper: Mapper) -> None:
+        """Remap this operation's direct operands without recursing into nested blocks."""
+        for name in self._operand_names:
+            value = getattr(self, name)
+            if isinstance(value, Var):
+                new_value = mapper.get_var(value)
+            elif value is None:
+                continue
+            else:
+                new_value = tuple(mapper.get_var(var) for var in value)
+            setattr(self, name, new_value)
 
     @property
     def op(self) -> str:

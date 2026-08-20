@@ -9,7 +9,7 @@ from cuda.tile._passes.dataflow_analysis import DataflowResult
 
 def materialize_constants_pass(root_block: Block, dataflow_result: DataflowResult):
     """Replace uses of dataflow-proven scalar values with IR constants."""
-    mapper = Mapper(root_block.ctx, preserve_vars=True, remap_uses_only=True)
+    mapper = Mapper(root_block.ctx)
     new_ops: list[Operation] = []
 
     for var in root_block.all_defined_vars():
@@ -25,5 +25,7 @@ def materialize_constants_pass(root_block: Block, dataflow_result: DataflowResul
         dataflow_result.predicates[constant_var.name] = dataflow_result[var.name]
         new_ops.append(TypedConst(value=value, result_vars=(constant_var,), loc=var.loc))
 
-    new_ops.extend(op.clone(mapper) for op in root_block)
+    for op in root_block.traverse():
+        op.remap_operands(mapper)
+    new_ops.extend(root_block)
     root_block[:] = new_ops

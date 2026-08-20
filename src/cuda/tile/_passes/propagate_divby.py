@@ -14,7 +14,7 @@ def add_divby_pass(root_block: Block, df_result: DataflowResult):
     for op in root_block.traverse():
         if isinstance(op, _OPS_NEED_ASSUME):
             candidates.update(var.name for var in op.all_inputs())
-    mapper = Mapper(root_block.ctx, preserve_vars=True)
+    mapper = Mapper(root_block.ctx)
     _rewrite_block(root_block, df_result, mapper, candidates)
 
 
@@ -28,11 +28,11 @@ def _rewrite_block(block: Block,
 
     for op in block:
         to_assume = tuple(var for var in op.result_vars if var.name in candidates)
-        new_op = op.clone(mapper)
-        new_ops.append(new_op)
+        op.remap_operands(mapper)
+        new_ops.append(op)
         for var in to_assume:
             _add_assume_divby(var, df_result, new_ops, mapper)
-        for b in new_op.nested_blocks:
+        for b in op.nested_blocks:
             _rewrite_block(b, df_result, mapper, candidates)
 
     block[:] = new_ops
