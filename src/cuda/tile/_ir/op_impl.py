@@ -575,13 +575,6 @@ def require_scalar_type(var: Var) -> TensorLikeTy:
     return ensure_scalar(var).get_type()
 
 
-def require_any_vector_type(var: Var) -> TileTy:
-    ty = var.get_type()
-    if not isinstance(ty, TileTy) or ty.ndim != 1:
-        raise make_type_checking_error(f"Expected a vector but given value has type {ty}", var)
-    return ty
-
-
 def require_any_scalar_or_vector_type(var: Var) -> TileTy:
     ty = var.get_type()
     if not isinstance(ty, TileTy) or ty.ndim not in (0, 1):
@@ -591,9 +584,9 @@ def require_any_scalar_or_vector_type(var: Var) -> TileTy:
     return ty
 
 
-def require_integer_0d_tile_type(var: Var) -> TileTy:
-    ty = require_0d_tile_type(var)
-    if not datatype.is_integral(ty.dtype):
+def require_integer_scalar_type(var: Var) -> TensorLikeTy:
+    ty = require_scalar_type(var)
+    if not datatype.is_integral(ty.tensor_dtype()):
         raise make_type_checking_error(f"Expected an integer scalar, but got {ty}", var)
     return ty
 

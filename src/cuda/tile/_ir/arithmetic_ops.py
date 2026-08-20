@@ -126,7 +126,7 @@ def broadcast_to(x: Var[TensorLikeTy], shape: Sequence[int]) -> Var[TensorLikeTy
 
 @dataclass(eq=False)
 class TileAsType(Operation, opcode="tile_astype"):
-    x: Var = operand()
+    x: Var[TensorLikeTy] = operand()
     rounding_mode: RoundingMode | None = attribute(default=None)
 
     @override
@@ -135,6 +135,11 @@ class TileAsType(Operation, opcode="tile_astype"):
 
         return convert_dtype(ctx, value, ctx.typeof(self.x), ctx.typeof(self.result_var),
                              rounding_mode=self.rounding_mode)
+
+    @override
+    def generate_llvm(self, ctx):
+        return ctx.cast(ctx.value(self.x), self.x.get_type(), self.result_var.get_type(),
+                        self.rounding_mode)
 
 
 def astype(x: Var[TensorLikeTy], dtype: DType, *,
@@ -184,6 +189,10 @@ class RawComparisonOperation(Operation, opcode="raw_cmp"):
         dtype = self.lhs.get_type().tensor_dtype()
         result_typeid = ctx.typeid_of(self.result_var)
         return encode_comparison(ctx.builder, self.fn, lhs, rhs, dtype, result_typeid)
+
+    def generate_llvm(self, ctx):
+        return ctx.comparison(
+                self.fn, self.lhs.get_type(), ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def compare_tensorlike_raw(fn: str,
@@ -236,6 +245,9 @@ class RawBinaryBitwiseOperation(Operation, opcode="raw_binary_bitwise"):
             case "xor": return bc.encode_XOrIOp(ctx.builder, res_typeid, lhs, rhs)
             case _:
                 raise NotImplementedError(f"Missing binary bitwise implementation for {self.fn}")
+
+    def generate_llvm(self, ctx):
+        return ctx.binary_bitwise(self.fn, ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def binary_bitwise_tensorlike_raw(fn: str,
@@ -312,6 +324,10 @@ class RawBitwiseShiftOperation(Operation, opcode="raw_bitwise_shift"):
                 return bc.encode_ShRIOp(ctx.builder, res_type_id, lhs, rhs,
                                         get_signedness(get_dtype(res_ty)))
             case _: raise NotImplementedError()
+
+    def generate_llvm(self, ctx):
+        return ctx.bitwise_shift(
+                self.fn, self.lhs.get_type(), ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def bitwise_shift_tensorlike_raw(fn: str,
@@ -445,6 +461,14 @@ class RawBinaryArithmeticOperation(Operation, opcode="raw_binary_arith"):
             case _:
                 raise NotImplementedError(f"Missing binary arithmetic implementation"
                                           f" for {self.fn}, {kind}")
+
+    @override
+    def generate_llvm(self, ctx):
+        return ctx.binary_arithmetic(self.fn, self.lhs.get_type(),
+                                     ctx.value(self.lhs), ctx.value(self.rhs),
+                                     rounding_mode=self.rounding_mode,
+                                     flush_to_zero=self.flush_to_zero,
+                                     propagate_nan=self.propagate_nan)
 
 
 def binary_arithmetic_tensorlike_raw(fn: str, x: Var[TensorLikeTy], y: Var[TensorLikeTy],

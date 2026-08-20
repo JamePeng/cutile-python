@@ -147,6 +147,8 @@ from .ir import (
     format_var,
     LocalArrayContextManagerValue,
 )
+from .._llvm_bitcode import Linkage
+from .._passes.ir2llvm import LLVMLoweringContext
 from .._stub.cluster_launch_control import (
     cluster_launch_control_try_cancel,
     cluster_launch_control_is_canceled,
@@ -542,6 +544,26 @@ class AllocStaticSharedMemory(Operation, opcode="alloc_static_shared_memory",
                               memory_effect=MemoryEffect.STORE):
     count: int = attribute()
     alignment: int | None = attribute()
+
+    def generate_llvm(self, ctx: LLVMLoweringContext):
+        result_ty = self.result_var.get_type()
+        assert isinstance(result_ty, PointerTy)
+        global_type_llvm = ctx.builder.type_table.array(
+            ctx.dtype(result_ty.pointee_dtype, storage=True),
+            self.count
+        )
+        sym = f"static_shared_memory_{self.result_var.name}"
+        with ctx.builder.global_scope():
+            initializer = ctx.builder.constants.undef(global_type_llvm)
+            global_var = ctx.builder.global_variable(
+                sym,
+                global_type_llvm,
+                linkage=Linkage.Internal,
+                address_space=3,
+                alignment=self.alignment,
+                initializer=initializer
+            )
+        return global_var
 
 
 @dataclass(eq=False)

@@ -2,17 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import enum
+import importlib
 import inspect
 import typing
 from dataclasses import dataclass
-from typing import Callable, Any, Annotated, NamedTuple
+from functools import cache, lru_cache
+from typing import Callable, Any, Annotated, NamedTuple, Sequence
 
 from cuda.lang._execution import stub
 from cuda.lang._ir.op_defs import RawLLVMIntrinsic
+from cuda.lang._ir.type import PointerTy, ScalarTy, VectorTy
 from cuda.lang._ir.type_checking_helpers import require_vector_type, require_scalar_or_vector_type
 from cuda.lang._exception import TypeCheckingError, InvalidValueError
+from cuda.lang._passes.ir2llvm import DIRECTLY_SUPPORTED_FLOATS
 from cuda.tile import DType
-from cuda.tile._datatype import is_pointer_dtype
+from cuda.tile._datatype import is_pointer_dtype, PointerInfo, is_integral
 from cuda.tile._ir.op_impl import require_scalar_type, make_type_checking_error
 from cuda.tile._ir.ir import Var, add_operation_variadic
 from cuda.tile._ir.ops import build_tuple
@@ -76,11 +80,6 @@ class MatchedSignature(NamedTuple):
     result_types: tuple[Type, ...]
     make_retval: Callable
     metadata_args: tuple[Any, ...]
-
-
-DIRECTLY_SUPPORTED_FLOATS = (
-    datatype.float16, datatype.bfloat16, datatype.float32, datatype.float64
-)
 
 
 def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
@@ -182,6 +181,82 @@ def require_llvm_metadata(var: Var):
         return ty.value
 
     raise make_type_checking_error(f"Expected an LLVM metadata, got {ty}", var)
+
+
+def mangle_intrinsic_name(intrinsic_name: str, operand_types: Sequence[Type | None]):
+    stub = find_intrinsic_stub(intrinsic_name)
+    stub_sig = inspect.signature(stub)
+
+    parts = [intrinsic_name]
+    for ty, param in zip(operand_types, stub_sig.parameters.values(), strict=True):
+        ann = _get_annotation(param.annotation)
+        if isinstance(ann, _IntrinsicDTypeAnnotation):
+            assert ty is not None
+        elif isinstance(ann, _IntrinsicMetadataAnnotation):
+            assert ty is None
+        elif isinstance(ann, _IntrinsicGenericAnnotation):
+            parts.append(_mangle_type_name(ty))
+        else:
+            assert False, type(param)
+    return ".".join(parts)
+
+
+def _mangle_type_name(ty: Type) -> str:
+    if isinstance(ty, PointerTy | ScalarTy):
+        return _mangle_dtype_name(ty.tensor_dtype())
+    elif isinstance(ty, VectorTy):
+        return f"v{ty.length}" + _mangle_dtype_name(ty.element_dtype)
+    else:
+        raise NotImplementedError()
+
+
+def _mangle_dtype_name(dtype: DType) -> str:
+    if is_pointer_dtype(dtype):
+        space = PointerInfo(dtype).memory_space._value_
+        return f"p{space}"
+    elif is_integral(dtype):
+        return f"i{dtype.bitwidth}"
+    elif (kind := DIRECTLY_SUPPORTED_FLOATS.get(dtype)) is not None:
+        return kind._name_
+    else:
+        raise NotImplementedError(f"Dtype {dtype} not supported as LLVM intrinsic generic operand")
+
+
+@lru_cache
+def find_intrinsic_stub(intrinsic_name: str):
+    assert intrinsic_name.startswith("llvm.")
+    intrinsic_name = intrinsic_name.removeprefix("llvm.")
+    if intrinsic_name.startswith("nvvm."):
+        modules = nvvm_stub_modules
+        intrinsic_name = intrinsic_name.removeprefix("nvvm.")
+    else:
+        modules = llvm_stub_modules
+
+    intrinsic_name = intrinsic_name.replace(".", "_")
+
+    for module_name in reversed(modules):
+        stubs = _maybe_import_stubs(module_name)
+        s = stubs.get(intrinsic_name)
+        if s is not None:
+            return s
+    raise ValueError(f"Could not find the signature of intrinsic {intrinsic_name}")
+
+
+nvvm_stub_modules = ["cuda.lang._stub.nvvm"]
+llvm_stub_modules = ["cuda.lang._stub.llvm"]
+
+
+@cache
+def _maybe_import_stubs(module_name: str):
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return {}
+
+    try:
+        return module.__dict__
+    except AttributeError:
+        return {}
 
 
 def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: str) -> Var:

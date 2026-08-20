@@ -32,6 +32,7 @@ from cuda.tile._datatype import (
     is_boolean,
     is_integral,
     is_signed,
+    is_numeric,
     unsigned_integral_dtypes,
     signed_integral_dtypes,
     get_signedness,
@@ -43,6 +44,7 @@ from cuda.tile._datatype import (
     _define_dtype,
     _DTypeDefinition,
     PointerInfo,
+    numeric_dtype_category,
 )
 
 
@@ -99,6 +101,7 @@ __all__ = [
     "is_integral",
     "is_signed",
     "is_pointer_dtype",
+    "is_numeric",
     "pointer_dtype",
     "opaque_pointer_dtype",
     "MemorySpace",
@@ -130,4 +133,5 @@ __all__ = [
     "to_torch_dtype",
     "default_int_type",
     "PointerInfo",
+    "numeric_dtype_category"
 ]

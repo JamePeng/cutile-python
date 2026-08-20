@@ -39,7 +39,7 @@ def _make_a_plus_b_bitcode() -> bytes:
         bp = builder.get_element_ptr(tt.F32, bptr, tid)
         b = builder.load(tt.F32, bp, alignment=4)
         cp = builder.get_element_ptr(tt.F32, cptr, tid)
-        c = builder.binop(tt.F32, Binop.ADD, a, b)
+        c = builder.binop(Binop.ADD, a, b)
         res = builder.call(tt.function(tt.F32, (tt.F32,)), fabsf, (c,))
         builder.store(cp, res, alignment=4)
         builder.ret()

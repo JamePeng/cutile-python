@@ -44,9 +44,11 @@ from cuda.lang.compilation import (
 )
 from cuda.lang._exception import CompilerExecutionError
 from cuda.lang._target import TargetInfo
+from ._compilers import get_nvvm_and_libdevice, PtxCompiler
 from ._execution import kernel
 from cuda.lang._ir.ops import cuda_lang_impl_registry
 from ._ir._host_program import HostProgram, get_host_programs_by_var
+from ._passes import ir2llvm
 from ._timing import CompilationTimer, CompilationTimings
 import contextlib
 
@@ -293,6 +295,7 @@ def compile_simt(
     log_nvvm: bool = False,
     log_ptx: bool = False,
     log_timings: bool = False,
+    direct_nvvm: bool = False,
 ) -> CompilationResult:
     log_flags = deepcopy(get_log_flags())
     log_flags.log_hir |= log_hir
@@ -359,40 +362,57 @@ def compile_simt(
 
         target_info = TargetInfo.from_arch(arch)
 
-    with timer.phase("ir2mlir"):
-        mlir_module = ir2mlir(
-            signature,
-            flattened_ir,
-            ctx,
-            compiler_options,
-            target_info,
-        )
-    with timer.phase("mlir_serialization"):
-        mlir_text = str(mlir_module)
-
-    if log_flags.log_mlir:
-        _dump("MLIR", mlir_text)
-
     need_nvvm = log_flags.log_nvvm or keep_nvvm
     need_ptx = log_flags.log_ptx or keep_ptx
-    ptx_compiler_options = compiler_options._ptx_compiler_options
-    with timer.phase("mlir2cubin"):
-        compiled = mlir2cubin(
-            mlir_text,
-            gpu_name=gpu_name,
-            arch=arch,
-            emit_nvvm=need_nvvm,
-            emit_ptx=need_ptx,
-            opt_level=compiler_options.opt_level,
-            generate_line_info=compiler_options.debug_info == "line",
-            ptx_compiler_options=ptx_compiler_options,
-            emit_timings=need_timings,
-        )
-    if compiled.timings_ns is not None:
-        timer.add_phases("mlir2cubin", compiled.timings_ns)
 
-    if compiled.stderr and ptx_compiler_options:
-        _dump("PTX compiler", compiled.stderr.decode())
+    if direct_nvvm:
+        bitcode = ir2llvm.generate_nvvm_bitcode_for_kernel(
+                flattened_ir, signature.symbol, target_info)
+
+        nvvm, libdevice = get_nvvm_and_libdevice()
+        program = nvvm.create_program()
+        program.add_module(bitcode, "main")
+        program.add_module(libdevice, "libdevice")
+        ptx = program.compile(["-arch=" + cc.arch])
+
+        ptx_compiler: PtxCompiler = PtxCompiler.get()
+        cubin = ptx_compiler.compile(ptx, cc.gpu_name)
+
+        compiled = MLIR2CubinResult(cubin=cubin, stderr=b"", ptx=ptx.decode(), nvvm=bitcode,
+                                    timings_ns=None)
+    else:
+        with timer.phase("ir2mlir"):
+            mlir_module = ir2mlir(
+                signature,
+                flattened_ir,
+                ctx,
+                compiler_options,
+                target_info,
+            )
+        with timer.phase("mlir_serialization"):
+            mlir_text = str(mlir_module)
+
+        if log_flags.log_mlir:
+            _dump("MLIR", mlir_text)
+
+        ptx_compiler_options = compiler_options._ptx_compiler_options
+        with timer.phase("mlir2cubin"):
+            compiled = mlir2cubin(
+                mlir_text,
+                gpu_name=gpu_name,
+                arch=arch,
+                emit_nvvm=need_nvvm,
+                emit_ptx=need_ptx,
+                opt_level=compiler_options.opt_level,
+                generate_line_info=compiler_options.debug_info == "line",
+                ptx_compiler_options=ptx_compiler_options,
+                emit_timings=need_timings,
+            )
+        if compiled.timings_ns is not None:
+            timer.add_phases("mlir2cubin", compiled.timings_ns)
+
+        if compiled.stderr and ptx_compiler_options:
+            _dump("PTX compiler", compiled.stderr.decode())
 
     if need_nvvm:
         assert compiled.nvvm is not None

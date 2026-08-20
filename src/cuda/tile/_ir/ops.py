@@ -75,7 +75,6 @@ import cuda.tile._bytecode as bc
 from cuda.tile._bytecode.version import BytecodeVersion
 from .._debug import CUDA_TILE_TESTING_DISABLE_DIV
 
-
 tile_impl_registry = ImplRegistry()
 tile_impl_registry.update(core_impl_registry())
 tile_impl_registry.update(static_eval_impl_registry())
@@ -725,6 +724,10 @@ class AssumeBounded(Operation, opcode="assume_bounded"):
         pred = bc.Bounded(lb=self.lower_bound, ub=self.upper_bound)
         return bc.encode_AssumeOp(ctx.builder, type_id, x, pred)
 
+    def generate_llvm(self, ctx):
+        # TODO: generate an actual assume op?
+        return ctx.value(self.x)
+
 
 def assume_bounded(x: Var, lower_bound: int | None, upper_bound: int | None) -> Var:
     return add_operation(AssumeBounded, x.get_type(), x=x,
@@ -1276,6 +1279,28 @@ class PointerOffset(Operation, opcode="pointer_offset"):
         pointer = ctx.get_value(self.pointer)
         offset = ctx.get_value(self.offset)
         return bc.encode_OffsetOp(ctx.builder, res_typeid, pointer, offset)
+
+    @override
+    def generate_llvm(self, ctx):
+        pointer_dtype = self.pointer.get_type().pointer_dtype
+        pointee_dtype = PointerInfo(pointer_dtype).pointee_dtype
+        offset_ty = self.offset.get_type()
+        offset_dtype = offset_ty.dtype
+        offset = ctx.value(self.offset)
+        if not is_signed(offset_dtype) and offset_dtype.bitwidth < pointer_dtype.bitwidth:
+            # GEP treats offsets as signed, so we need to zero-extend
+            if pointer_dtype.bitwidth == 32:
+                extended_offset_dtype = datatype.uint32
+            else:
+                assert pointer_dtype.bitwidth == 64
+                extended_offset_dtype = datatype.uint64
+            extended_offset_ty = ctx.ir_ctx.typing_hooks.get_tensor_like_type(
+                    extended_offset_dtype, offset_ty.tensor_shape())
+            from cuda.lang._llvm_bitcode import Cast
+            offset = ctx.builder.cast(ctx.type(extended_offset_ty, storage=False),
+                                      Cast.ZEXT, offset)
+        return ctx.builder.get_element_ptr(ctx.dtype(pointee_dtype, storage=True),
+                                           ctx.value(self.pointer), offset)
 
 
 def pointer_offset(pointer: Var, offset: Var) -> Var:

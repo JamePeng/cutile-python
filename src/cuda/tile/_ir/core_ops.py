@@ -381,6 +381,10 @@ class TypedConst(Operation, opcode="typed_const"):
     def generate_bytecode(self, ctx: BytecodeContext) -> bc.Value:
         return ctx.constant(self.value, ctx.typeof(self.result_var))
 
+    @override
+    def generate_llvm(self, ctx):
+        return ctx.constant(self.value, self.result_var.get_type())
+
 
 def loosely_typed_const(value: Any,
                         ty: Optional[Type] = None,

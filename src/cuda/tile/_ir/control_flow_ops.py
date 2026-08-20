@@ -552,6 +552,10 @@ class Return(Operation, opcode="return", terminator=True):
     def has_observable_effect(self) -> bool:
         return True
 
+    @override
+    def generate_llvm(self, ctx):
+        ctx.builder.ret()
+
 
 async def return_(value: Var | None):
     if value is not None and value.get_type() is not NONE:

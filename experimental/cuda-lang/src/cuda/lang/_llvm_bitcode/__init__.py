@@ -158,9 +158,59 @@ class Type:
 
 
 @dataclass(frozen=True)
+class IntegerType(Type):
+    bitwidth: int
+
+
+@dataclass(frozen=True)
+class PointerType(Type):
+    address_space: int
+
+
+class FloatKind(enum.Enum):
+    f16 = codes.TYPE_CODE_HALF
+    bf16 = codes.TYPE_CODE_BFLOAT
+    f32 = codes.TYPE_CODE_FLOAT
+    f64 = codes.TYPE_CODE_DOUBLE
+
+
+@dataclass(frozen=True)
+class FloatType(Type):
+    kind: FloatKind
+
+
+@dataclass(frozen=True)
+class VectorType(Type):
+    element_ty: Type
+    length: int
+
+
+@dataclass(frozen=True)
 class FunctionType(Type):
     return_ty: Type
     parameter_types: tuple[Type, ...]
+
+
+@dataclass(frozen=True)
+class VoidType(Type):
+    pass
+
+
+@dataclass(frozen=True)
+class MetadataType(Type):
+    pass
+
+
+@dataclass(frozen=True)
+class AnonStructType(Type):
+    fields: Sequence[Type]
+    packed: bool
+
+
+@dataclass(frozen=True)
+class ArrayType(Type):
+    element: Type
+    length: int
 
 
 @dataclass
@@ -174,69 +224,106 @@ class Metadata:
     id: int | None = None
 
 
-class _TypeDict(dict):
-    def __missing__(self, key):
-        ty = Type(len(self))
-        self[key] = ty
-        return ty
-
-
 class TypeTable:
     def __init__(self):
-        self._map = _TypeDict()
+        self._map = dict()
 
-    def integer(self, bitwidth: int) -> Type:
-        return self._map[(codes.TYPE_CODE_INTEGER, bitwidth)]
+    def integer(self, bitwidth: int) -> IntegerType:
+        key = (codes.TYPE_CODE_INTEGER, bitwidth)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = IntegerType(len(self._map), bitwidth)
+        return ty
 
-    def pointer(self, address_space: int) -> Type:
-        return self._map[(codes.TYPE_CODE_OPAQUE_POINTER, address_space)]
+    def pointer(self, address_space: int) -> PointerType:
+        key = (codes.TYPE_CODE_OPAQUE_POINTER, address_space)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = PointerType(len(self._map), address_space)
+        return ty
+
+    def float(self, kind: FloatKind) -> FloatType:
+        assert isinstance(kind, FloatKind)
+        key = (kind._value_,)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = FloatType(len(self._map), kind)
+        return ty
 
     @property
-    def I32(self) -> Type:
+    def I1(self) -> IntegerType:
+        return self.integer(1)
+
+    @property
+    def I32(self) -> IntegerType:
         return self.integer(32)
 
     @property
-    def P0(self) -> Type:
+    def P0(self) -> PointerType:
         return self.pointer(0)
 
     @property
-    def VOID(self) -> Type:
-        return self._map[(codes.TYPE_CODE_VOID,)]
+    def VOID(self) -> VoidType:
+        key = (codes.TYPE_CODE_VOID,)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = VoidType(len(self._map))
+        return ty
 
     @property
-    def F16(self) -> Type:
-        return self._map[(codes.TYPE_CODE_HALF,)]
+    def F16(self) -> FloatType:
+        return self.float(FloatKind.f16)
 
     @property
-    def BF16(self) -> Type:
-        return self._map[(codes.TYPE_CODE_BFLOAT,)]
+    def BF16(self) -> FloatType:
+        return self.float(FloatKind.bf16)
 
     @property
-    def F32(self) -> Type:
-        return self._map[(codes.TYPE_CODE_FLOAT,)]
+    def F32(self) -> FloatType:
+        return self.float(FloatKind.f32)
 
     @property
-    def F64(self) -> Type:
-        return self._map[(codes.TYPE_CODE_DOUBLE,)]
+    def F64(self) -> FloatType:
+        return self.float(FloatKind.f64)
 
-    def vector(self, element_ty: Type, length: int) -> Type:
-        return self._map[(codes.TYPE_CODE_VECTOR, length, element_ty.type_id)]
+    @property
+    def METADATA(self) -> MetadataType:
+        key = (codes.TYPE_CODE_METADATA,)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map = ty = MetadataType(len(self._map))
+        return ty
+
+    def vector(self, element_ty: Type, length: int) -> VectorType:
+        key = (codes.TYPE_CODE_VECTOR, length, element_ty.type_id)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = VectorType(len(self._map), element_ty, length)
+        return ty
 
     def function(self, return_type: Type, param_types: Sequence[Type]) -> FunctionType:
         key = (codes.TYPE_CODE_FUNCTION,
                0,  # isvararg
                return_type.type_id,
                *(t.type_id for t in param_types))
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = FunctionType(len(self._map), return_type, tuple(param_types))
+        return ty
 
-        if key not in self._map:
-            self._map[key] = FunctionType(len(self._map), return_type, tuple(param_types))
-        return self._map[key]
+    def struct_anonymous(self, fields: Sequence[Type], packed: bool = False) -> AnonStructType:
+        key = (codes.TYPE_CODE_STRUCT_ANON, int(packed), *(t.type_id for t in fields))
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = AnonStructType(len(self._map), fields, packed)
+        return ty
 
-    def struct_anonymous(self, fields: Sequence[Type], packed: bool = False):
-        return self._map[(codes.TYPE_CODE_STRUCT_ANON, int(packed), *(t.type_id for t in fields))]
-
-    def array(self, element_type: Type, length: int):
-        return self._map[(codes.TYPE_CODE_ARRAY, length, element_type.type_id)]
+    def array(self, element_type: Type, length: int) -> ArrayType:
+        key = (codes.TYPE_CODE_ARRAY, length, element_type.type_id)
+        ty = self._map.get(key)
+        if ty is None:
+            self._map[key] = ty = ArrayType(len(self._map), element_type, length)
+        return ty
 
 
 class _StringTable(dict[bytes, tuple[int, int]]):
@@ -256,7 +343,7 @@ class _StringTable(dict[bytes, tuple[int, int]]):
 @dataclass(frozen=True)
 class _ConstantRecord:
     value: Value
-    record: tuple[int | str, ...]
+    record: tuple[int, ...]
 
 
 class ConstantTable:
@@ -292,7 +379,7 @@ class ConstantTable:
     def undef(self, ty: Type) -> Value:
         return self._append(ty, codes.CST_CODE_UNDEF)
 
-    def _append(self, ty: Type, *rec: int | str) -> Value:
+    def _append(self, ty: Type, *rec: int) -> Value:
         ret = Value(ty)
         self._table[ty].append(_ConstantRecord(ret, rec))
         return ret
@@ -471,12 +558,16 @@ class BitcodeBuilder:
         finally:
             self._cur_function = old_func
 
-    def binop(self, result_ty: Type, op: Binop, lhs: Value, rhs: Value) -> Value:
+    def binop(self, op: Binop, lhs: Value, rhs: Value) -> Value:
         assert isinstance(op, Binop)
-        return self._instruction(result_ty, codes.FUNC_CODE_INST_BINOP, "Vvi", lhs, rhs, op._value_)
+        return self._instruction(lhs.type, codes.FUNC_CODE_INST_BINOP, "Vvi", lhs, rhs, op._value_)
 
-    def cmp(self, result_ty: Type, predicate: CmpPredicate, lhs: Value, rhs: Value) -> Value:
+    def cmp(self, predicate: CmpPredicate, lhs: Value, rhs: Value) -> Value:
         assert isinstance(predicate, CmpPredicate)
+        if isinstance(lhs.type, VectorType):
+            result_ty = self._type_table.vector(self._type_table.I1, lhs.type.length)
+        else:
+            result_ty = self._type_table.I1
         return self._instruction(result_ty, codes.FUNC_CODE_INST_CMP2, "Vvi",
                                  lhs, rhs, predicate._value_)
 
@@ -496,7 +587,7 @@ class BitcodeBuilder:
         self._instruction(None, codes.FUNC_CODE_INST_STORE, "VVii",
                           ptr, value, alignment, int(bool(volatile)))
 
-    def call(self, func_ty: FunctionType, callee: Value, args: Sequence[Value]) -> Value:
+    def call(self, func_ty: FunctionType, callee: Value, args: Sequence[Value | Metadata]) -> Value:
         return self._instruction(
             func_ty.return_ty, codes.FUNC_CODE_INST_CALL, "iiiV" + "v" * len(args),
             0,  # attribute list ID
@@ -525,12 +616,20 @@ class BitcodeBuilder:
             src, *indices
         )
 
+    def select(self, cond: Value, true_value: Value, false_value: Value):
+        return self._instruction(
+            true_value.type,
+            codes.FUNC_CODE_INST_SELECT,
+            "VvV",
+            true_value, false_value, cond
+        )
+
     def ret(self, *values: Value):
         self._instruction(None, codes.FUNC_CODE_INST_RET, "V" * len(values), *values,
                           terminator=True)
 
     def _instruction(self, result_ty: Type | None, code: int,
-                     format: str, *instruction: int | Value,
+                     format: str, *instruction: int | Value | Metadata,
                      terminator: bool = False) -> Value | None:
         """
         Format syntax:
@@ -695,6 +794,9 @@ def _write_named_metadata(named_metadata: Sequence[tuple[str, tuple[Metadata, ..
 
 
 def _transform_signed_int(x: int) -> int:
+    if x >= 1 << 63:
+        x -= 1 << 64
+    assert -1 << 63 <= x < 1 << 63
     return x << 1 if x >= 0 else (-x << 1) | 1
 
 
@@ -739,11 +841,12 @@ def _write_function_body(func: Function, first_instruction_id: int, writer: _Bit
                 operands.append(operand)
             else:
                 assert f in "vV"
-                assert isinstance(operand, Value)
+                assert isinstance(operand, Value | Metadata)
                 assert operand.id is not None
                 relative_id = instruction_id - operand.id
                 operands.append(relative_id & 0xffff_ffff)
                 if f == "V" and relative_id <= 0:
+                    assert isinstance(operand, Value)
                     operands.append(operand.type.type_id)
         writer.unabbrev_record(code, *operands)
         if result is not None:

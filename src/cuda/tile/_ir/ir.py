@@ -651,6 +651,9 @@ class Operation:
     def generate_bytecode(self, ctx: "BytecodeContext"):
         raise NotImplementedError(f"Operation {self.op} must implement generate_bytecode")
 
+    def generate_llvm(self, ctx):
+        raise NotImplementedError(f"generate_llvm() not implemented for {type(self)}")
+
     def _to_string_block_prefixes(self) -> List[str]:
         return []
 

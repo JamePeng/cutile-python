@@ -16,11 +16,15 @@ from cuda.lang._enums import (
     TMALoadMode,
     TMAStoreMode,
 )
+from typing_extensions import override
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.ir import MemoryEffect
+from cuda.tile._ir.type import TensorLikeTy
 from cuda.lang._enums import VectorReduction
 from .ir import Operation, Var, attribute, operand
-from .type import VectorTy, ScalarTy
+from .type import VectorTy, ScalarTy, PointerTy
+from .. import _llvm_bitcode as llvm
+from .._passes.ir2llvm import LLVMLoweringContext, type_to_llvm
 
 
 @dataclass(eq=False)
@@ -30,6 +34,34 @@ class RawLLVMIntrinsic(
     intrinsic: str = attribute()
     operands_: tuple[Var | None, ...] = operand()
     metadata_args: tuple[Any, ...] = attribute(default=())
+
+    def generate_llvm(self, ctx):
+        all_operands: list[llvm.Value | llvm.Metadata] = []
+        operand_types = []
+
+        meta_iter = iter(self.metadata_args)
+        for x in self.operands_:
+            if x is None:
+                meta = next(meta_iter)
+                all_operands.append(_metadata_to_llvm(meta, ctx.builder.metadata))
+                operand_types.append(None)
+            else:
+                all_operands.append(ctx.value(x))
+                operand_types.append(x.get_type())
+
+        assert tuple(meta_iter) == ()
+
+        return ctx.call_intrinsic(self.intrinsic,
+                                  [x.get_type() for x in self.result_vars],
+                                  operand_types,
+                                  all_operands)
+
+
+def _metadata_to_llvm(meta: Any, metadata_table: llvm.MetadataTable) -> llvm.Metadata:
+    if isinstance(meta, str):
+        return metadata_table.string(meta)
+    else:
+        raise TypeError(f"Unexpected LLVM metadata type '{type(meta)}'")
 
 
 @dataclass(eq=False)
@@ -158,15 +190,38 @@ class BitCast(Operation, opcode="bitcast"):
 
 @dataclass(eq=False)
 class StorePointer(Operation, opcode="store_pointer", memory_effect=MemoryEffect.STORE):
-    pointer: Var = operand()
-    value: Var = operand()
+    pointer: Var[PointerTy] = operand()
+    value: Var[TensorLikeTy] = operand()
     alignment: Optional[int] = attribute()
+
+    @override
+    def generate_llvm(self, ctx: LLVMLoweringContext):
+        value = ctx.value(self.value)
+        storage_type = type_to_llvm(self.value.get_type(), ctx.builder.type_table, storage=True)
+        register_type = ctx.typeof(self.value)
+        if storage_type != register_type:
+            # Extend i1 -> i8 for booleans etc.
+            value = ctx.builder.cast(storage_type, llvm.Cast.ZEXT, value)
+        pointer = ctx.value(self.pointer)
+        ctx.builder.store(pointer, value, self.alignment)
 
 
 @dataclass(eq=False)
 class LoadPointer(Operation, opcode="load_pointer", memory_effect=MemoryEffect.LOAD):
-    pointer: Var = operand()
+    pointer: Var[PointerTy] = operand()
     alignment: Optional[int] = attribute()
+
+    @override
+    def generate_llvm(self, ctx: LLVMLoweringContext):
+        pointer = ctx.value(self.pointer)
+        storage_type = type_to_llvm(self.result_var.get_type(), ctx.builder.type_table,
+                                    storage=True)
+        register_type = ctx.typeof(self.result_var)
+        value = ctx.builder.load(storage_type, pointer, self.alignment)
+        if storage_type != register_type:
+            # Truncate i8 -> i1 for booleans etc.
+            value = ctx.builder.cast(register_type, llvm.Cast.TRUNC, value)
+        return value
 
 
 @dataclass(eq=False)
