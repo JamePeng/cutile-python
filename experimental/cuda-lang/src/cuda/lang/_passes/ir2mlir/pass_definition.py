@@ -29,6 +29,7 @@ from cuda.lang._exception import InternalError, TypeCheckingError
 from .type_conversion import (
     ir_type_to_mlir_type,
     mlir_constant_of_type,
+    mlir_integer_cast,
     convert_dtype,
     dtype_to_mlir_type,
 )
@@ -1214,6 +1215,12 @@ def lower_pointer_offset(
 
     pointer = context.get_var(operation.pointer)
     offset = context.get_var(operation.offset)
+    offset_ty = operation.offset.get_type()
+    offset = mlir_integer_cast(
+        offset,
+        T.i64(),
+        signed=datatype.is_signed(offset_ty.dtype),
+    )
     dynamic_32b_sentinel = -1 << 31
     offset_pointer = mlir.llvm.add_GEPOp(
         res_type=pointer.type,

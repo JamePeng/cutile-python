@@ -434,6 +434,53 @@ def test_pointer_add_ldst():
     assert A.cpu().tolist() == [0, 1, 4, 9]
 
 
+@pytest.mark.parametrize(
+    "offset_dtype,offset",
+    (
+        (cl.uint8, 255),
+        (cl.uint16, 65535),
+    ),
+)
+def test_pointer_add_narrow_unsigned_offset(offset_dtype, offset):
+    @cl.kernel
+    def kernel(A):
+        p = A.get_base_pointer() + 1
+        p[offset_dtype(offset)] = 7
+
+    A = torch.ones(offset + 2, device="cuda")
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (1,),
+        kernel,
+        (A,),
+    )
+    assert A[0].item() == 1
+    assert A[offset + 1].item() == 7
+
+
+def test_shared_pointer_add_narrow_unsigned_offset():
+    offset_dtype = cl.uint8
+    offset = 255
+
+    @cl.kernel
+    def kernel(out):
+        storage = cl.shared_array(offset + 2, cl.int32)
+        p = storage.get_base_pointer() + 1
+        p[offset_dtype(offset)] = 7
+        out[0] = storage[offset + 1]
+
+    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (1,),
+        kernel,
+        (out,),
+    )
+    assert out.item() == 7
+
+
 def test_device_alloc_memspace():
     @cl.kernel
     def kernel(memspace):
