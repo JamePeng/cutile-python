@@ -5,6 +5,7 @@
 from cuda.lang._enums import CachePolicy
 from cuda.lang._exception import InvalidValueError, TypeCheckingError
 from cuda.lang._ir.op_defs import RawNVVMIntrinsic, BitCast, InlinePTX
+from cuda.tile import MemoryScope
 from ..type import (
     DTypeConstructor,
     MemorySpace,
@@ -322,3 +323,34 @@ def impl_create_fractional_cache_policy(
         read_write_operands=(),
     )
     return results[0]
+
+
+@impl(core_api.memory_barrier)
+def memory_barrier_impl(scope: Var) -> None:
+    scope2intrin = {
+        MemoryScope.BLOCK: "llvm.nvvm.membar.cta",
+        MemoryScope.CLUSTER: "llvm.nvvm.fence_sc_cluster",
+        MemoryScope.DEVICE: "llvm.nvvm.membar.gl",
+        MemoryScope.SYS: "llvm.nvvm.membar.sys",
+    }
+    scope = require_constant_enum(scope, MemoryScope)
+    intrinsic = scope2intrin.get(scope)
+    if intrinsic is None:
+        valid = ", ".join(x._name_ for x in scope2intrin.keys())
+        raise InvalidValueError(f"Invalid memory scope '{scope}'. Valid values: {valid}")
+    add_operation_variadic(
+        RawNVVMIntrinsic, (),
+        intrinsic=intrinsic,
+        operands_=()
+    )
+
+
+@impl(core_api.grid_dependency_control_wait, fixed_args=["wait"])
+@impl(core_api.grid_dependency_control_launch_dependents, fixed_args=["launch.dependents"])
+def grid_dependency_control_action_impl(action: str) -> None:
+    add_operation_variadic(
+        RawNVVMIntrinsic, (),
+        intrinsic="llvm.nvvm."
+                  "griddepcontrol." + action,
+        operands_=()
+    )

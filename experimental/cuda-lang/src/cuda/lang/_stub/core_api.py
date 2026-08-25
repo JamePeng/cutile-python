@@ -1124,23 +1124,19 @@ def nanosleep(nanoseconds: int):
     nvvm.nanosleep(nanoseconds)
 
 
+@stub
 def memory_barrier(scope: MemoryScope) -> None:
     """Issue a memory fence with the given scope."""
-    return nvvm_mlir_interfaces.memory_barrier(scope=scope)
 
 
+@stub
 def grid_dependency_control_wait() -> None:
     """Wait for prerequisite grids in a programmatic dependent launch."""
-    nvvm_mlir_interfaces.griddepcontrol(
-        kind=nvvm_mlir_interfaces.GridDepActionKind.wait
-    )
 
 
+@stub
 def grid_dependency_control_launch_dependents() -> None:
     """Launch dependent grids in a programmatic dependent launch."""
-    nvvm_mlir_interfaces.griddepcontrol(
-        kind=nvvm_mlir_interfaces.GridDepActionKind.launch_dependents
-    )
 
 
 @stub
@@ -1189,4 +1185,3 @@ def cdiv(x, y, /):
 
 # Need these imports at the end in order to overcome the circular import problem
 from . import nvvm  # noqa: E402
-from . import nvvm_mlir_interfaces  # noqa: E402

@@ -165,6 +165,7 @@ from .op_impl.pointer_impl import (
     contiguous_strides_from_shape,
     pointer_impl_registry,
 )
+from .op_impl.prefetch_impl import prefetch_impl_registry
 from .op_impl.copy_async_impl import copy_async_impl_registry
 from .op_impl.barrier_impl import barrier_impl_registry
 from .op_impl.mbarrier_impl import mbarrier_impl_registry
@@ -187,6 +188,7 @@ cuda_lang_impl_registry.update(math_impl_registry())
 cuda_lang_impl_registry.update(fence_impl_registry())
 cuda_lang_impl_registry.update(vector_impl_registry())
 cuda_lang_impl_registry.update(pointer_impl_registry())
+cuda_lang_impl_registry.update(prefetch_impl_registry())
 cuda_lang_impl_registry.update(copy_async_impl_registry())
 cuda_lang_impl_registry.update(barrier_impl_registry())
 cuda_lang_impl_registry.update(mbarrier_impl_registry())
@@ -786,11 +788,15 @@ def tensor_map_get_transaction_bytes_impl(self: Var, mode: Var):
     return loosely_typed_const(element_count * map_ty.element_bitwidth // 8)
 
 
+def tensor_map_as_opaque_ptr(self: Var):
+    result_ty = PointerTy(opaque_pointer_dtype())
+    return add_operation(TensorMapAsOpaquePtr, result_ty, tensor_map=self)
+
+
 @impl(tensor_map.TensorMap.as_opaque_ptr)
 def tensor_map_as_opaque_ptr_impl(self: Var):
     require_tensor_map_ty(self)
-    result_ty = PointerTy(opaque_pointer_dtype())
-    return add_operation(TensorMapAsOpaquePtr, result_ty, tensor_map=self)
+    return tensor_map_as_opaque_ptr(self)
 
 
 @impl(cluster_launch_control_try_cancel)

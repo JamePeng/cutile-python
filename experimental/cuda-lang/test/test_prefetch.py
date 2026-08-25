@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import re
 
 import pytest
 
@@ -53,16 +54,18 @@ def test_prefetch(memory_space, level, eviction_priority):
     ):
         raises = pytest.raises(
             Exception,
-            match="Prefetch eviction priority must be L2_EVICT_NORMAL or L2_EVICT_LAST",
+            match=f"Invalid eviction priority {eviction_priority._name_}."
+                  " Accepted values: L2_EVICT_NORMAL, L2_EVICT_LAST",
         )
         compile_kernel(kernel, raises=raises)
         return
 
     if eviction_priority is not None and memory_space != cl.MemorySpace.GLOBAL:
-        raises = pytest.raises(
-            Exception,
-            match="cache eviction priority requires a global pointer",
+        expected_message = re.escape(
+            f"Pointer in GLOBAL address space is required when eviction priority is specified;"
+            f" received a {memory_space._name_} pointer instead.",
         )
+        raises = pytest.raises(Exception, match=expected_message)
         compile_kernel(kernel, raises=raises)
         return
 
@@ -95,12 +98,10 @@ def test_prefetch_uniform():
     )
 
 
-@pytest.mark.parametrize("predicated", (False, True))
-def test_prefetch_tensor_map(predicated):
+def test_prefetch_tensor_map():
     def kernel(x):
         tensor_map = cl.tensor_map_tiled(x, 16)
-        predicate = cl.thread_index(0) == 0 if predicated else None
-        cl.prefetch_tensor_map(tensor_map, predicate=predicate)
+        cl.prefetch_tensor_map(tensor_map)
 
     compile_kernel(
         kernel,
