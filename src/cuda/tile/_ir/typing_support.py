@@ -159,6 +159,8 @@ def type_of_constant_python_value(val, typing_hooks: TypingHooks) -> Type:
         return PointerInfoTy(val)
     if isinstance(val, type):
         return TypeTy(val)
+    if (ty := typing_hooks.get_python_constant_type(val)) is not None:
+        return ty
 
     ty = type(val)
     prefix = "" if ty.__module__ == "builtins" else f"{ty.__module__}."

@@ -281,6 +281,12 @@ class TensorMapTy(Type):
     l2_promotion: TensorMapL2Promotion
 
 
+@dataclass(frozen=True)
+class KernelTy(Type):
+    def __str__(self):
+        return "cuda.lang kernel"
+
+
 class LangTypingHooks(TypingHooks):
     @override
     def get_tensor_like_type(self, dtype: DType, shape: Sequence[int]) -> TensorLikeTy:
@@ -293,6 +299,14 @@ class LangTypingHooks(TypingHooks):
                 return VectorTy(dtype, length)
             case _:
                 assert False, "cuda.lang does not support N-dimensional tensors"
+
+    @override
+    def get_python_constant_type(self, value) -> Type | None:
+        from cuda.lang._execution import kernel
+
+        if isinstance(value, kernel):
+            return KernelTy()
+        return None
 
 
 def type_bitwidth(x: Type):
@@ -336,6 +350,7 @@ __all__ = (
     "ArrayValue",
     "TupleValue",
     "PointerInfoTy",
+    "KernelTy",
     "LangTypingHooks",
     "SymbolicArray",
     "SymbolicClosure",

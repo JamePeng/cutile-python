@@ -51,6 +51,7 @@ set(cext_include_dirs
 
 add_library(_cext_static STATIC
     bitstream.cpp
+    compiled_host.cpp
     coroutine_util.cpp
     cuda_loader.cpp
     cuda_helper.cpp

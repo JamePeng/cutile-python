@@ -365,6 +365,7 @@ class MLIRLoweringContext:
     module_op: mlir.Operation | None = None
     func_op: mlir.Operation | None = None
     current_op: ir.Operation | None = None
+    insertion_block: mlir.Block | None = None
 
     def get_var(self, var: ir.Var) -> mlir.Value:
         try:
@@ -787,6 +788,7 @@ def lower_typed_const(
             | ir_type.NoneType()
             | ir_type.TypeTy()
             | ir_type.EnumTy()
+            | ir_type.KernelTy()
         ):
             return [value]
         case ir_type.ScalarTy() | ir_type.VectorTy():
@@ -908,8 +910,10 @@ def _bind_mlir_block_arguments(
 def _lower_mlir_block(
     context: MLIRLoweringContext, ir_block: ir.Block, *, debug_info: bool = False
 ) -> None:
-    with context.block_map[ir_block].append_here():
-        for operation in ir_block.operations:
+    context.insertion_block = context.block_map[ir_block]
+    for operation in ir_block.operations:
+        assert context.insertion_block is not None
+        with context.insertion_block.append_here():
             context.current_op = operation
             operation_loc = ir_loc_to_mlir_location(operation.loc) if debug_info else None
             with mlir.use_location(operation_loc):

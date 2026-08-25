@@ -4,6 +4,7 @@
 
 #include "py.h"
 
+#include "compiled_host.h"
 #include "tile_kernel.h"
 #include "cuda_helper.h"
 #include "coroutine_util.h"
@@ -33,6 +34,9 @@ PyMODINIT_FUNC PyInit__cext() {
 #endif
 
     if (!tile_kernel_init(m.get()))
+        return nullptr;
+
+    if (!compiled_host_init(m.get()))
         return nullptr;
 
     if (!cuda_helper_init(m.get()))

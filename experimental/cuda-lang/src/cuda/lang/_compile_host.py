@@ -2,54 +2,181 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Compile CUDA Lang host function."""
+"""Compile a CUDA Lang host function."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, fields
 import os
 import subprocess
 import tempfile
 from types import FunctionType
-from typing import Protocol
+from typing import Iterable, Iterator
 
-from cuda.tile._annotated_function import get_annotated_function
+from cuda.tile import _cext
+from cuda.tile import _datatype as datatype
+from cuda.tile._annotated_function import (
+    get_annotated_function,
+)
 from cuda.tile._compile import _create_kernel_parameters
+from cuda.tile._ir.ir import Var
+from cuda.tile._ir.type import ArrayTy, DataclassTy, ListTy, TupleTy, Type
 from cuda.tile._passes.ast2hir import HirMode
 from cuda.tile._passes.dce import dead_code_elimination_pass
 from cuda.tile._passes.eliminate_assign_ops import eliminate_assign_ops
 from cuda.tile._passes.hir2ir import hir2ir
 
 from cuda.lang._compile import get_compiler_binary_path
-from cuda.lang._exception import CompilerExecutionError
+from cuda.lang._exception import CompilerExecutionError, TypeCheckingError
 from cuda.lang._ir import ir
+from cuda.lang._ir.op_defs import KernelLaunch
 from cuda.lang._ir.ops import cuda_lang_impl_registry
+from cuda.lang._ir.type import ScalarTy
 from cuda.lang._passes.ast2hir import get_function_hir
 from cuda.lang._passes.flatten_cfg import flatten_cfg
-from cuda.lang._passes.ir2mlir.host import HostIR2MLIR
+from cuda.lang._passes.ir2mlir.host import HostIR2MLIR, _KernelLaunchBinding
 from cuda.lang.compilation import KernelSignature
-
-
-class _LoadedHostCode(Protocol):
-    @property
-    def entry_address(self) -> int: ...
 
 
 @dataclass(frozen=True)
 class HostCompilation:
-    """Compiler output for one typed host function."""
+    """Compiler output retained for one typed host function."""
 
     signature: KernelSignature
     host_ir: ir.Block | None
     host_mlir: str | None
-    _loaded_host_code: _LoadedHostCode = field(repr=False, compare=False)
-
-    @property
-    def entry_address(self) -> int:
-        return self._loaded_host_code.entry_address
 
 
-def _compile_native_host(mlir_text: str) -> _LoadedHostCode:
+@dataclass(frozen=True)
+class _BoundKernelLaunch:
+    launch_site_index: int
+    argument_sources: tuple[Var, ...]
+    kernel: object
+    arguments: tuple[object, ...]
+
+
+def _all_ops(block: ir.Block) -> Iterable[ir.Operation]:
+    for operation in block:
+        yield operation
+        for nested in operation.nested_blocks:
+            yield from _all_ops(nested)
+
+
+def _collect_kernel_launches(host_body: ir.Block) -> list[KernelLaunch]:
+    return [
+        operation
+        for operation in _all_ops(host_body)
+        if isinstance(operation, KernelLaunch)
+    ]
+
+
+class _FakeArray:
+    def __init__(self, dtype: datatype.DType, ndim: int):
+        self._cuda_lang_fake_array_dtype = dtype
+        self._cuda_lang_fake_array_ndim = ndim
+
+
+def _fake_array(dtype: datatype.DType, ndim: int):
+    return _FakeArray(dtype, ndim)
+
+
+class _FakeInt(int):
+    pass
+
+
+class _FakeFloat(float):
+    pass
+
+
+def _fake_scalar(dtype: datatype.DType):
+    if datatype.is_boolean(dtype):
+        return False
+    if datatype.is_integral(dtype):
+        value = _FakeInt(0)
+        setattr(value, "_native_source_dtype", dtype)
+        return value
+    if datatype.is_float(dtype):
+        value = _FakeFloat(0.0)
+        setattr(value, "_native_source_dtype", dtype)
+        return value
+    raise TypeCheckingError(f"dtype {dtype} is not supported by native launch sites")
+
+
+def _make_fake_launch_argument(
+    argument_type: Type,
+    argument_leaves: Iterator[Var],
+    sources: list[Var],
+) -> object:
+    if isinstance(argument_type, TupleTy):
+        item_types = tuple(argument_type)
+        return tuple(
+                _make_fake_launch_argument(
+                    item_type,
+                    argument_leaves,
+                    sources,
+                ) for item_type in item_types)
+
+    if isinstance(argument_type, DataclassTy):
+        cls = argument_type.cls
+        item_names = tuple(f.name for f in fields(cls))
+        item_types = argument_type.field_types
+        return cls(**{
+            item_name: _make_fake_launch_argument(item_type,
+                                                  argument_leaves,
+                                                  sources)
+            for item_name, item_type in zip(item_names, item_types, strict=True)})
+
+    if isinstance(argument_type, ListTy):
+        raise TypeCheckingError(
+            "kernel launch with list argument is not supported in compiled host code"
+        )
+
+    if isinstance(argument_type, ArrayTy):
+        sources.extend(
+            next(argument_leaves) for _ in argument_type.flatten_aggregate()
+        )
+        return _fake_array(argument_type.dtype, argument_type.ndim,)
+
+    argument = next(argument_leaves)
+
+    if isinstance(argument_type, ScalarTy):
+        sources.append(argument)
+        return _fake_scalar(argument_type.dtype)
+
+    if argument.is_constant():
+        # Identity constants are used during launch-site creation time.
+        return argument.get_constant()
+
+    raise TypeCheckingError(
+        f"kernel argument type {argument_type} is not supported by native launch sites",
+        loc=argument.loc,
+    )
+
+
+def _bind_kernel_launch(
+    kernel_launch: KernelLaunch,
+    launch_site_index: int,
+) -> _BoundKernelLaunch:
+    argument_leaves = iter(kernel_launch.kernel_argument_leaves)
+    sources: list[Var] = []
+    arguments: list[object] = []
+    for argument_type in kernel_launch.kernel_argument_types:
+        arg = _make_fake_launch_argument(
+            argument_type,
+            argument_leaves,
+            sources,
+        )
+        arguments.append(arg)
+    assert next(argument_leaves, None) is None
+    return _BoundKernelLaunch(
+        launch_site_index=launch_site_index,
+        argument_sources=tuple(sources),
+        kernel=kernel_launch.launched_kernel,
+        arguments=tuple(arguments),
+    )
+
+
+def _compile_native_host(mlir_text: str):
     from cuda.lang import _host_jit
 
     # mlir2cubin owns MLIR-to-native code generation.
@@ -62,8 +189,6 @@ def _compile_native_host(mlir_text: str) -> _LoadedHostCode:
             "-",
             "-o",
             object_path,
-            # Required by mlir2cubin's shared command-line interface, but
-            # unused when emitting a native host object.
             "--gpu-name=unused",
             "--arch=unused",
             "--emit-host-object",
@@ -80,7 +205,8 @@ def _compile_native_host(mlir_text: str) -> _LoadedHostCode:
                 compiler_version=None,
             ) from None
         with open(object_path, "rb") as object_file:
-            return _host_jit.load_object(object_file.read())
+            runtime_symbols = _cext._get_compiled_host_runtime_symbols()
+            return _host_jit.load_object(object_file.read(), runtime_symbols)
 
 
 def _compile(
@@ -89,7 +215,8 @@ def _compile(
     *,
     keep_ir: bool = False,
     keep_mlir: bool = False,
-) -> HostCompilation:
+) -> _cext._CompiledHostProgram:
+    """Compile one explicitly typed host function."""
 
     constraints = signature.parameters
     annotated = get_annotated_function(function)
@@ -119,15 +246,43 @@ def _compile(
 
     eliminate_assign_ops(host_body)
     dead_code_elimination_pass(host_body)
+    kernel_launches = _collect_kernel_launches(host_body)
+    bound_launches = tuple(
+        _bind_kernel_launch(kernel_launch, launch_site_index)
+        for launch_site_index, kernel_launch in enumerate(kernel_launches)
+    )
+    launch_bindings = tuple(
+        _KernelLaunchBinding(
+            launch_site_index=bound_launch.launch_site_index,
+            argument_sources=bound_launch.argument_sources,
+        )
+        for bound_launch in bound_launches
+    )
+    launch_site_descriptions = tuple(
+        (
+            bound_launch.kernel,
+            bound_launch.arguments,
+        )
+        for bound_launch in bound_launches
+    )
+
     host_cfg = flatten_cfg(host_body, ctx)
-    host_module = HostIR2MLIR(host_cfg, ctx)()
+    host_module = HostIR2MLIR(
+        host_cfg,
+        ctx,
+        tuple(zip(kernel_launches, launch_bindings, strict=True)),
+    )()
     host_mlir = str(host_module)
     loaded_host_code = _compile_native_host(host_mlir)
-    return HostCompilation(
-        signature,
-        host_body if keep_ir else None,
-        host_mlir if keep_mlir else None,
+    compilation = HostCompilation(
+        signature=signature,
+        host_ir=host_body if keep_ir else None,
+        host_mlir=host_mlir if keep_mlir else None,
+    )
+    return _cext._CompiledHostProgram(
+        launch_site_descriptions,
         loaded_host_code,
+        compilation,
     )
 
 

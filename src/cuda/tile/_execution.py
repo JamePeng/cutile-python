@@ -185,9 +185,9 @@ class StubInfo:
     static_eval_ok: bool
 
 
-def stub(func=None, /, *, host=False, static_eval_ok: bool = False):
+def stub(func=None, /, *, host=False, tile=True, static_eval_ok: bool = False):
     def decorate(func):
-        func = function(func, host=host)
+        func = function(func, host=host, tile=tile)
         func._cutile_python_stub = StubInfo(static_eval_ok=static_eval_ok)
         return func
 

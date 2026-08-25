@@ -38,6 +38,9 @@ class TypingHooks:
     def get_tensor_like_type(self, dtype: DType, shape: Sequence[int]) -> TensorLikeTy:
         raise NotImplementedError()
 
+    def get_python_constant_type(self, value: Any) -> Type | None:
+        return None
+
 
 class IRContext:
     def __init__(self, log_ir_on_error: bool, tileiras_version: BytecodeVersion,

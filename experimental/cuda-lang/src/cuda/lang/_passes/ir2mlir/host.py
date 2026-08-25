@@ -13,8 +13,9 @@ from cuda.tile import _datatype as datatype
 from cuda.tile._ir.ir import Var
 
 from cuda.lang import _mlir as mlir
-from cuda.lang._exception import TypeCheckingError
+from cuda.lang._exception import InternalError, TypeCheckingError
 from cuda.lang._ir import ir, ops
+from cuda.lang._ir.op_defs import KernelLaunch
 from cuda.lang._ir.type import PointerTy, ScalarTy
 import cuda.lang._mlir.extras.types as T
 from cuda.lang._passes.ir2mlir.pass_definition import (
@@ -26,11 +27,19 @@ from cuda.lang._passes.ir2mlir.pass_definition import (
 from cuda.lang._passes.ir2mlir.type_conversion import (
     ir_type_to_mlir_type,
     mlir_constant_of_type,
+    mlir_integer_cast,
 )
 
 
+@dataclass(frozen=True)
+class _KernelLaunchBinding:
+    launch_site_index: int
+    argument_sources: tuple[Var, ...]
+
+
 _HOST_ENTRY_SYMBOL = "cuda_lang_host_entry"
-_HOST_ENTRY_PARAMETER_NAMES = ("abi_arguments",)
+_LAUNCH_KERNEL_BUILTIN = "cuda_lang_runtime_launch_kernel"
+_HOST_ENTRY_PARAMETER_NAMES = ("abi_arguments", "runtime")
 
 
 @dataclass(frozen=True)
@@ -54,31 +63,51 @@ class _HostRuntimeArguments:
     """Physical arguments supplied by the compiled-host runtime."""
 
     abi_arguments: mlir.Value
+    runtime: mlir.Value
 
 
 @dataclass(kw_only=True)
 class HostLoweringContext(MLIRLoweringContext):
     """Data required while lowering a native CUDA Lang host function."""
 
-    abi_address_by_slot: dict[int, mlir.Value] = field(default_factory=dict)
+    kernel_launch_bindings: dict[KernelLaunch, _KernelLaunchBinding] = field(
+        default_factory=dict
+    )
+    continuation_index: int = 0
     physical_entry_block: mlir.Block | None = None
     runtime_arguments: _HostRuntimeArguments | None = None
+    runtime_error_block: mlir.Block | None = None
     host_entry_function_type: mlir.llvm.LLVMFunctionType | None = None
     pointer_type: mlir.llvm.LLVMPointerType = field(
         default_factory=mlir.llvm.LLVMPointerType
     )
     print_format_index: int = 0
     printf_declared: bool = False
+    launch_kernel_function_type: mlir.llvm.LLVMFunctionType | None = None
 
 
 class HostIR2MLIR:
     """Build a native host function using shared operation lowering."""
 
-    def __init__(self, region: ir.Region, ctx: ir.IRContext):
-        self.context = HostLoweringContext(region=region, ir_context=ctx)
+    def __init__(
+        self,
+        region: ir.Region,
+        ctx: ir.IRContext,
+        kernel_launch_bindings: Sequence[
+            tuple[KernelLaunch, _KernelLaunchBinding]
+        ] = (),
+    ):
+        self.context = HostLoweringContext(
+            region=region,
+            ir_context=ctx,
+            kernel_launch_bindings=dict(kernel_launch_bindings),
+        )
         entry_type = mlir.llvm.LLVMFunctionType(
             returnType=T.i32(),
-            params=(self.context.pointer_type,),
+            params=(
+                self.context.pointer_type,
+                self.context.pointer_type,
+            ),
             varArg=False,
         )
         self.context.host_entry_function_type = entry_type
@@ -130,6 +159,15 @@ class HostIR2MLIR:
         )
         create_mlir_blocks(context)
 
+        entry_type = context.host_entry_function_type
+        assert entry_type is not None
+        error_status = mlir.Value(entry_type.returnType, "error_status")
+        context.runtime_error_block = context.function_region.new_block(
+            args=(error_status,), block_id="runtime_error"
+        )
+        with context.runtime_error_block.append_here():
+            mlir.llvm.add_ReturnOp(arg=error_status)
+
     def lower_physical_entry(self) -> None:
         context = self.context
         physical_entry = context.physical_entry_block
@@ -161,8 +199,6 @@ def lower_return(
 def _abi_argument_address(
     context: HostLoweringContext, slot: int
 ) -> mlir.Value:
-    if slot in context.abi_address_by_slot:
-        return context.abi_address_by_slot[slot]
     runtime_arguments = context.runtime_arguments
     assert runtime_arguments is not None
     address_slot = mlir.llvm.add_GEPOp(
@@ -172,11 +208,9 @@ def _abi_argument_address(
         rawConstantIndices=(slot,),
         elem_type=context.pointer_type,
     )
-    address = mlir.llvm.add_LoadOp(
+    return mlir.llvm.add_LoadOp(
         res_type=context.pointer_type, addr=address_slot
     )
-    context.abi_address_by_slot[slot] = address
-    return address
 
 
 def _load_abi_argument(
@@ -280,3 +314,321 @@ def lower_printf(
         op_bundle_sizes=(),
     )
     return [None]
+
+
+def _allocate_entry_storage(
+    context: HostLoweringContext,
+    count: int,
+    element_type: mlir.Type,
+    *,
+    alignment: int | None = None,
+) -> mlir.Value:
+    # The alloca executes once at function entry even when the corresponding
+    # launch occurs in a loop.
+    assert context.physical_entry_block is not None
+    with context.physical_entry_block.prepend_here():
+        array_size = mlir_constant_of_type(T.i64(), count)
+        return mlir.llvm.add_AllocaOp(
+            res_type=context.pointer_type,
+            arraySize=array_size,
+            elem_type=element_type,
+            alignment=alignment,
+        )
+
+
+def _store_array_item(
+    context: HostLoweringContext,
+    base: mlir.Value,
+    index: int,
+    value: mlir.Value,
+    element_type: mlir.Type,
+) -> None:
+    address = mlir.llvm.add_GEPOp(
+        res_type=context.pointer_type,
+        base=base,
+        dynamicIndices=(),
+        rawConstantIndices=(index,),
+        elem_type=element_type,
+    )
+    mlir.llvm.add_StoreOp(value=value, addr=address)
+
+
+def _materialize_launch_argument_array(
+    context: HostLoweringContext,
+    argument_addresses: Sequence[mlir.Value],
+) -> mlir.Value:
+    if not argument_addresses:
+        return mlir.llvm.add_ZeroOp(res_type=context.pointer_type)
+    storage = _allocate_entry_storage(
+        context,
+        len(argument_addresses),
+        context.pointer_type,
+    )
+    for index, address in enumerate(argument_addresses):
+        _store_array_item(
+            context,
+            storage,
+            index,
+            address,
+            context.pointer_type,
+        )
+    return storage
+
+
+def _store_launch_argument_value(
+    context: HostLoweringContext,
+    value: mlir.Value,
+) -> mlir.Value:
+    address = _allocate_entry_storage(context, 1, value.type)
+    mlir.llvm.add_StoreOp(value=value, addr=address)
+    return address
+
+
+def _cast_integer(
+    context: HostLoweringContext,
+    value: Var,
+    target_type: mlir.IntegerType,
+) -> mlir.Value:
+    ty = value.get_type()
+    if not isinstance(ty, ScalarTy) or not datatype.is_integral(ty.dtype):
+        raise TypeCheckingError(
+            "kernel launch dimensions must be integral scalars",
+            loc=value.loc,
+        )
+    return mlir_integer_cast(
+        context.get_var(value),
+        target_type,
+        signed=datatype.is_signed(ty.dtype),
+    )
+
+
+def _pad_dim3(
+    context: HostLoweringContext,
+    dimensions: Sequence[Var],
+) -> tuple[mlir.Value, mlir.Value, mlir.Value]:
+    values = [_cast_integer(context, value, T.i64()) for value in dimensions]
+    values.extend(
+        mlir_constant_of_type(T.i64(), 1) for _ in range(3 - len(values))
+    )
+    return values[0], values[1], values[2]
+
+
+def _materialize_kernel_argument_pointer(
+    context: HostLoweringContext,
+    source: Var,
+) -> mlir.Value:
+    source_type = source.get_type()
+    if isinstance(source_type, ScalarTy):
+        value = _materialize_scalar_launch_argument(context, source, source_type)
+        return _store_launch_argument_value(context, value)
+
+    if source.is_constant():
+        raise InternalError(
+            "non-scalar constant should not be materialized as a native launch "
+            "argument"
+        )
+
+    return _store_launch_argument_value(context, context.get_var(source))
+
+
+def _materialize_scalar_launch_argument(
+    context: HostLoweringContext,
+    source: Var,
+    source_type: ScalarTy,
+) -> mlir.Value:
+    if source.is_constant():
+        source_value = mlir_constant_of_type(
+            ir_type_to_mlir_type(source_type),
+            source.get_constant(),
+        )
+    else:
+        source_value = context.get_var(source)
+    return _normalize_scalar_launch_argument(
+        context,
+        source_value,
+        source_type,
+        loc=source.loc,
+    )
+
+
+def _normalize_scalar_launch_argument(
+    context: HostLoweringContext,
+    value: mlir.Value,
+    source_type: ScalarTy,
+    *,
+    loc,
+) -> mlir.Value:
+    del context
+    dtype = source_type.dtype
+    if datatype.is_boolean(dtype):
+        return mlir.arith.add_ExtUIOp(out_type=T.i64(), in_=value)
+    if datatype.is_integral(dtype):
+        if dtype.bitwidth == 64:
+            return value
+        assert dtype.bitwidth == 32
+        converter = (
+            mlir.arith.add_ExtSIOp
+            if datatype.is_signed(dtype)
+            else mlir.arith.add_ExtUIOp
+        )
+        return converter(out_type=T.i64(), in_=value)
+    if datatype.is_float(dtype):
+        if dtype.bitwidth == 64:
+            return value
+        assert dtype.bitwidth == 32
+        return mlir.arith.add_ExtFOp(out_type=T.f64(), in_=value)
+    raise TypeCheckingError(
+        f"kernel launch scalar dtype {dtype} is not supported",
+        loc=loc,
+    )
+
+
+def _optional_dim3(
+    context: HostLoweringContext,
+    dimensions: Sequence[Var] | None,
+) -> tuple[mlir.Value, mlir.Value, mlir.Value]:
+    if dimensions is None:
+        zero = mlir_constant_of_type(T.i64(), 0)
+        return zero, zero, zero
+
+    return _pad_dim3(context, dimensions)
+
+
+def _declare_launch_kernel_builtin(
+    context: HostLoweringContext,
+) -> mlir.llvm.LLVMFunctionType:
+    function_type = context.launch_kernel_function_type
+    if function_type is not None:
+        return function_type
+    pointer_type = context.pointer_type
+    i32 = T.i32()
+    i64 = T.i64()
+    function_type = mlir.llvm.LLVMFunctionType(
+        returnType=i32,
+        params=(
+            pointer_type,  # compiled-host launch runtime
+            i32,  # launch-site index
+            pointer_type,  # stream
+            i64, i64, i64,  # grid
+            i64, i64, i64,  # block
+            i64, i64, i64,  # cluster
+            i64, i64, i64,  # preferred cluster
+            i32,  # cluster present
+            i32,  # preferred cluster present
+            pointer_type,  # kernel arguments
+            i32,  # cooperative
+            i32,  # programmatic dependent launch
+        ),
+        varArg=False,
+    )
+    assert context.module_op is not None
+    with context.module_op.regions[0].blocks[0].prepend_here():
+        mlir.llvm.add_LLVMFuncOp(
+            sym_name=_LAUNCH_KERNEL_BUILTIN,
+            linkage=mlir.llvm.Linkage.External,
+            body=mlir.Region(),
+            function_type=function_type,
+        )
+    context.launch_kernel_function_type = function_type
+    return function_type
+
+
+def _success_continuation(
+    context: HostLoweringContext,
+    status: mlir.Value,
+) -> mlir.Block:
+    assert context.runtime_error_block is not None
+    zero = mlir_constant_of_type(status.type, 0)
+    succeeded = mlir.arith.add_CmpIOp(
+        predicate=mlir.arith.CmpIPredicate.eq,
+        lhs=status,
+        rhs=zero,
+    )
+    continuation = context.function_region.new_block(
+        block_id=f"after_launch_{context.continuation_index}"
+    )
+    context.continuation_index += 1
+    mlir.cf.add_CondBranchOp(
+        condition=succeeded,
+        trueDest=continuation.label,
+        falseDest=context.runtime_error_block.label,
+        trueDestOperands=(),
+        falseDestOperands=(status,),
+    )
+    return continuation
+
+
+@mlir_op_lowering(device=False)
+def lower_kernel_launch(
+    context: HostLoweringContext,
+    operation: KernelLaunch,
+) -> Sequence[mlir.Value]:
+    try:
+        binding = context.kernel_launch_bindings[operation]
+    except KeyError:
+        raise TypeCheckingError(
+            "missing native launch binding",
+            loc=operation.loc,
+        ) from None
+    runtime_arguments = context.runtime_arguments
+    assert runtime_arguments is not None
+
+    argument_array = _materialize_launch_argument_array(
+        context,
+        tuple(
+            _materialize_kernel_argument_pointer(context, source)
+            for source in binding.argument_sources
+        ),
+    )
+    stream = mlir.llvm.add_IntToPtrOp(
+        res_type=context.pointer_type,
+        arg=context.get_var(operation.stream),
+    )
+    grid = _pad_dim3(context, operation.block_count)
+    block = _pad_dim3(context, operation.thread_count)
+    cluster = _optional_dim3(context, operation.block_in_cluster_count)
+    preferred_cluster = _optional_dim3(
+        context,
+        operation.preferred_block_in_cluster_count,
+    )
+    function_type = _declare_launch_kernel_builtin(context)
+    callee_operands = (
+        runtime_arguments.runtime,
+        mlir_constant_of_type(T.i32(), binding.launch_site_index),
+        stream,
+        *grid,
+        *block,
+        *cluster,
+        *preferred_cluster,
+        mlir_constant_of_type(
+            T.i32(),
+            int(operation.block_in_cluster_count is not None),
+        ),
+        mlir_constant_of_type(
+            T.i32(),
+            int(operation.preferred_block_in_cluster_count is not None),
+        ),
+        argument_array,
+        mlir_constant_of_type(T.i32(), int(operation.cooperative)),
+        mlir_constant_of_type(
+            T.i32(),
+            int(operation.programmatic_dependent_launch),
+        ),
+    )
+    if tuple(value.type for value in callee_operands) != tuple(
+        function_type.params
+    ):
+        raise InternalError(
+            f"lowered operands do not match the ABI of "
+            f"{_LAUNCH_KERNEL_BUILTIN!r}"
+        )
+    status = mlir.llvm.add_CallOp(
+        result_type=function_type.returnType,
+        callee=_LAUNCH_KERNEL_BUILTIN,
+        callee_operands=callee_operands,
+        op_bundle_operands=(),
+        op_bundle_sizes=(),
+    )
+    assert status is not None
+    context.insertion_block = _success_continuation(context, status)
+    return ()

@@ -2,8 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 
 from cuda.lang._enums import (
     CTAGroup,
@@ -22,9 +24,12 @@ from cuda.tile._ir.ir import MemoryEffect
 from cuda.tile._ir.type import TensorLikeTy
 from cuda.lang._enums import VectorReduction
 from .ir import Operation, Var, attribute, operand
-from .type import VectorTy, ScalarTy, PointerTy
+from .type import Type, VectorTy, ScalarTy, PointerTy
 from .. import _llvm_bitcode as llvm
 from .._passes.ir2llvm import LLVMLoweringContext, type_to_llvm
+
+if TYPE_CHECKING:
+    from cuda.lang._execution import kernel
 
 
 @dataclass(eq=False)
@@ -280,3 +285,19 @@ class FmaOperation(Operation, opcode="fma"):
     flush_to_zero: bool = attribute()
     relu: bool = attribute()
     oob: bool = attribute()
+
+
+@dataclass(eq=False)
+class KernelLaunch(
+    Operation, opcode="kernel_launch", memory_effect=MemoryEffect.STORE
+):
+    stream: Var = operand()
+    block_count: tuple[Var, ...] = operand()
+    thread_count: tuple[Var, ...] = operand()
+    kernel_argument_leaves: tuple[Var, ...] = operand()
+    kernel_argument_types: tuple[Type, ...] = attribute()
+    launched_kernel: kernel = attribute()
+    cooperative: bool = attribute()
+    block_in_cluster_count: tuple[Var, ...] | None = operand()
+    preferred_block_in_cluster_count: tuple[Var, ...] | None = operand()
+    programmatic_dependent_launch: bool = attribute()
