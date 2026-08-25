@@ -14,7 +14,7 @@ from cuda.lang._ir.ops import (
     AtomicRMW,
     InlinePTX,
     AllocStaticSharedMemory,
-    RawNVVMIntrinsic,
+    RawLLVMIntrinsic,
     Return,
     LoadPointer,
 )
@@ -93,7 +93,7 @@ class TestOpsSurviveDCE:
         def kernel(A, n):
             cl.barrier_sync_block()
 
-        assert kernel.has_op(RawNVVMIntrinsic)
+        assert kernel.has_op(RawLLVMIntrinsic)
 
     def test_inline_ptx_without_used_results_is_kept(self):
         @ir_wrapper

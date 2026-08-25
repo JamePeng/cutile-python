@@ -4,7 +4,7 @@
 
 from cuda.lang._enums import CachePolicy
 from cuda.lang._exception import InvalidValueError, TypeCheckingError
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic, BitCast, InlinePTX
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic, BitCast, InlinePTX
 from cuda.tile import MemoryScope
 from ..type import (
     DTypeConstructor,
@@ -54,7 +54,7 @@ def read_gridlike_special_register_impl(sreg_name: str, axis: Var) -> Var:
         raise TypeCheckingError(f"Axis must be 0, 1, or 2, but {axis} was given.")
     axis_name = "xyz"[axis]
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(int32),
         intrinsic=f"llvm.nvvm.read.ptx.sreg.{sreg_name}.{axis_name}",
         operands_=()
@@ -199,7 +199,7 @@ def map_shared_to_cluster_impl(pointer: Var, rank: Var):
         result_dtype = pointer_dtype(ptr_ty.pointee_dtype, MemorySpace.SHARED_CLUSTER)
     result_ty = PointerTy(result_dtype)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         result_ty,
         intrinsic="llvm.nvvm.mapa.shared.cluster",
         operands_=(pointer, rank),
@@ -339,7 +339,7 @@ def memory_barrier_impl(scope: Var) -> None:
         valid = ", ".join(x._name_ for x in scope2intrin.keys())
         raise InvalidValueError(f"Invalid memory scope '{scope}'. Valid values: {valid}")
     add_operation_variadic(
-        RawNVVMIntrinsic, (),
+        RawLLVMIntrinsic, (),
         intrinsic=intrinsic,
         operands_=()
     )
@@ -349,7 +349,7 @@ def memory_barrier_impl(scope: Var) -> None:
 @impl(core_api.grid_dependency_control_launch_dependents, fixed_args=["launch.dependents"])
 def grid_dependency_control_action_impl(action: str) -> None:
     add_operation_variadic(
-        RawNVVMIntrinsic, (),
+        RawLLVMIntrinsic, (),
         intrinsic="llvm.nvvm."
                   "griddepcontrol." + action,
         operands_=()

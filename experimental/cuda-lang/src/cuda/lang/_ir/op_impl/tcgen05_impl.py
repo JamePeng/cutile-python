@@ -39,7 +39,7 @@ from cuda.lang._ir.ops import (
     astype,
     require_scalar_type,
 )
-from cuda.lang._ir.op_defs import BitCast, RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import BitCast, RawLLVMIntrinsic
 from .raw_mlir_operation_utils import RawMLIROperationBuilder
 from cuda.lang._ir.enum_to_mlir import cl_enum_to_mlir_attribute
 from cuda.lang._ir.type_checking_helpers import (
@@ -122,7 +122,7 @@ def tcgen05_allocate_impl(
     cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
     intrinsic = "llvm.nvvm.tcgen05.alloc.shared." + cta_group_value.value
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=(address, number_of_columns),
@@ -142,7 +142,7 @@ def tcgen05_deallocate_impl(
     cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
     intrinsic = "llvm.nvvm.tcgen05.dealloc." + cta_group_value.value
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=(address, number_of_columns),
@@ -194,7 +194,7 @@ def tcgen05_commit_impl(
         operands.append(mask)
     intrinsic += ".shared." + cta_group_value.value
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=tuple(operands),
@@ -319,7 +319,7 @@ def tcgen05_store_impl(
     )
     intrinsic = f"llvm.nvvm.tcgen05.st.{shape_value.value}.x{num}"
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=operands,
@@ -397,7 +397,7 @@ def tcgen05_load_impl(
     register_type = _tcgen05_register_type(register_count)
 
     [result] = add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (register_type,),
         intrinsic=intrinsic,
         operands_=tuple(operands),
@@ -655,7 +655,7 @@ def tcgen05_mma_impl(
     operands.append(_i32_const(0))
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=".".join(intrinsic_parts),
         operands_=tuple(operands),
@@ -734,7 +734,7 @@ def tcgen05_mma_block_scale_impl(
         )
     )
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=tuple(operands),
@@ -796,7 +796,7 @@ def tcgen05_mma_weight_stationary_impl(
         )
     )
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=".".join(intrinsic_parts),
         operands_=tuple(operands),

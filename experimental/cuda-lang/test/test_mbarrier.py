@@ -6,7 +6,7 @@ import torch
 import pytest
 
 import cuda.lang as cl
-from cuda.lang._ir.ops import RawNVVMIntrinsic
+from cuda.lang._ir.ops import RawLLVMIntrinsic
 from cuda.lang.compilation import KernelSignature
 
 from .util import compile_kernel, require_hopper_or_newer
@@ -83,7 +83,7 @@ def _get_intrinsics(kernel):
         op.intrinsic
         for block in result.final_ir.blocks
         for op in block.traverse()
-        if isinstance(op, RawNVVMIntrinsic)
+        if isinstance(op, RawLLVMIntrinsic)
     ]
 
 

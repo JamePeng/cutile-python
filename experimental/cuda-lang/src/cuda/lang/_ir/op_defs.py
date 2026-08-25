@@ -17,8 +17,8 @@ from .type import VectorTy, ScalarTy
 
 
 @dataclass(eq=False)
-class RawNVVMIntrinsic(
-    Operation, opcode="nvvm.call_intrinsic", memory_effect=MemoryEffect.STORE
+class RawLLVMIntrinsic(
+    Operation, opcode="llvm.call_intrinsic", memory_effect=MemoryEffect.STORE
 ):
     intrinsic: str = attribute()
     operands_: tuple[Var, ...] = operand()

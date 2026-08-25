@@ -10,7 +10,7 @@ from cuda.lang._enums import (
 )
 from cuda.lang._exception import InvalidValueError, TypeCheckingError
 from cuda.lang._ir.ir import Var
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
 from cuda.lang._ir.op_impl.vector_impl import (
     vector_getitem,
     vector_undef,
@@ -78,7 +78,7 @@ def load_matrix_impl(
         name += ".b16" if shape_value is MatrixLoadShape.M8N8 else ".b8"
 
     registers = add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (register_type,) * register_count,
         intrinsic=name,
         operands_=(src,),
@@ -147,7 +147,7 @@ def store_matrix_impl(
     name += ".b16" if shape_value is MatrixStoreShape.M8N8 else ".b8"
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=name,
         operands_=(dst, *registers),

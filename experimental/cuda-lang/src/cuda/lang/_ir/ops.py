@@ -89,7 +89,7 @@ from .atomics_support import (
 from .op_defs import (  # noqa: F401
     AtomicLoad,
     AtomicStore,
-    RawNVVMIntrinsic,
+    RawLLVMIntrinsic,
     RawMLIROperation,
     InlinePTX,
     Fence,
@@ -606,7 +606,7 @@ def elect_sync_impl(membermask) -> Var:
     mask = require_constant_int(membermask)
     mask = strictly_typed_const(mask & 0xffffffff, ScalarTy(int32))
 
-    _, is_elected = add_operation_variadic(RawNVVMIntrinsic,
+    _, is_elected = add_operation_variadic(RawLLVMIntrinsic,
                                            (ScalarTy(int32), ScalarTy(bool_)),
                                            intrinsic="llvm.nvvm.elect.sync",
                                            operands_=(mask,))
@@ -620,7 +620,7 @@ def vote_sync_impl(kind: str, predicate: Var, mask: Var) -> Var:
     mask = astype(mask, datatype.int32)
     result_dtype = datatype.uint32 if kind == "ballot" else datatype.bool_
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(result_dtype),
         intrinsic=f"llvm.nvvm.vote.{kind}.sync",
         operands_=(mask, predicate),
@@ -688,7 +688,7 @@ def shfl_sync_impl(mode: str, mask: Var, value: Var, operand: Var, width: Var) -
     suffix = "i32" if datatype.is_integral(value_ty.dtype) else "f32"
     intrinsic = f"llvm.nvvm.shfl.sync.{mode}.{suffix}"
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         value_ty,
         intrinsic=intrinsic,
         operands_=(mask, value, operand, mask_and_clamp),
@@ -830,7 +830,7 @@ def cluster_launch_control_try_cancel_impl(addr: Var, mbar: Var, multicast: Var)
     intrinsic += ".shared"
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=(addr, mbar),
@@ -841,7 +841,7 @@ def cluster_launch_control_try_cancel_impl(addr: Var, mbar: Var, multicast: Var)
 def cluster_launch_control_is_canceled_impl(token: Var) -> Var:
     require_cluster_launch_control_token_type(token)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(datatype.bool_),
         intrinsic="llvm.nvvm.clusterlaunchcontrol.query_cancel.is_canceled",
         operands_=(token,),
@@ -862,7 +862,7 @@ def cluster_launch_control_get_first_block_index_impl(token: Var, axis: Var) -> 
         )
     cta_ids = tuple(
         add_operation(
-            RawNVVMIntrinsic,
+            RawLLVMIntrinsic,
             ScalarTy(datatype.int32),
             intrinsic=f"llvm.nvvm.clusterlaunchcontrol.query_cancel.get_first_ctaid.{dim}",
             operands_=(token,),
@@ -950,7 +950,7 @@ __all__ = (
     "StorePointer",
     "RawWhereOperation",
     "Unary",
-    "RawNVVMIntrinsic",
+    "RawLLVMIntrinsic",
     "RawMLIROperation",
     "Fence",
     "ForeignFunction",

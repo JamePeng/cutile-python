@@ -1599,8 +1599,8 @@ def _extract_aggregate_elements(
 
 
 @mlir_op_lowering(host=False)
-def lower_raw_nvvm_intrinsic(
-    context: DeviceLoweringContext, operation: ops.RawNVVMIntrinsic
+def lower_raw_llvm_intrinsic(
+    context: DeviceLoweringContext, operation: ops.RawLLVMIntrinsic
 ) -> Sequence[mlir.Value]:
     operands = tuple(
         _lower_intrinsic_operand(context, operand)

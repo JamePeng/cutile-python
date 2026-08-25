@@ -5,7 +5,7 @@
 import cuda.lang._datatype as datatype
 from cuda.lang._ir.type import ScalarTy
 from cuda.lang._ir.ir import add_operation
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
 from cuda.tile._ir.ops import implicit_cast
 from cuda.tile._ir.op_impl import (
     ImplRegistry,
@@ -83,7 +83,7 @@ def barrier_reduce_block_impl(
         else ScalarTy(datatype.bool_)
     )
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         result_type,
         intrinsic=intrinsic,
         operands_=operands,

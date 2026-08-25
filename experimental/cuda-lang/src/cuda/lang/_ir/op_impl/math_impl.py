@@ -18,7 +18,7 @@ from cuda.lang._ir.type import (
     VectorTy,
 )
 from cuda.lang._ir.op_defs import (
-    RawNVVMIntrinsic,
+    RawLLVMIntrinsic,
     RawMLIROperation,
     ForeignFunction,
     FmaOperation,
@@ -401,7 +401,7 @@ def math_isnormal_impl(x: Var):
     # see https://llvm.org/docs/LangRef.html#llvm-is-fpclass-intrinsic
     mask = strictly_typed_const((1 << 3) | (1 << 8), ScalarTy(datatype.int32))
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         res_ty,
         intrinsic="llvm.is.fpclass",
         operands_=(x, mask),

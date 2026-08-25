@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 from cuda.lang._enums import PrefetchLevel, CachePolicy
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
 from cuda.lang._ir.type import TensorMapTy
 from cuda.lang._ir.type_checking_helpers import require_pointer_type
 from cuda.lang._stub.prefetch import prefetch, prefetch_uniform, prefetch_tensor_map
@@ -60,7 +60,7 @@ def prefetch_impl(address: Var, level: Var, eviction_priority: Var):
     level_str = level_map[level]
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=f"llvm.nvvm.prefetch{address_space_str}.{level_str}{evict_str}",
         operands_=(address,)
@@ -76,7 +76,7 @@ def prefetch_uniform_impl(address: Var):
                                 f" received {address_space._name_} instead.")
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic="llvm.nvvm.prefetchu.L1",
         operands_=(address,)
@@ -97,7 +97,7 @@ def prefetch_tensor_map_impl(tensor_map: Var):
             raise TypeCheckingError(f"Invalid address space {address_space._name_}."
                                     f" Accepted address spaces: {valid}")
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic="llvm.nvvm.prefetch.tensormap",
         operands_=(tensor_map,)

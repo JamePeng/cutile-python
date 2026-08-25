@@ -4,7 +4,7 @@
 
 from cuda.lang._enums import FenceProxy, MemoryOrder, MemoryScope
 from cuda.lang._exception import TypeCheckingError
-from cuda.lang._ir.op_defs import Fence, RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import Fence, RawLLVMIntrinsic
 from cuda.lang._ir.type_checking_helpers import is_none, require_pointer_type
 from cuda.lang._stub import fence as fence_stub
 from cuda.tile._ir.ir import add_operation_variadic
@@ -141,7 +141,7 @@ def lower_non_proxy_fence(order, scope, restriction):
         )
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=operands,
@@ -178,7 +178,7 @@ def lower_proxy_fence(order, scope, from_proxy, to_proxy, restriction):
         )
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=operands,
@@ -218,7 +218,7 @@ def fence_proxy_bidirectional_impl(proxy, restriction) -> None:
         )
 
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=f"llvm.nvvm.fence.proxy.{proxy_suffix}",
         operands_=operands,

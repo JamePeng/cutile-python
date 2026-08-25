@@ -6,7 +6,7 @@ import cuda.lang._datatype as datatype
 from cuda.lang._enums import MbarrierScope
 from cuda.lang._exception import InternalError, TypeCheckingError
 from cuda.lang._ir.ir import Var, add_operation
-from cuda.lang._ir.op_defs import RawNVVMIntrinsic
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
 from cuda.lang._ir.type import MemorySpace, ScalarTy
 from cuda.lang._ir.type_checking_helpers import is_none, require_mbarrier_ptr
 from cuda.lang._stub import mbarrier
@@ -32,7 +32,7 @@ def mbarrier_initialize_impl(mbar: Var, participants: Var) -> Var:
     require_mbarrier_ptr(mbar)
     participants = astype(participants, datatype.int32)
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         tuple(),
         intrinsic="llvm.nvvm.mbarrier.init.shared",
         operands_=(mbar, participants),
@@ -43,7 +43,7 @@ def mbarrier_initialize_impl(mbar: Var, participants: Var) -> Var:
 def mbarrier_invalidate_impl(mbar: Var) -> Var:
     require_mbarrier_ptr(mbar)
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         tuple(),
         intrinsic="llvm.nvvm.mbarrier.inval.shared",
         operands_=(mbar,),
@@ -100,7 +100,7 @@ def mbarrier_arrive_impl(
 
     return_type = (ScalarTy(datatype.uint64),) if space is MemorySpace.SHARED else ()
     results = add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         return_type,
         intrinsic=intrinsic,
         operands_=(mbar, count),
@@ -131,7 +131,7 @@ def mbarrier_arrive_expect_transaction_impl(
 
     return_type = (ScalarTy(datatype.uint64),) if space is MemorySpace.SHARED else ()
     results = add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         return_type,
         intrinsic=intrinsic,
         operands_=(mbar, bytes),
@@ -147,7 +147,7 @@ def mbarrier_expect_transaction_impl(mbar: Var, bytes: Var, scope: Var):
     intrinsic = "llvm.nvvm.mbarrier.expect.tx"
     intrinsic += _mbar_space_scope_suffix(scope, space)
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=(mbar, bytes),
@@ -162,7 +162,7 @@ def mbarrier_complete_transaction_impl(mbar: Var, bytes: Var, scope: Var) -> Var
     intrinsic = "llvm.nvvm.mbarrier.complete.tx"
     intrinsic += _mbar_space_scope_suffix(scope, space)
     add_operation_variadic(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         (),
         intrinsic=intrinsic,
         operands_=(mbar, bytes),
@@ -182,7 +182,7 @@ def mbarrier_test_wait_impl(
         intrinsic += ".relaxed"
     intrinsic += _mbar_space_scope_suffix(scope, MemorySpace.SHARED)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(datatype.bool_),
         intrinsic=intrinsic,
         operands_=(mbar, state),
@@ -202,7 +202,7 @@ def mbarrier_test_wait_parity_impl(
         intrinsic += ".relaxed"
     intrinsic += _mbar_space_scope_suffix(scope, MemorySpace.SHARED)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(datatype.bool_),
         intrinsic=intrinsic,
         operands_=(mbar, parity),
@@ -231,7 +231,7 @@ def mbarrier_try_wait_impl(
         intrinsic += ".relaxed"
     intrinsic += _mbar_space_scope_suffix(scope, MemorySpace.SHARED)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(datatype.bool_),
         intrinsic=intrinsic,
         operands_=args,
@@ -260,7 +260,7 @@ def mbarrier_try_wait_parity_impl(
         intrinsic += ".relaxed"
     intrinsic += _mbar_space_scope_suffix(scope, MemorySpace.SHARED)
     return add_operation(
-        RawNVVMIntrinsic,
+        RawLLVMIntrinsic,
         ScalarTy(datatype.bool_),
         intrinsic=intrinsic,
         operands_=args,

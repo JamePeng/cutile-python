@@ -1,19 +1,19 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
+import enum
 import inspect
 import typing
 from dataclasses import dataclass
 from typing import Callable, Any, Annotated, NamedTuple
 
 from cuda.lang._execution import stub
-from cuda.lang._ir.type_checking_helpers import require_pointer_type, require_vector_type
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
+from cuda.lang._ir.type_checking_helpers import require_vector_type, require_scalar_or_vector_type
 from cuda.lang._exception import TypeCheckingError, InvalidValueError
 from cuda.tile import DType
 from cuda.tile._datatype import is_pointer_dtype
-from cuda.tile._ir.op_impl import require_integer_0d_tile_type, \
-    require_scalar_type, require_any_vector_type, \
-    require_any_scalar_or_vector_type
+from cuda.tile._ir.op_impl import require_scalar_type, make_type_checking_error
 from cuda.tile._ir.ir import Var, add_operation_variadic
 from cuda.tile._ir.ops import build_tuple
 from cuda.tile._ir.cast_ops import implicit_cast
@@ -22,19 +22,27 @@ from cuda.tile._ir.type import Type
 from cuda.tile._memory_model import MemorySpace
 
 
-def _raw_nvvm_intrinsic_impl(stub, *args: Var):
-    from cuda.lang._ir.ops import RawNVVMIntrinsic
-    name = stub._nvvm_intrinsic_name
-    if name is None:
-        name = stub.__name__.replace("_", ".")
+class RawIntrinsicImpl:
+    _is_coroutine = False
 
-    prepared_operands, result_types, make_retval = _prepare_common(stub, args)
-    return make_retval(add_operation_variadic(
-        RawNVVMIntrinsic,
-        tuple(result_types),
-        intrinsic="llvm.nvvm." + name,
-        operands_=tuple(prepared_operands),
-    ))
+    def __init__(self, prefix: str):
+        self.prefix = prefix
+
+    def __call__(self, stub, *args: Var):
+        name = stub._nvvm_intrinsic_name
+        if name is None:
+            name = stub.__name__.replace("_", ".")
+
+        prepared_operands, result_types, make_retval = match_intrinsic_signature(stub, args)
+        return make_retval(add_operation_variadic(
+            RawLLVMIntrinsic,
+            tuple(result_types),
+            intrinsic=self.prefix + name,
+            operands_=tuple(prepared_operands)
+        ))
+
+
+_nvvm_intrinsic_impl = RawIntrinsicImpl("llvm.nvvm.")
 
 
 def _libdevice_func_impl(stub, *args: Var):
@@ -43,7 +51,8 @@ def _libdevice_func_impl(stub, *args: Var):
     if not name.startswith("__nv_"):
         name = "__nv_" + name
 
-    prepared_operands, result_types, make_retval = _prepare_common(stub, args)
+    prepared_operands, result_types, make_retval = match_intrinsic_signature(
+        stub, args)
     return make_retval(add_operation_variadic(
         ForeignFunction,
         tuple(result_types),
@@ -52,17 +61,29 @@ def _libdevice_func_impl(stub, *args: Var):
     ))
 
 
-class PreparedCall(NamedTuple):
+@dataclass
+class TypeArgument:
+    first_param_idx: int
+    ty: Type
+
+
+class MatchedSignature(NamedTuple):
     prepared_operands: tuple[Var, ...]
     result_types: tuple[Type, ...]
     make_retval: Callable
 
 
-def _prepare_common(stub, args: tuple[Var, ...]):
+DIRECTLY_SUPPORTED_FLOATS = (
+    datatype.float16, datatype.bfloat16, datatype.float32, datatype.float64
+)
+
+
+def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
     from cuda.lang._ir.type import PointerTy, ScalarTy, VectorTy
     stub_sig = inspect.signature(stub)
 
     prepared_operands = []
+    type_arguments = []
     for param_idx, (arg, param) in enumerate(zip(args, stub_sig.parameters.values(), strict=True)):
         ann = _get_annotation(param.annotation)
         if isinstance(ann, _IntrinsicDTypeAnnotation):
@@ -71,8 +92,45 @@ def _prepare_common(stub, args: tuple[Var, ...]):
             else:
                 require_vector_type(arg, ann.vector_length)
             arg = _implicit_cast_with_fallback(arg, ann.dtype, f"Invalid argument #{param_idx}")
-        elif isinstance(ann, _IntrinsicPredicateAnnotation):
-            ann.predicate(arg)
+        elif isinstance(ann, _IntrinsicGenericAnnotation):
+            if ann.index < len(type_arguments) and type_arguments[ann.index] is not None:
+                if type_arguments[ann.index].ty != arg.get_type():
+                    raise TypeCheckingError(
+                        f"Types arguments #{param_idx}"
+                        f" and #{type_arguments[ann.index].first_param_idx} don't match"
+                        f" ({type_arguments[ann.index].ty} vs {arg.get_type()})")
+                else:
+                    match ann.vector_kind:
+                        case _IntrinsicVectorKind.Any:
+                            dtype = require_scalar_or_vector_type(arg).dtype
+                        case _IntrinsicVectorKind.Scalar:
+                            dtype = require_scalar_type(arg).tensor_dtype()
+                        case _IntrinsicVectorKind.Vector:
+                            dtype = require_vector_type(arg).element_dtype
+                        case x:
+                            assert False, x
+
+                    match ann.element_kind:
+                        case _IntrinsicGenericKind.Any:
+                            pass
+                        case _IntrinsicGenericKind.Integer:
+                            if not datatype.is_integral(dtype):
+                                raise make_type_checking_error(
+                                    f"Expected an integer scalar, got {dtype}", arg)
+                        case _IntrinsicGenericKind.Float:
+                            if dtype not in DIRECTLY_SUPPORTED_FLOATS:
+                                raise make_type_checking_error(
+                                    f"Expected a scalar of a LLVM-supported float type,"
+                                    f" got {dtype}", arg)
+                        case _IntrinsicGenericKind.Pointer:
+                            if not is_pointer_dtype(dtype):
+                                raise make_type_checking_error(
+                                    f"Expected a pointer scalar, got {dtype}", arg)
+                        case x: assert False, x
+
+                    while len(type_arguments) <= ann.index:
+                        type_arguments.append(None)
+                    type_arguments[ann.index] = arg.get_type()
         else:
             assert False
 
@@ -91,14 +149,20 @@ def _prepare_common(stub, args: tuple[Var, ...]):
     result_types = []
     for h in ret_type_hints:
         ann = _get_annotation(h)
-        assert isinstance(ann, _IntrinsicDTypeAnnotation)
-        if ann.vector_length is None:
-            ty = PointerTy(ann.dtype) if is_pointer_dtype(ann.dtype) else ScalarTy(ann.dtype)
+        if isinstance(ann, _IntrinsicDTypeAnnotation):
+            if ann.vector_length is None:
+                ty = PointerTy(ann.dtype) if is_pointer_dtype(ann.dtype) else ScalarTy(ann.dtype)
+            else:
+                ty = VectorTy(ann.dtype, ann.vector_length)
+        elif isinstance(ann, _IntrinsicGenericAnnotation):
+            ty = type_arguments[ann.index]
+            if ty is None:
+                raise TypeCheckingError("Failed to infer return type of intrinsic")
         else:
-            ty = VectorTy(ann.dtype, ann.vector_length)
+            assert False
         result_types.append(ty)
 
-    return PreparedCall(tuple(prepared_operands), tuple(result_types), make_retval)
+    return MatchedSignature(tuple(prepared_operands), tuple(result_types), make_retval)
 
 
 def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: str) -> Var:
@@ -114,13 +178,12 @@ def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: s
     return implicit_cast(src, fallback_dtype, error_context)
 
 
-_raw_nvvm_intrinsic_impl._is_coroutine = False
 _libdevice_func_impl._is_coroutine = False
 
 
 def nvvm_intrinsic_stub(func, *, name: str | None):
     func = stub(func)
-    func._cutile_custom_implementation_handler = _raw_nvvm_intrinsic_impl
+    func._cutile_custom_implementation_handler = _nvvm_intrinsic_impl
     func._nvvm_intrinsic_name = name
     return func
 
@@ -137,15 +200,30 @@ class _IntrinsicDTypeAnnotation:
     vector_length: int | None = None
 
 
+class _IntrinsicVectorKind(enum.Enum):
+    Any = 0
+    Vector = 1
+    Scalar = 2
+
+
+class _IntrinsicGenericKind(enum.Enum):
+    Any = 0
+    Integer = 1
+    Float = 2
+    Pointer = 3
+
+
 @dataclass
-class _IntrinsicPredicateAnnotation:
-    predicate: Callable[[Var], Any]
+class _IntrinsicGenericAnnotation:
+    vector_kind: _IntrinsicVectorKind
+    element_kind: _IntrinsicGenericKind
+    index: int
 
 
-def _get_annotation(type_hint) -> _IntrinsicDTypeAnnotation | _IntrinsicPredicateAnnotation:
+def _get_annotation(type_hint) -> _IntrinsicDTypeAnnotation | _IntrinsicGenericAnnotation:
     assert typing.get_origin(type_hint) is Annotated, f"{type_hint} {typing.get_origin(type_hint)}"
     _, ann = typing.get_args(type_hint)
-    assert isinstance(ann, _IntrinsicDTypeAnnotation | _IntrinsicPredicateAnnotation)
+    assert isinstance(ann, _IntrinsicDTypeAnnotation | _IntrinsicGenericAnnotation)
     return ann
 
 
@@ -160,7 +238,6 @@ I32 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.int32)]
 I64 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.int64)]
 U32 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.uint32)]
 U64 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.uint64)]
-IX = Annotated[Any, _IntrinsicPredicateAnnotation(require_integer_0d_tile_type)]
 P0 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype())]
 P1 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(MemorySpace.GLOBAL))]
 P3 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(MemorySpace.SHARED))]
@@ -169,6 +246,3 @@ P5 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(Memo
 P6 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(MemorySpace.TENSOR))]
 P7 = Annotated[Any, _IntrinsicDTypeAnnotation(
     datatype.opaque_pointer_dtype(MemorySpace.SHARED_CLUSTER))]
-PX = Annotated[Any, _IntrinsicPredicateAnnotation(require_pointer_type)]
-VX = Annotated[Any, _IntrinsicPredicateAnnotation(require_any_vector_type)]
-X = Annotated[Any, _IntrinsicPredicateAnnotation(require_any_scalar_or_vector_type)]
