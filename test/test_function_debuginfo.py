@@ -16,6 +16,7 @@ from cuda.tile._exception import FunctionDesc, Loc
 from cuda.tile._ir.control_flow_ops import Return
 from cuda.tile._ir2bytecode import DebugAttrMap, create_synthetic_linkage_name
 from cuda.tile.compilation import ArrayConstraint, KernelSignature
+from conftest import get_tileiras_version
 
 _SPEC_ID = re.compile(r"^s\d+$")
 
@@ -99,7 +100,8 @@ def test_synthetic_linkage_name_format_and_assertion():
 def test_get_subprogram_enforces_id_invariant():
     # The bytecode-emission funnel checks: is_entry iff specialization_id is
     # None. Both directions must trip the assertion.
-    m = DebugAttrMap(DebugAttrTable(StringTable()), entry_symbol="kern", anonymize=False)
+    m = DebugAttrMap(DebugAttrTable(StringTable(), get_tileiras_version()), entry_symbol="kern",
+                     anonymize=False)
 
     # Non-entry without an id -- a hir2ir-side concretization bug.
     bad_helper = FunctionDesc("h", "x.py", 1, 1)
@@ -135,7 +137,7 @@ def test_compile_emits_unique_linkages_with_correct_call_site_chain():
         ct.store(y, (1,), c)
 
     body = _compile(kernel, [_array(ct.int32), _array(ct.float32)], symbol="kern_v1")
-    m = DebugAttrMap(DebugAttrTable(StringTable()), entry_symbol="kern_v1",
+    m = DebugAttrMap(DebugAttrTable(StringTable(), get_tileiras_version()), entry_symbol="kern_v1",
                      anonymize=False)
     descs = _all_descs(body)
     linkages = {id(d): m._linkage_for(d) for d in descs}
@@ -291,5 +293,6 @@ def test_simple_function_desc_specialization_ids_are_deterministic_across_compil
 
 
 def test_unknown_loc_maps_to_missing_debug_attr():
-    m = DebugAttrMap(DebugAttrTable(StringTable()), entry_symbol="kern", anonymize=False)
+    m = DebugAttrMap(DebugAttrTable(StringTable(), get_tileiras_version()), entry_symbol="kern",
+                     anonymize=False)
     assert m.get_debugattr(Loc.unknown()) == bc.MISSING_DEBUG_ATTR_ID

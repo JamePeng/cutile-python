@@ -203,11 +203,11 @@ def test_mma_e5m3fnu_scaled_f4(scaling_block_size):
     ref_Y = _unpack_f4e2m1fn_to_f32(Y_packed, (k, n))
 
     ref_X_scale = torch.repeat_interleave(X_scale, scaling_block_size, dim=1)
-    ref_X_scale = [float_from_bits(int(i), SimpleType.F8E5M3FNU) for i in ref_X_scale.view(-1)]
+    ref_X_scale = [float_from_bits(int(i), SimpleType.FNV8E5M3FNU) for i in ref_X_scale.view(-1)]
     ref_X_scale = torch.tensor(ref_X_scale, dtype=f32, device='cuda:0').reshape((m, k))
 
     ref_Y_scale = torch.repeat_interleave(Y_scale, scaling_block_size, dim=0)
-    ref_Y_scale = [float_from_bits(int(i), SimpleType.F8E5M3FNU) for i in ref_Y_scale.view(-1)]
+    ref_Y_scale = [float_from_bits(int(i), SimpleType.FNV8E5M3FNU) for i in ref_Y_scale.view(-1)]
     ref_Y_scale = torch.tensor(ref_Y_scale, dtype=f32, device='cuda:0').reshape((k, n))
 
     ref = (ref_X * ref_X_scale) @ (ref_Y * ref_Y_scale) + Z

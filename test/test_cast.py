@@ -223,7 +223,7 @@ def test_rounding_from_f8e5m3fnu(use_method, rounding_mode, to_dtype, torch_dtyp
 
     vals = [1.0, 1.125, 1.25, 1.375]
 
-    x = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in vals]
+    x = [float_to_bits(i, SimpleType.FNV8E5M3FNU) for i in vals]
     x = torch.tensor(x, dtype=torch.uint8, device="cuda:0")
 
     ref = torch.tensor(vals, dtype=torch_dtype, device='cuda:0')
@@ -245,7 +245,7 @@ def test_astype_to_f8e5m3fnu(from_torch_dtype, use_method):
     x = torch.full((4,), 0.5, dtype=from_torch_dtype, device="cuda:0")
     y = torch.empty((4,), dtype=torch.uint8, device="cuda:0")
 
-    ref = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in
+    ref = [float_to_bits(i, SimpleType.FNV8E5M3FNU) for i in
            torch.full((4,), 0.5, dtype=torch.float32)]
     ref = torch.tensor(ref, dtype=torch.uint8, device="cuda:0")
 
@@ -267,7 +267,7 @@ def test_rounding_to_f8e5m3fnu(from_torch_dtype, use_method):
     y = torch.empty((2,), dtype=torch.uint8, device="cuda:0")
 
     ref = [1.0, 1.25]
-    ref = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in ref]
+    ref = [float_to_bits(i, SimpleType.FNV8E5M3FNU) for i in ref]
     ref = torch.tensor(ref, dtype=torch.uint8, device="cuda:0")
 
     kernel = make_to_f8e5m3fnu_astype_kernel(use_method)

@@ -28,7 +28,7 @@ class SimpleType(enum.Enum):
     F8E8M0FNU = b"\x12"  # since 13.2
     F4E2M1FN = b"\x13"  # since 13.3
     I4 = b"\x16"  # since 13.3
-    F8E5M3FNU = b"\x82\x01"  # since 13.4
+    FNV8E5M3FNU = b"\x82\x01"  # since 13.4
 
 
 class _CompositeType(enum.Enum):
@@ -94,10 +94,10 @@ class TypeTable(_TypeTableBase):
                     "but targeting " + self.version.as_string())
         return self[bytes(buf)]
 
-    def tile(self, elementType: TypeId, shape: Sequence[int]) -> TypeId:
+    def tile(self, elementType: TypeId, concreteShapeCache: Sequence[int]) -> TypeId:
         buf = bytearray(_CompositeType.Tile._value_)
         encode_varint(elementType.type_id, buf)
-        encode_int_list(shape, 8, buf)
+        encode_int_list(concreteShapeCache, 8, buf)
         return self[bytes(buf)]
 
     def tensor_view(self,

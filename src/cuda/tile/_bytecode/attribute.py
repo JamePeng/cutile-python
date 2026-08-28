@@ -32,6 +32,17 @@ class TaggedAttribute:
 
 
 @dataclass
+class AttributeArray(TaggedAttribute):
+    items: Sequence[TaggedAttribute]
+
+    def encode_tagged(self, string_table: StringTable, buf: bytearray):
+        buf.extend(AttributeTag.Array._value_)
+        encode_varint(len(self.items), buf)
+        for item in self.items:
+            item.encode_tagged(string_table, buf)
+
+
+@dataclass
 class Dictionary(TaggedAttribute):
     items: Sequence[tuple[str, TaggedAttribute]]
 

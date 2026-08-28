@@ -38,8 +38,8 @@ _specs = {
                                      have_sign=False,
                                      have_zero_and_subnormals=False),
     SimpleType.F4E2M1FN: _FloatSpec(4, 0, 2, 2, 1, NonFiniteBehavior.FiniteOnly),
-    SimpleType.F8E5M3FNU: _FloatSpec(8, -14, 16, 5, 3, NonFiniteBehavior.NanOnlyAllOnes,
-                                     have_sign=False),
+    SimpleType.FNV8E5M3FNU: _FloatSpec(8, -14, 16, 5, 3, NonFiniteBehavior.NanOnlyAllOnes,
+                                       have_sign=False),
 }
 
 

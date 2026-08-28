@@ -5,6 +5,7 @@ import enum
 from dataclasses import dataclass
 
 from .basic import Table, StringTable, encode_varint
+from .version import BytecodeVersion
 
 
 @dataclass(frozen=True)
@@ -28,9 +29,10 @@ class DebugAttrTable(Table[bytes, DebugAttrId]):
     _wrapper_type = DebugAttrId
     _starting_id = 1
 
-    def __init__(self, string_table: StringTable):
+    def __init__(self, string_table: StringTable, version: BytecodeVersion):
         super().__init__()
         self._string_table = string_table
+        self._version = version
 
     def _unwrap_id(self, id: DebugAttrId) -> int:
         return id.debug_attr_id
@@ -72,6 +74,10 @@ class DebugAttrTable(Table[bytes, DebugAttrId]):
         encode_varint(self._string_table[linkage_name.encode()].string_id, buf)
         encode_varint(compile_unit.debug_attr_id, buf)
         encode_varint(scope_line, buf)
+
+        if self._version >= BytecodeVersion.V_13_5:
+            # Subprogram flags bit is currently unused, default to 0
+            encode_varint(0, buf)
         return self[bytes(buf)]
 
     def call_site(self, callee: DebugAttrId, caller: DebugAttrId) -> DebugAttrId:

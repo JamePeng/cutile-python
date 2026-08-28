@@ -257,7 +257,7 @@ f8e5m3fnu_values = [
     (SimpleType.F4E2M1FN, f4e2m1fn_values),
     (SimpleType.F8E4M3FN, f8e4m3fn_values),
     (SimpleType.F8E8M0FNU, f8e8m0fnu_values),
-    (SimpleType.F8E5M3FNU, f8e5m3fnu_values),
+    (SimpleType.FNV8E5M3FNU, f8e5m3fnu_values),
 ])
 def test_low_precision_float_from_bits(type, value_table):
     for bits, expected in enumerate(value_table):

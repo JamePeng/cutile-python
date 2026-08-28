@@ -3348,7 +3348,8 @@ class TileAtomicRedView(Operation, opcode="tile_atomic_red_view", memory_effect=
             token=None if self.token is None else ctx.get_value(self.token),
             memory_ordering_semantics=memory_order_to_bytecode[self.memory_order],
             memory_scope=memory_scope_to_bytecode[self.memory_scope],
-            mode=self.mode._value_
+            mode=self.mode._value_,
+            inbounds=_uniform_tuple(False, rank=len(self.index)),
         )
 
 

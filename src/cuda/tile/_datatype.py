@@ -231,7 +231,7 @@ float8_e4m3fn.__doc__ = """An 8-bit floating-point |numeric dtype| with 1 sign b
 4 exponent bits, and 3 mantissa bits."""
 
 float8_e5m3fnu = _numeric_dtype("float8_e5m3fnu", 8, NumericDTypeCategory.RestrictedFloat,
-                                bc.SimpleType.F8E5M3FNU)
+                                bc.SimpleType.FNV8E5M3FNU)
 float8_e5m3fnu.__doc__ = """An 8-bit floating-point |numeric dtype| with no sign bit, \
 5 exponent bits, and 3 mantissa bits."""
 

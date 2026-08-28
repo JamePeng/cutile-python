@@ -6,7 +6,7 @@ import enum
 from contextlib import contextmanager
 from typing import Sequence, Mapping, Any, Iterator, Tuple, NamedTuple
 
-from .attribute import EntryHints, make_entry_hints
+from .attribute import AttributeArray, EntryHints, make_entry_hints
 from .basic import encode_varint, StringTable, Table
 from .code_builder import CodeBuilder, Value
 from .constant import ConstantTable
@@ -55,7 +55,7 @@ class BytecodeWriter:
         self.debug_info = []
         self._buf = buf
         self._string_table = StringTable()
-        self._debug_attr_table = DebugAttrTable(self._string_table)
+        self._debug_attr_table = DebugAttrTable(self._string_table, version)
         self._constant_table = ConstantTable()
         self._type_table = TypeTable(version)
         self._global_section = GlobalSection(self._string_table, self._constant_table, version)
@@ -89,12 +89,20 @@ class BytecodeWriter:
         encode_varint(self._string_table[name.encode()].string_id, self._buf)
         sig_ty = self._type_table.function(parameter_types, result_types)
         encode_typeid(sig_ty, self._buf)
-        self._buf.append((0x02 | (0x04 if hints else 0)) if entry_point else 0)
+        if self.version >= BytecodeVersion.V_13_5:
+            self._buf.append(0x02 if entry_point else 0)
+        else:
+            self._buf.append((0x02 | (0x04 if hints else 0)) if entry_point else 0)
         self.debug_info.append([debug_attr])
         encode_varint(len(self.debug_info), self._buf)
 
-        if entry_point and hints:
+        # optimization hints is required for entry point at v13.5+.
+        if entry_point and (hints or self.version >= BytecodeVersion.V_13_5):
             make_entry_hints(hints).encode_tagged(self._string_table, self._buf)
+
+        # arg attrs
+        if self.version >= BytecodeVersion.V_13_5:
+            AttributeArray(()).encode_tagged(self._string_table, self._buf)
 
         builder = CodeBuilder(buf=bytearray(),
                               version=self.version,
@@ -199,7 +207,7 @@ def _write_debug_info_section(debug_info: Sequence[Sequence[DebugAttrId]],
 
         # Workaround for the decoder failing on empty tables
         if len(attr_table) == 0:
-            attr_table = DebugAttrTable(StringTable())
+            attr_table = DebugAttrTable(StringTable(), attr_table._version)
             id = attr_table[b"\x00"]
             assert id.debug_attr_id == 1
 
