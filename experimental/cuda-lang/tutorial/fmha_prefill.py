@@ -1,27 +1,26 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Blackwell FMHA-prefill port from CUTLASS Python DSL to CUDA Lang.
+"""Blackwell FMHA-prefill CUDA Lang tutorial.
 
 This is a native fused implementation, with no SIMT, PyTorch-SDPA, library,
-source-kernel, or precompiled-PTX fallback.  It supports the source tutorial's
-fixed and variable sequence storage, D=32/64/128, FP16/BF16/E4M3 inputs and
-outputs, MHA/GQA, mask variants, LSE, sink logits, scaling controls, and
-correction/epilogue options.
+or precompiled-PTX fallback. It supports fixed and variable sequence storage,
+D=32/64/128, FP16/BF16/E4M3 inputs and outputs, MHA/GQA, mask variants, LSE,
+sink logits, scaling controls, and correction/epilogue options.
 
-The device kernel retains the source's structural contract:
+The device kernel uses:
 
 * one 512-thread CTA and one CTA per ``(256 Q rows, Q head, batch)`` tile;
 * softmax warps 0-7, correction warps 8-11, MMA warp 12, TMA warp 13,
   epilogue warp 14, and CLC scheduler warp 15;
 * CTA-group-1 tcgen05 QK (128x128x16) and PV (128x64x16);
 * two Q stages, three unified K/V stages, two output stages, and all 512
-  TMEM columns with the source S/P/O aliases;
+  TMEM columns with S/P/O aliases;
 * online softmax, packed-FP16 P in TMEM, FP32 O correction in TMEM, TMA
   global/shared transfers, and a one-slot 480-consumer CLC mailbox.
 
-The source-compatible host configuration, chunked reference, correctness
-matrix, cold-L2/CUDA-graph benchmark, and CLI share this public entry point.
+The host configuration, chunked reference, correctness matrix,
+cold-L2/CUDA-graph benchmark, and CLI share this public entry point.
 Invalid combinations raise clear diagnostics and are never silently redirected
 to another attention implementation.
 """
@@ -376,9 +375,8 @@ def _store_output_values(
     word_count = 16
     if output_kind == ELEMENT_E4M3:
         word_count = 8
-    # One PTX shared-memory vector store carries four 32-bit registers.  The
-    # swizzle is constant within each 16-byte group, so form the same v4
-    # transfer units as CUTLASS's store_swizzled lowering.
+    # One PTX shared-memory vector store carries four 32-bit registers. The
+    # swizzle is constant within each 16-byte group, so form v4 transfer units.
     for group in cl.static_iter(range(word_count // 4)):
         byte_offset = (
             slice_index * MMA_M * slice_bytes
@@ -421,8 +419,8 @@ def _store_output_global(
                     alignment=1,
                 )
     else:
-        # CUTLASS keeps the converted FP16/BF16 lanes scalar on the guarded
-        # tail path, which lowers to one b16 store per valid element.
+        # Keep converted FP16/BF16 lanes scalar on the guarded tail path, which
+        # lowers to one b16 store per valid element.
         dst_u16 = cl.bitcast(
             dst,
             cl.pointer_dtype(cl.uint16, cl.MemorySpace.GLOBAL),
@@ -489,12 +487,12 @@ def _key_trip_context(
     window_left,
     window_right,
 ):
-    """Return the source super-tile K interval and its Q0 invalid tail.
+    """Return the super-tile K interval and its Q0 invalid tail.
 
-    CUTLASS prunes whole 128-column K/V tiles using the union of the two
-    128-row Q halves.  Q0 can therefore have one fully-invalid trailing tile
-    that Q1 still needs.  That tile remains in the barrier protocol but does
-    not issue QK0/PV0 math.
+    Whole 128-column K/V tiles are pruned using the union of the two 128-row Q
+    halves. Q0 can therefore have one fully-invalid trailing tile that Q1 still
+    needs. That tile remains in the barrier protocol but does not issue QK0/PV0
+    math.
     """
     query_begin = seq_tile * CTA_M
     offset = cl.int32(0)
@@ -792,8 +790,8 @@ def _fmha_prefill_kernel(
     sched_valid = cl.shared_array(1, cl.int32, alignment=4)
 
     tid = cl.thread_index(0)
-    # Match CUTLASS's make_warp_uniform(warp_idx): broadcasting lane 0's
-    # value lets the backend treat every role predicate as warp-uniform.
+    # Broadcasting lane 0's warp index lets the backend treat every role
+    # predicate as warp-uniform.
     warp = cl.shfl_sync(tid // WARP_SIZE, 0)
     lane = tid % WARP_SIZE
     if variable_length:
@@ -855,9 +853,9 @@ def _fmha_prefill_kernel(
             l2_promotion=cl.TensorMapL2Promotion.NONE,
         )
 
-    # CUTLASS initializes Blackwell pipeline stages cooperatively with warp 0.
-    # Dynamic lane indexing keeps one static PTX site per pipeline half while
-    # still initializing every physical barrier exactly once.
+    # Initialize pipeline stages cooperatively with warp 0. Dynamic lane
+    # indexing keeps one static PTX site per pipeline half while initializing
+    # every physical barrier exactly once.
     if warp == SOFTMAX0_WARPS[0]:
         if lane < Q_STAGES:
             cl.mbarrier_initialize(q_full.get_element_pointer(lane), 1)
@@ -1313,8 +1311,8 @@ def _fmha_prefill_kernel(
         kv_index = 0
         kv_full_phase = 0
         while valid:
-            # CUTLASS reuses one elected MMA-warp lane for all UMMA math in a
-            # work tile. Pipeline commits elect independently in their helper.
+            # Reuse one elected MMA-warp lane for all UMMA math in a work tile.
+            # Pipeline commits elect independently in their helper.
             mma_elect_one = cl.elect_sync()
             query_base, key_base, task_seq_q, task_seq_k = _sequence_context(
                 cumulative_q,
@@ -1364,7 +1362,7 @@ def _fmha_prefill_kernel(
 
             # QK0(0), QK1(0): both halves share K0 before its ring slot is
             # released. The acquire mbarrier wait orders the TMA async writes
-            # before the tcgen MMA, matching CUTLASS's TMA-to-UMMA pipeline.
+            # before the tcgen MMA in the TMA-to-UMMA pipeline.
             k_stage = kv_index
             _wait_mbarrier(kv_full.get_element_pointer(k_stage), kv_full_phase)
             k_desc = _qk_descriptor(
@@ -1842,9 +1840,9 @@ def _fmha_prefill_kernel(
                             for chunk in cl.static_iter(range(4))
                         )
 
-                    # Match CUTLASS's four 32-value vector reductions:
-                    # MAXIMUMF propagates NaNs within each chunk, while the
-                    # outer maxnum combines retain the source's semantics.
+                    # Use four 32-value vector reductions. MAXIMUMF propagates
+                    # NaNs within each chunk, while the outer maxnum combines
+                    # retain the required semantics.
                     new_row_max = cl.float32(-float("inf"))
                     for chunk in cl.static_iter(score_chunks):
                         chunk_max = chunk[:32].reduce(
@@ -1878,9 +1876,8 @@ def _fmha_prefill_kernel(
                         stats_vec,
                     )
                     # Acquire the first P-ready stage while the statistics
-                    # store is in flight.  The second acquire and STTM wait
-                    # are split into the initial FMA lookahead below, matching
-                    # CUTLASS's machine schedule.
+                    # store is in flight. The second acquire and STTM wait are
+                    # split into the initial FMA lookahead below.
                     _wait_mbarrier(
                         p_empty.get_element_pointer((qid, 0)),
                         1 ^ (pv_event & 1),
@@ -1888,8 +1885,7 @@ def _fmha_prefill_kernel(
 
                     block_sums = cl.Vector(0.0, 0.0, dtype=cl.float32)
                     minus_safe_max_scale = -safe_max * scale_softmax_log2
-                    # Keep the DKG constexpr-loop topology while using flattened
-                    # local arrays in place of its mutable Python lists.
+                    # Use constexpr loops with flattened local arrays.
                     if input_kind == ELEMENT_E4M3:
                         p_window_elems = 4
                         fma_pipe_windows = 3
@@ -3211,10 +3207,10 @@ def benchmark(
         return 0.0
 
     if use_cuda_graphs:
-        # Match the CUTLASS testing helper's semantics: capture the complete
-        # warmup and profiling loops on a non-default stream, replay each graph
-        # once, and divide the profiled graph time by its launch count.  Each
-        # workspace has static graph arguments, so cold-L2 rotation is retained.
+        # Capture the complete warmup and profiling loops on a non-default
+        # stream, replay each graph once, and divide the profiled graph time by
+        # its launch count. Each workspace has static graph arguments, so
+        # cold-L2 rotation is retained.
         workspace_index = 0
         if warmup_iterations:
             warmup_graph = torch.cuda.CUDAGraph()

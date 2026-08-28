@@ -102,10 +102,28 @@ class LoopCarriedResource(ts.MemoryResource):
         stage_info.context
         return state + 1
 
+    @ts.consumer_work(outputs=1)
+    @staticmethod
+    def advance_by_offset(stage_info, state):
+        stage_info.context
+        return state + stage_info.loop_offset
+
     @ts.producer_work
     @staticmethod
     def consume(stage_info, state):
         stage_info.context.tasks_inputs[0] = state
+
+
+class WorkTileDomainTask(ts.Task):
+    def __init__(self, *args, domain_end=7, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.domain_end = domain_end
+
+    def _freeze_domain_task(self):
+        return self.domain_end
+
+    def get_domain(self, tile_coordinate):
+        return self - tile_coordinate[0]
 
 
 def test_nested_schedule_preorder_and_format():
@@ -194,6 +212,27 @@ def test_dynamic_domain_bound_is_preserved_for_device_resolution():
     assert device_loop.end == 0
     assert device_loop.end_resolver is runtime_end
     assert device_loop.num_iterations == -1
+
+
+def test_task_domain_bound_receives_current_work_tile():
+    resource = RoutedResource(name="data")
+
+    @ts.schedule
+    def captured(data):
+        with ts.domain_loop(WorkTileDomainTask.get_domain):
+            data.produce()
+
+    task = WorkTileDomainTask(
+        [resource], [], 0, 1, schedule=captured(resource), name="work_tile_domain"
+    )
+    device_loop = task.to_device(
+        {"produce": lambda stage_info: stage_info.loop_offset}
+    ).body[0]
+
+    assert device_loop.dynamic_end
+    assert device_loop.end_uses_task
+    assert device_loop.end_resolver is WorkTileDomainTask.get_domain
+    assert device_loop.end_resolver(device_loop.resolver_task, (2, 0, 0)) == 5
 
 
 def test_schedule_stage_info_resolves_named_kernel_input_bound():
@@ -477,16 +516,20 @@ def test_anonymous_route_cannot_escape_domain_scope():
 
 
 @pytest.mark.parametrize("num_iterations", [0, 3])
-def test_domain_loop_explicitly_carries_anonymous_routes(num_iterations):
+def test_domain_loop_functionally_carries_anonymous_routes(num_iterations):
     resource = LoopCarriedResource(name="state")
 
     @ts.schedule
     def captured(data):
         state = data.initialize()
-        with ts.domain_loop(num_iterations, carried={"state": state}) as loop:
-            loop.state = data.advance(loop.state)
-            loop.state = data.advance(loop.state)
-        data.consume(loop.state)
+
+        def loop_body(state):
+            state = data.advance(state)
+            state = data.advance(state)
+            return state
+
+        state = ts.domain_loop(0, num_iterations, 1, loop_body, state)
+        data.consume(state)
 
     tree = captured(resource)
     initialize, loop, consume = tree.body
@@ -516,6 +559,7 @@ def test_domain_loop_explicitly_carries_anonymous_routes(num_iterations):
 
     manager = ts.TaskManager(
         [task],
+        {},
         verbose=False,
         exhaustive_deadlock_race_check=False,
     )
@@ -532,21 +576,159 @@ def test_domain_loop_explicitly_carries_anonymous_routes(num_iterations):
     ) == 4
 
 
-@pytest.mark.skipif(
-    not torch.cuda.is_available()
-    or torch.cuda.get_device_capability() != (10, 0),
-    reason="requires a Blackwell CC 10.0 GPU",
-)
-def test_domain_loop_carried_route_executes_on_device():
+def test_functional_domain_loop_captures_body_steps_and_results():
+    resource = LoopCarriedResource(name="state")
+
+    @ts.schedule
+    def captured(data):
+        left = data.initialize()
+        middle = data.initialize()
+        right = data.initialize()
+
+        def loop_body(left, middle, right):
+            left = data.advance(left)
+            middle = data.advance(middle)
+            right = data.advance_by_offset(right)
+            return left, middle, right
+
+        left, middle, right = ts.domain_loop(
+            1, 4, 1, loop_body, left, middle, right
+        )
+        data.consume(left)
+        data.consume(middle)
+        data.consume(right)
+
+    tree = captured(resource)
+    loop = tree.body[3]
+    assert isinstance(loop, ts.DomainLoop)
+    assert tuple(loop.initial_values) == ("left", "middle", "right")
+    assert [step.label for step in loop.body] == [
+        "advance",
+        "advance",
+        "advance_by_offset",
+    ]
+    assert tuple(loop.yield_values) == ("left", "middle", "right")
+    assert tuple(loop.result_values) == ("left", "middle", "right")
+
+    task = ts.Task(0, 1, schedule=tree)
+    device_loop = task.to_device().body[3]
+    assert len(device_loop.body) == 3
+
+    manager = ts.TaskManager(
+        [task],
+        {},
+        verbose=False,
+        exhaustive_deadlock_race_check=False,
+    )
+    loop_ir = manager.freeze().tasks[0].body[3]
+    assert loop_ir.body[2].argument_order == ("state",)
+
+
+def test_functional_domain_loop_validates_return_arity():
+    resource = LoopCarriedResource(name="state")
+
+    @ts.schedule
+    def captured(data):
+        first = data.initialize()
+        second = data.initialize()
+
+        def loop_body(first, second):
+            return data.advance(first)
+
+        ts.domain_loop(0, 2, 1, loop_body, first, second)
+
+    with pytest.raises(ts.ScheduleError, match="expected 2, got 1"):
+        captured(resource)
+
+
+def test_functional_domain_loop_captures_iteration_guards():
     resource = LoopCarriedResource(name="state")
 
     @ts.schedule
     def captured(data):
         state = data.initialize()
-        with ts.domain_loop(3, carried={"state": state}) as loop:
-            loop.state = data.advance(loop.state)
-            loop.state = data.advance(loop.state)
-        data.consume(loop.state)
+
+        def loop_body():
+            with ts.first_iter():
+                data.consume(state)
+            with ts.every(2, start=1):
+                data.consume(state)
+            with ts.last_iter():
+                data.consume(state)
+
+        ts.domain_loop(0, 5, 1, loop_body)
+
+    tree = captured(resource)
+    loop = tree.body[1]
+    assert isinstance(loop, ts.DomainLoop)
+    assert [type(node).__name__ for node in loop.body] == [
+        "ConditionalBlock",
+        "ConditionalBlock",
+        "ConditionalBlock",
+    ]
+    assert "FirstIter" in str(tree)
+    assert "Every(period=2, start=1)" in str(tree)
+    assert "LastIter" in str(tree)
+
+    with pytest.raises(ts.ScheduleError, match="inside an @schedule"):
+        ts.first_iter().__enter__()
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_capability() != (10, 0),
+    reason="requires a Blackwell CC 10.0 GPU",
+)
+def test_functional_domain_loop_carried_route_executes_on_device():
+    resource = LoopCarriedResource(name="state")
+
+    @ts.schedule
+    def captured(data):
+        state = data.initialize()
+
+        def loop_body(state):
+            state = data.advance(state)
+            state = data.advance(state)
+            return state
+
+        state = ts.domain_loop(0, 3, 1, loop_body, state)
+        data.consume(state)
+
+    device_task = ts.Task(0, 1, schedule=captured(resource)).to_device()
+
+    @cl.kernel
+    def kernel(output):
+        device_task(device_task.make_context(output))
+
+    output = torch.zeros((1,), device="cuda", dtype=torch.int32)
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (32,),
+        kernel,
+        (output,),
+    )
+    torch.cuda.synchronize()
+    assert output.item() == 6
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or torch.cuda.get_device_capability()[0] < 10,
+    reason="requires a Blackwell GPU",
+)
+def test_functional_domain_loop_injects_loop_offset_in_stage_info():
+    resource = LoopCarriedResource(name="state")
+
+    @ts.schedule
+    def captured(data):
+        state = data.initialize()
+
+        def loop_body(state):
+            return data.advance_by_offset(state)
+
+        state = ts.domain_loop(1, 4, 1, loop_body, state)
+        data.consume(state)
 
     device_task = ts.Task(0, 1, schedule=captured(resource)).to_device()
 
@@ -582,17 +764,34 @@ def test_python_rebinding_does_not_implicitly_carry_value_out_of_loop():
         captured(resource)
 
 
-def test_domain_loop_carried_assignment_must_be_unconditional():
+def test_functional_domain_loop_carried_result_must_be_unconditional():
     resource = LoopCarriedResource(name="state")
 
     @ts.schedule
     def captured(data):
         state = data.initialize()
-        with ts.domain_loop(3, carried={"state": state}) as loop:
-            with loop.first_iter():
-                loop.state = data.advance(loop.state)
 
-    with pytest.raises(ts.ScheduleError, match="must be unconditional"):
+        def loop_body(state):
+            with ts.first_iter():
+                state = data.advance(state)
+            return state
+
+        ts.domain_loop(0, 3, 1, loop_body, state)
+
+    with pytest.raises(ts.ScheduleError, match="control-flow scope"):
+        captured(resource)
+
+
+def test_domain_loop_rejects_removed_carried_keyword():
+    resource = LoopCarriedResource(name="state")
+
+    @ts.schedule
+    def captured(data):
+        state = data.initialize()
+        with ts.domain_loop(3, carried={"state": state}):
+            data.consume(state)
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'carried'"):
         captured(resource)
 
 

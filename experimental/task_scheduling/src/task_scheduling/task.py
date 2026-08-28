@@ -7,10 +7,23 @@ from dataclasses import dataclass, replace
 
 import cuda.lang as cl
 
-from .enums import OpaqueCondition, SKIPPABLE, ScheduleStage
+from ._device import block_in_cluster_rank
+from .enums import (
+    OpaqueCondition,
+    PipelineGroupMode,
+    SKIPPABLE,
+    ScheduleStage,
+    TileSchedulerType,
+)
 from .ir import ScheduleValue
 from .pipeline import DevicePipelineBinding, PipelineState, require_device_support
-from .resources import MemoryResource, StageInfo, _get_static_work_fn
+from .resources import (
+    MemoryResource,
+    StageInfo,
+    WorkQueue,
+    WorkTileInfo,
+    _get_static_work_fn,
+)
 from .schedule_builder import (
     ConditionalBlock,
     DomainLoop,
@@ -22,6 +35,20 @@ from .schedule_builder import (
     _iter_nodes,
     validate_queue_advance_placement,
 )
+
+
+def _mbarrier_wait_parity(mbarrier, phase):
+    """Wait while keeping the shared barrier address loop-invariant."""
+    cl.mbarrier_wait_parity(mbarrier, phase, time_hint=10_000_000)
+
+
+def _mbarrier_arrive_expect_transaction_cluster(mbarrier, num_bytes):
+    """Arm a remote CLC barrier with CTA-scoped release ordering."""
+    cl.mbarrier_arrive_expect_transaction(
+        mbarrier,
+        num_bytes,
+        scope=cl.MbarrierScope.BLOCK,
+    )
 
 
 @dataclass(frozen=True)
@@ -48,6 +75,7 @@ class ExecutionContext:
     active_pipeline_slot: int = -1
     pipeline_tile_iteration: object = 0
     multistage_iterations: object = 0
+    tile_scheduler: object | None = None
 
     def route(self, index: int) -> object:
         return self.route_values[index]
@@ -193,6 +221,146 @@ class DeviceStep:
 
 
 @dataclass(frozen=True)
+class DeviceDebugStep:
+    """Emit runtime diagnostics around one schedule step."""
+
+    step: object
+    task_name: str
+    resource_name: str
+    stage_name: str
+
+    def _print_stage_info(
+        self,
+        context: ExecutionContext,
+        position: str,
+    ) -> None:
+        bx, by, bz = tuple(
+            cl.block_index(axis) for axis in cl.static_iter(range(3))
+        )
+        tx, ty, tz = tuple(
+            cl.thread_index(axis) for axis in cl.static_iter(range(3))
+        )
+        wx, wy, wz = context.work_tile.tile_idx
+        loop_offset = context.loop_offset if context.in_domain_loop else -1
+        if cl.elect_sync() and bx < 2 and by == 0 and bz == 0:
+            print(
+                f"[{self.task_name} : {self.resource_name} | "
+                f"{position}{self.stage_name}], LoopIdx = {loop_offset}, "
+                f"T(x,y,z) = ({tx},{ty},{tz}), "
+                f"CTA(x,y,z) = ({bx},{by},{bz}), "
+                f"WorkTile(x,y,z) = ({wx},{wy},{wz})"
+            )
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        self._print_stage_info(context, "Before")
+        result = self.step(context)
+        self._print_stage_info(context, "After")
+        return result
+
+
+@dataclass(frozen=True)
+class DeviceNoOpStep:
+    """A host-visible scheduling operation with no static-scheduler work."""
+
+    unique_id: int
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        cl.ptx_comment(f"task_scheduling step #{self.unique_id}")
+        return context
+
+
+@dataclass(frozen=True)
+class DeviceWorkQueueAdvance:
+    """Advance the immutable scheduler state owned by a work-tile loop."""
+
+    unique_id: int
+    tile_scheduler_type: TileSchedulerType
+    append_output_count: int = 0
+    release_before_append: int = 0
+    release_after_append: int = 0
+    pipeline_slot: int = -1
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        cl.ptx_comment(f"task_scheduling step #{self.unique_id}")
+        scheduler = context.tile_scheduler
+        if self.tile_scheduler_type == TileSchedulerType.StaticPersistent:
+            scheduler = scheduler.advance_to_next_work()
+            work_tile = scheduler.get_current_work()
+        else:
+            state = context.pipeline_state(self.pipeline_slot)
+            work_tile = scheduler.get_current_work(state.index)
+        context = replace(
+            context.pop_routes(self.release_before_append),
+            tile_scheduler=scheduler,
+            work_tile=work_tile,
+        )
+        if self.append_output_count:
+            context = context.append_routes((work_tile,))
+        return context.pop_routes(self.release_after_append)
+
+
+@dataclass(frozen=True)
+class DeviceWorkQueueFetch:
+    """Issue one CLC work request through the producer pipeline stage."""
+
+    unique_id: int
+    binding: DevicePipelineBinding
+    state_slot: int
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        cl.ptx_comment(f"task_scheduling step #{self.unique_id}")
+        state = context.pipeline_state(self.state_slot)
+        scheduler = context.tile_scheduler.fetch_next_work(
+            self.binding.full_barrier(context.barrier_arena, state.index),
+            state.index,
+        )
+        return replace(context, tile_scheduler=scheduler)
+
+
+@dataclass(frozen=True)
+class DeviceProducerTail:
+    """Drain a producer pipeline before its task warp exits."""
+
+    binding: DevicePipelineBinding
+    state_slot: int
+    resource_name: str
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        cl.ptx_comment(f"{self.resource_name}.drain producer_tail")
+        state = context.pipeline_state(self.state_slot)
+
+        # A CLC work queue has no producer tail: its final response is consumed
+        # and released in the persistent loop before the scheduler warp exits.
+        if self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC:
+            return context
+
+        # The two-CTA UMMA producer shares one accumulator pipeline.  Only its
+        # leader owns the final empty-barrier wait, and the next producer cursor
+        # must first be advanced to the last stage that was actually used.
+        if self.binding.kind == DevicePipelineBinding.UMMA_ASYNC:
+            if self.binding.is_leader_cta():
+                for _ in cl.static_iter(range(self.binding.num_stages - 1)):
+                    state = state.advance(self.binding.num_stages)
+                _mbarrier_wait_parity(
+                    self.binding.empty_barrier(
+                        context.barrier_arena, state.index
+                    ),
+                    state.phase,
+                )
+            return context
+
+        # Async and TMA producers drain every stage because empty-barrier
+        # arrivals are not ordered across stages.
+        for _ in cl.static_iter(range(self.binding.num_stages)):
+            _mbarrier_wait_parity(
+                self.binding.empty_barrier(context.barrier_arena, state.index),
+                state.phase,
+            )
+            state = state.advance(self.binding.num_stages)
+        return context
+
+
+@dataclass(frozen=True)
 class DevicePipelineStep:
     TRY_ACQUIRE = 0
     ACQUIRE = 1
@@ -205,13 +373,50 @@ class DevicePipelineStep:
     binding: DevicePipelineBinding
     state_slot: int
     unique_id: int
+    task_warp_start: int = 0
 
-    def _signal_selected(self, producer: bool):
+    def _signal_selected(self, context: ExecutionContext, producer: bool):
         """Select one fixed lane when a barrier expects one signaling thread."""
-        elected = (
-            self.binding.producer_elected if producer else self.binding.consumer_elected
-        )
-        selected = cl.elect_sync() if elected else True
+        if (
+            not producer
+            and self.binding.kind == DevicePipelineBinding.TMA_ASYNC
+            and self.binding.uses_cluster
+            and not self.binding.consumer_all_threads
+        ):
+            selected = self.binding.tma_async_consumer_selected()
+        elif producer and self.binding.producer_task_warp_leader:
+            warp_index = context.warp_index
+            if warp_index is None:
+                warp_index = _task_warp_index()
+            selected = cl.elect_sync() and warp_index == self.task_warp_start
+        else:
+            elected_per_warp = (
+                self.binding.consumer_elected_per_warp if not producer else False
+            )
+            hardware_elected = (
+                producer
+                and self.binding.kind
+                in (
+                    DevicePipelineBinding.TMA_ASYNC,
+                    DevicePipelineBinding.TMA_UMMA,
+                    DevicePipelineBinding.UMMA_ASYNC,
+                )
+                or not producer
+                and self.binding.kind
+                in (
+                    DevicePipelineBinding.TMA_UMMA,
+                    DevicePipelineBinding.ASYNC_UMMA,
+                )
+            )
+            elected = hardware_elected or (
+                self.binding.producer_elected
+                if producer
+                else self.binding.consumer_elected
+            )
+            if elected_per_warp:
+                selected = cl.lane_index() == 0
+            else:
+                selected = cl.elect_sync() if elected else True
         # A clustered TMA->UMMA pipeline aggregates both CTAs' TMA
         # transactions in the leader CTA's full barrier.  Every producer CTA
         # still waits for its local empty barrier, but only the leader CTA may
@@ -220,7 +425,7 @@ class DevicePipelineStep:
         if (
             producer
             and self.binding.kind == DevicePipelineBinding.TMA_UMMA
-            and self.binding.uses_cluster
+            and self.binding.uses_two_cta_group
         ):
             selected = selected and self.binding.is_leader_cta()
         cta_leader = (
@@ -232,6 +437,27 @@ class DevicePipelineStep:
             selected = selected and self.binding.is_leader_cta()
         return selected
 
+    def _wait_selected(self, producer: bool):
+        """Select the CTA configured to perform this pipeline wait."""
+        if not self.binding.uses_cluster:
+            return True
+        if producer and self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC:
+            return self.binding.is_cluster_leader_cta()
+        if producer and self.binding.kind in (
+            DevicePipelineBinding.TMA_UMMA,
+            DevicePipelineBinding.TMA_ASYNC,
+        ) and self.binding.producer_task_warp_leader:
+            # Every producer CTA must wait before reusing its local buffer; the
+            # task-warp-leader policy narrows only the transaction arrive.
+            return True
+        if producer and self.binding.kind == DevicePipelineBinding.TMA_UMMA:
+            return True
+        if producer and self.binding.producer_cta_leader:
+            return self.binding.is_leader_cta()
+        if not producer and self.binding.consumer_wait_cta_leader:
+            return self.binding.is_leader_cta()
+        return True
+
     def __call__(self, context: ExecutionContext) -> ExecutionContext:
         cl.ptx_comment(f"task_scheduling pipeline step #{self.unique_id}")
         state = context.pipeline_state(self.state_slot)
@@ -239,23 +465,47 @@ class DevicePipelineStep:
         empty = self.binding.empty_barrier(context.barrier_arena, state.index)
 
         if self.action == self.TRY_ACQUIRE:
+            if self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC:
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(False)
+                )
+            if not self._wait_selected(True):
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(True)
+                )
             status = cl.mbarrier_try_wait_parity(empty, state.phase)
             return context.store_pipeline_state(
                 self.state_slot, state.with_status(status)
             )
 
         if self.action == self.ACQUIRE:
-            if not state.status:
-                cl.mbarrier_wait_parity(
-                    empty,
-                    state.phase,
-                    time_hint=10_000_000,
+            if self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC:
+                if self.binding.is_cluster_leader_cta():
+                    if not state.status:
+                        _mbarrier_wait_parity(empty, state.phase)
+                    destination_rank = cl.lane_index()
+                    if destination_rank < self.binding.cluster_size:
+                        remote_full = cl.map_shared_to_cluster(
+                            full, destination_rank
+                        )
+                        _mbarrier_arrive_expect_transaction_cluster(
+                            remote_full,
+                            self.binding.num_bytes,
+                        )
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(False)
                 )
+            if not self._wait_selected(True):
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(False)
+                )
+            if not state.status:
+                _mbarrier_wait_parity(empty, state.phase)
             if self.binding.kind in (
                 DevicePipelineBinding.TMA_ASYNC,
                 DevicePipelineBinding.TMA_UMMA,
             ):
-                selected = self._signal_selected(True)
+                selected = self._signal_selected(context, True)
                 if selected:
                     cl.mbarrier_arrive_expect_transaction(full, self.binding.num_bytes)
             return context.store_pipeline_state(
@@ -263,18 +513,30 @@ class DevicePipelineStep:
             )
 
         if self.action == self.COMMIT:
+            if (
+                self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC
+                and not self.binding.is_cluster_leader_cta()
+            ):
+                return context
             if self.binding.kind in (
                 DevicePipelineBinding.ASYNC_ASYNC,
                 DevicePipelineBinding.ASYNC_UMMA,
             ):
-                if self._signal_selected(True):
-                    cl.mbarrier_arrive(full)
+                if self._signal_selected(context, True):
+                    cl.mbarrier_arrive(
+                        self.binding.producer_commit_barrier(
+                            context.barrier_arena, state.index
+                        ),
+                        scope=cl.MbarrierScope.BLOCK,
+                    )
             elif self.binding.kind == DevicePipelineBinding.UMMA_ASYNC:
-                if self._signal_selected(True):
-                    if self.binding.uses_cluster:
+                if self._signal_selected(context, True):
+                    if self.binding.uses_two_cta_group:
                         cl.tcgen05_commit(
                             full,
-                            multicast_mask=self.binding.multicast_mask(),
+                            multicast_mask=(
+                                self.binding.cta_group_multicast_mask()
+                            ),
                             cta_group=cl.CTAGroup.CTA_2,
                         )
                     else:
@@ -284,18 +546,26 @@ class DevicePipelineStep:
             )
 
         if self.action == self.TRY_WAIT:
+            if self.binding.kind == DevicePipelineBinding.CLC_FETCH_ASYNC:
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(False)
+                )
+            if not self._wait_selected(False):
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(True)
+                )
             status = cl.mbarrier_try_wait_parity(full, state.phase)
             return context.store_pipeline_state(
                 self.state_slot, state.with_status(status)
             )
 
         if self.action == self.WAIT:
-            if not state.status:
-                cl.mbarrier_wait_parity(
-                    full,
-                    state.phase,
-                    time_hint=10_000_000,
+            if not self._wait_selected(False):
+                return context.store_pipeline_state(
+                    self.state_slot, state.with_status(False)
                 )
+            if not state.status:
+                _mbarrier_wait_parity(full, state.phase)
             if self.binding.kind in (
                 DevicePipelineBinding.TMA_UMMA,
                 DevicePipelineBinding.ASYNC_UMMA,
@@ -306,7 +576,7 @@ class DevicePipelineStep:
                 self.state_slot, state.with_status(False)
             )
 
-        if self._signal_selected(False):
+        if self._signal_selected(context, False):
             if self.binding.kind in (
                 DevicePipelineBinding.TMA_UMMA,
                 DevicePipelineBinding.ASYNC_UMMA,
@@ -314,8 +584,17 @@ class DevicePipelineStep:
                 if self.binding.uses_cluster:
                     cl.tcgen05_commit(
                         empty,
-                        multicast_mask=self.binding.multicast_mask(),
-                        cta_group=cl.CTAGroup.CTA_2,
+                        multicast_mask=(
+                            self.binding.tma_umma_multicast_mask()
+                            if self.binding.kind
+                            == DevicePipelineBinding.TMA_UMMA
+                            else self.binding.cta_group_multicast_mask()
+                        ),
+                        cta_group=(
+                            cl.CTAGroup.CTA_2
+                            if self.binding.uses_two_cta_group
+                            else cl.CTAGroup.CTA_1
+                        ),
                     )
                 else:
                     cl.tcgen05_commit(empty, cta_group=cl.CTAGroup.CTA_1)
@@ -358,18 +637,34 @@ class DeviceDomainLoop:
     dynamic_end: bool = False
     start_resolver: object = None
     end_resolver: object = None
+    resolver_task: object = None
+    start_uses_task: bool = False
+    end_uses_task: bool = False
+    bind_task_inputs: bool = False
     release_count: int = 0
     initial_route_positions: tuple[int, ...] = ()
     yield_route_positions: tuple[int, ...] = ()
     result_indices: tuple[int, ...] = ()
 
+    def _resolve_task_bound(self, resolver, context):
+        resolver_task = self.resolver_task
+        if self.bind_task_inputs:
+            resolver_task = resolver_task.bind_inputs(context.tasks_inputs)
+        return resolver(resolver_task, context.work_tile.tile_idx)
+
     def __call__(self, context: ExecutionContext) -> ExecutionContext:
         start = self.start
         if self.dynamic_start:
-            start = self.start_resolver(context.tasks_inputs)
+            if self.start_uses_task:
+                start = self._resolve_task_bound(self.start_resolver, context)
+            else:
+                start = self.start_resolver(context.tasks_inputs)
         end = self.end
         if self.dynamic_end:
-            end = self.end_resolver(context.tasks_inputs)
+            if self.end_uses_task:
+                end = self._resolve_task_bound(self.end_resolver, context)
+            else:
+                end = self.end_resolver(context.tasks_inputs)
         num_iterations = self.num_iterations
         if self.num_iterations < 0:
             distance = end - start
@@ -427,6 +722,34 @@ class DeviceDomainLoop:
         return context.pop_routes(self.release_count)
 
 
+@dataclass(frozen=True)
+class DeviceWorkTileLoop:
+    """Execute a task body once for each grid-stride persistent work tile."""
+
+    body: tuple[object, ...]
+    tile_scheduler_config: object
+    release_count: int = 0
+
+    def __call__(self, context: ExecutionContext) -> ExecutionContext:
+        scheduler = self.tile_scheduler_config.create(context.smem_base)
+        outer_work_tile = context.work_tile
+        route_depth = len(context.route_values)
+        context = replace(
+            context,
+            tile_scheduler=scheduler,
+            work_tile=scheduler.initial_work_tile_info(),
+        )
+        while context.work_tile.is_valid_tile:
+            body_context = _run_device_nodes(self.body, context)
+            context = body_context.truncate_routes(route_depth)
+        context = replace(
+            context,
+            work_tile=outer_work_tile,
+            tile_scheduler=None,
+        )
+        return context.pop_routes(self.release_count)
+
+
 def _run_device_nodes(
     nodes: tuple[object, ...], context: ExecutionContext, index: int = 0
 ):
@@ -460,6 +783,7 @@ class DeviceTask:
     default_num_registers: int = 128
     pipeline_stage_counts: tuple[int, ...] = ()
     pipeline_advances_per_domain: tuple[bool, ...] = ()
+    producer_tails: tuple[DeviceProducerTail, ...] = ()
 
     def make_context(
         self,
@@ -471,8 +795,13 @@ class DeviceTask:
         warp_index: object | None = None,
         pipeline_tile_iteration: object = 0,
         multistage_iterations: object = 0,
+        work_tile: object | None = None,
     ) -> ExecutionContext:
         """Create the immutable runtime context for this task."""
+        if work_tile is None:
+            work_tile = WorkTileInfo(
+                tuple(cl.block_index(axis) for axis in cl.static_iter(range(3)))
+            )
         return ExecutionContext(
             smem_base=smem_base,
             cluster_smem_base=cluster_smem_base,
@@ -482,6 +811,7 @@ class DeviceTask:
             barrier_arena=barrier_arena,
             pipeline_tile_iteration=pipeline_tile_iteration,
             multistage_iterations=multistage_iterations,
+            work_tile=work_tile,
         )
 
     def __call__(self, context: ExecutionContext) -> ExecutionContext:
@@ -525,7 +855,7 @@ class DeviceTask:
         selected = self.warp_start <= warp_index < self.warp_end
         if self.run_only_on_cta_id >= 0:
             selected = selected and (
-                cl.block_in_cluster_index(0) == self.run_only_on_cta_id
+                block_in_cluster_rank() == self.run_only_on_cta_id
             )
         if selected:
             if self.num_registers > self.default_num_registers:
@@ -534,6 +864,8 @@ class DeviceTask:
                 cl.setmaxregister_decrease(self.num_registers)
             route_depth = len(initialized_context.route_values)
             result = _run_device_nodes(self.body, initialized_context)
+            for tail in cl.static_iter(self.producer_tails):
+                result = tail(result)
             return result.pop_routes(len(result.route_values) - route_depth)
         return initialized_context
 
@@ -656,7 +988,7 @@ def _finalize_tmem_state(
             dealloc_barrier = barrier_arena.get_element_pointer(
                 dealloc_barrier_offset
             )
-            peer_rank = cl.block_in_cluster_index(0) ^ 1
+            peer_rank = block_in_cluster_rank() ^ 1
             peer_barrier = cl.map_shared_to_cluster(
                 dealloc_barrier,
                 peer_rank,
@@ -899,8 +1231,17 @@ class DeviceTaskManager:
         )
         cluster_smem_base = None
         if self.barrier_uses_cluster and smem_base is not None:
-            cluster_smem_base = cl.shfl_sync(
+            cluster_smem_address = cl.shfl_sync(
                 cl.bitcast(smem_base.get_base_pointer(), cl.uint32), 0
+            )
+            cluster_smem_pointer = cl.bitcast(
+                cluster_smem_address,
+                cl.pointer_dtype(cl.uint8, cl.MemorySpace.SHARED_CLUSTER),
+            )
+            cluster_smem_base = cl.reinterpret_pointer_as_array(
+                cluster_smem_pointer,
+                cl.uint8,
+                (self.smem_size_bytes,),
             )
         barrier_arena = (
             _create_barrier_storage(
@@ -1019,6 +1360,13 @@ _PRODUCER_RESOURCE_STAGES = frozenset(
 class Task:
     default_num_registers = 128
 
+    def _freeze_domain_task(self):
+        """Return immutable device state used by Task-method domain bounds."""
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement _freeze_domain_task() "
+            "to use a Task method as a device domain bound"
+        )
+
     def __init__(
         self,
         src_resources: list[MemoryResource] | int | None = None,
@@ -1029,6 +1377,7 @@ class Task:
         schedule: Schedule,
         num_registers: int | None = None,
         name: str = "",
+        debug_print: bool = False,
         run_only_on_cta_id: int | None = None,
         **kwargs: object,
     ) -> None:
@@ -1063,6 +1412,8 @@ class Task:
             raise ValueError("warp_idx must be a nonnegative integer")
         if type(num_warps) is not int or num_warps <= 0:
             raise ValueError("num_warps must be a positive integer")
+        if type(debug_print) is not bool:
+            raise TypeError("debug_print must be a bool")
         if num_registers is not None and (
             type(num_registers) is not int
             or not 8 <= num_registers <= 256
@@ -1115,6 +1466,7 @@ class Task:
         self.num_warps = num_warps
         self.schedule = schedule
         self.num_registers = num_registers
+        self.debug_print = debug_print
         self.run_only_on_cta_id = run_only_on_cta_id
         validate_queue_advance_placement(schedule.body)
         allowed = {id(resource) for resource in self.resources}
@@ -1139,7 +1491,7 @@ class Task:
         selected = self.warp_start <= warp_index < self.warp_end
         if self.run_only_on_cta_id is not None:
             selected = (
-                selected and cl.block_in_cluster_index(0) == self.run_only_on_cta_id
+                selected and block_in_cluster_rank() == self.run_only_on_cta_id
             )
         if selected:
             registers = self.num_registers or self.default_num_registers
@@ -1179,9 +1531,41 @@ class Task:
                 and node.memory_resource not in pipeline_resources
             ):
                 pipeline_resources.append(node.memory_resource)
+        producer_stages = frozenset(
+            {
+                ScheduleStage.ProducerAuxWork,
+                ScheduleStage.ProducerTryAcquire,
+                ScheduleStage.ProducerAcquire,
+                ScheduleStage.ProducerCommit,
+                ScheduleStage.ProducerWork,
+            }
+        )
+        consumer_stages = frozenset(
+            {
+                ScheduleStage.ConsumerAuxWork,
+                ScheduleStage.ConsumerTryWait,
+                ScheduleStage.ConsumerWait,
+                ScheduleStage.ConsumerWork,
+                ScheduleStage.ConsumerRelease,
+            }
+        )
+        dual_pipeline_resources = []
+        for resource in pipeline_resources:
+            stages = {
+                node.schedule_stage
+                for node in _iter_nodes(self.schedule.body)
+                if isinstance(node, Step) and node.memory_resource is resource
+            }
+            if stages & producer_stages and stages & consumer_stages:
+                dual_pipeline_resources.append(resource)
         pipeline_slots = {
             resource: slot for slot, resource in enumerate(pipeline_resources)
         }
+        producer_pipeline_slots = dict(pipeline_slots)
+        pipeline_slot_resources = list(pipeline_resources)
+        for resource in dual_pipeline_resources:
+            producer_pipeline_slots[resource] = len(pipeline_slot_resources)
+            pipeline_slot_resources.append(resource)
         resolved_pipeline_bindings = {}
         next_barrier_offset = 0
         for resource in pipeline_resources:
@@ -1196,9 +1580,17 @@ class Task:
             next_barrier_offset += 2 * resource.pipeline_config.num_stages
         initial_pipeline_states = tuple(
             PipelineState(
-                phase=1 if any(resource is item for item in self.dst_resources) else 0
+                phase=(
+                    1
+                    if slot >= len(pipeline_resources)
+                    or (
+                        resource not in dual_pipeline_resources
+                        and any(resource is item for item in self.dst_resources)
+                    )
+                    else 0
+                )
             )
-            for resource in pipeline_resources
+            for slot, resource in enumerate(pipeline_slot_resources)
         )
         used_callback_keys = set()
 
@@ -1308,7 +1700,7 @@ class Task:
                     in_domain_loop=in_domain_loop,
                 )
                 future_uses = suffix_uses[index + 1]
-                if isinstance(device_node, DeviceStep):
+                if isinstance(device_node, (DeviceStep, DeviceWorkQueueAdvance)):
                     appended_routes = anonymous_routes[old_depth:]
                     old_routes = anonymous_routes[:old_depth]
                     release_before = dead_trailing_count(
@@ -1328,7 +1720,8 @@ class Task:
                         release_after_append=release_after,
                     )
                 elif isinstance(
-                    device_node, (DeviceConditional, DeviceDomainLoop)
+                    device_node,
+                    (DeviceConditional, DeviceDomainLoop, DeviceWorkTileLoop),
                 ):
                     release_count = dead_trailing_count(
                         anonymous_routes, future_uses, frame_depth
@@ -1337,6 +1730,13 @@ class Task:
                         del anonymous_routes[-release_count:]
                     device_node = replace(
                         device_node, release_count=release_count
+                    )
+                if self.debug_print and isinstance(child, Step):
+                    device_node = DeviceDebugStep(
+                        step=device_node,
+                        task_name=self.name,
+                        resource_name=child.memory_resource.name,
+                        stage_name=child.schedule_stage.value,
                     )
                 lowered.append(device_node)
             return tuple(lowered)
@@ -1351,6 +1751,49 @@ class Task:
                     ScheduleStage.ConsumerWait: DevicePipelineStep.WAIT,
                     ScheduleStage.ConsumerRelease: DevicePipelineStep.RELEASE,
                 }
+                if isinstance(node.memory_resource, WorkQueue):
+                    if node.label == "get_and_advance_work_tile":
+                        outputs = node.output_values
+                        if outputs and not route_values:
+                            raise ValueError(
+                                f"Task {self.name!r} cannot disable routing with "
+                                "work outputs"
+                            )
+                        anonymous_routes.extend(outputs)
+                        scheduler_config = (
+                            node.memory_resource.tile_scheduler_config
+                        )
+                        if scheduler_config is None:
+                            raise ValueError(
+                                f"WorkQueue {node.memory_resource.name!r} needs a "
+                                "tile_scheduler_config for device lowering"
+                            )
+                        return DeviceWorkQueueAdvance(
+                            unique_id=node.unique_id,
+                            tile_scheduler_type=(
+                                scheduler_config.tile_scheduler_type
+                            ),
+                            append_output_count=len(outputs),
+                            pipeline_slot=pipeline_slots.get(
+                                node.memory_resource, -1
+                            ),
+                        )
+                    if node.memory_resource.pipeline_config is None:
+                        return DeviceNoOpStep(node.unique_id)
+                    if node.label == "fetch_work_tile":
+                        binding = resolved_pipeline_bindings.get(
+                            node.memory_resource
+                        )
+                        if binding is None:
+                            raise ValueError(
+                                f"Task {self.name!r} needs a "
+                                "DevicePipelineBinding for CLC work fetch"
+                            )
+                        return DeviceWorkQueueFetch(
+                            node.unique_id,
+                            binding,
+                            producer_pipeline_slots[node.memory_resource],
+                        )
                 if node.schedule_stage in stage_actions:
                     binding = resolved_pipeline_bindings.get(node.memory_resource)
                     if binding is None:
@@ -1361,8 +1804,13 @@ class Task:
                     return DevicePipelineStep(
                         stage_actions[node.schedule_stage],
                         binding,
-                        pipeline_slots[node.memory_resource],
+                        (
+                            producer_pipeline_slots[node.memory_resource]
+                            if node.schedule_stage in producer_stages
+                            else pipeline_slots[node.memory_resource]
+                        ),
                         node.unique_id,
+                        task_warp_start=self.warp_start,
                     )
                 callback = resolve_callback(node)
                 input_slots = tuple(
@@ -1417,7 +1865,11 @@ class Task:
                     unique_id=node.unique_id,
                     static_args=static_args,
                     argument_order=argument_order,
-                    pipeline_slot=pipeline_slots.get(stage_resource, -1),
+                    pipeline_slot=(
+                        producer_pipeline_slots.get(stage_resource, -1)
+                        if node.schedule_stage in producer_stages
+                        else pipeline_slots.get(stage_resource, -1)
+                    ),
                     input_slots=input_slots,
                     append_output_count=len(outputs),
                     automatic_routing=route_values,
@@ -1442,11 +1894,14 @@ class Task:
                 )
             if isinstance(node, DomainLoop):
                 if not all(
-                    type(value) is int or isinstance(value, DynamicDomainBound)
+                    type(value) is int
+                    or isinstance(value, DynamicDomainBound)
+                    or callable(value)
                     for value in (node.start, node.end)
                 ):
                     raise NotImplementedError(
-                        "dynamic domain bounds must use dynamic_domain_bound()"
+                        "dynamic domain bounds must use dynamic_domain_bound() "
+                        "or an unbound Task method"
                     )
                 if type(node.step) is not int or node.step <= 0:
                     raise NotImplementedError(
@@ -1457,6 +1912,10 @@ class Task:
                 )
                 dynamic_start = isinstance(node.start, DynamicDomainBound)
                 dynamic_end = isinstance(node.end, DynamicDomainBound)
+                task_start = callable(node.start)
+                task_end = callable(node.end)
+                dynamic_start = dynamic_start or task_start
+                dynamic_end = dynamic_end or task_end
                 initial_positions = tuple(
                     anonymous_index(variable, anonymous_routes)
                     for variable in node.initial_values.values()
@@ -1477,6 +1936,11 @@ class Task:
                 )
                 result_values = tuple(node.result_values.values())
                 anonymous_routes.extend(result_values)
+                resolver_task = (
+                    self._freeze_domain_task()
+                    if task_start or task_end
+                    else None
+                )
                 return DeviceDomainLoop(
                     node.start if not dynamic_start else 0,
                     node.end if not dynamic_end else 0,
@@ -1489,15 +1953,51 @@ class Task:
                     body,
                     dynamic_start,
                     dynamic_end,
-                    node.start.resolver if dynamic_start else None,
-                    node.end.resolver if dynamic_end else None,
+                    (
+                        node.start
+                        if task_start
+                        else node.start.resolver
+                        if dynamic_start
+                        else None
+                    ),
+                    (
+                        node.end
+                        if task_end
+                        else node.end.resolver
+                        if dynamic_end
+                        else None
+                    ),
+                    resolver_task=resolver_task,
+                    start_uses_task=task_start,
+                    end_uses_task=task_end,
+                    bind_task_inputs=hasattr(resolver_task, "bind_inputs"),
                     initial_route_positions=initial_positions,
                     yield_route_positions=yield_positions,
                     result_indices=tuple(range(len(result_values))),
                 )
-            raise NotImplementedError(
-                "WorkTileLoop needs a scheduler-specific device adapter"
-            )
+            if isinstance(node, WorkTileLoop):
+                config = node.work_queue.tile_scheduler_config
+                if config is None:
+                    raise ValueError(
+                        f"WorkQueue {node.work_queue.name!r} needs a "
+                        "tile_scheduler_config for device lowering"
+                    )
+                if node.skip_if is not None:
+                    raise NotImplementedError(
+                        "device work_tile_loop(skip_if=...) is not supported"
+                    )
+                body_routes = list(anonymous_routes)
+                body_frame_depth = len(body_routes)
+                return DeviceWorkTileLoop(
+                    lower_nodes(
+                        node.body,
+                        body_routes,
+                        in_domain_loop=in_domain_loop,
+                        frame_depth=body_frame_depth,
+                    ),
+                    config.to_device(),
+                )
+            raise TypeError(type(node).__name__)
 
         def advances_per_domain(nodes, resource, in_domain=False):
             for node in nodes:
@@ -1533,11 +2033,25 @@ class Task:
             default_num_registers=self.default_num_registers,
             pipeline_stage_counts=tuple(
                 resource.pipeline_config.num_stages
-                for resource in pipeline_resources
+                for resource in pipeline_slot_resources
             ),
             pipeline_advances_per_domain=tuple(
                 advances_per_domain(self.schedule.body, resource)
-                for resource in pipeline_resources
+                for resource in pipeline_slot_resources
+            ),
+            producer_tails=tuple(
+                DeviceProducerTail(
+                    resolved_pipeline_bindings[resource],
+                    producer_pipeline_slots[resource],
+                    resource.name,
+                )
+                for resource in self.dst_resources
+                if resource in resolved_pipeline_bindings
+                and not (
+                    resource.pipeline_group is not None
+                    and resource.pipeline_group.mode is PipelineGroupMode.Fork
+                    and resource is not resource.pipeline_group.members[0]
+                )
             ),
         )
         unused_callback_keys = set(callbacks) - used_callback_keys
@@ -1560,9 +2074,21 @@ class Task:
             start = node.start
             if isinstance(start, DynamicDomainBound):
                 start = start.resolve(context.tasks_inputs)
+            elif callable(start):
+                resolver_task = self._freeze_domain_task()
+                bind_inputs = getattr(resolver_task, "bind_inputs", None)
+                if bind_inputs is not None:
+                    resolver_task = bind_inputs(context.tasks_inputs)
+                start = start(resolver_task, context.work_tile.tile_idx)
             end = node.end
             if isinstance(end, DynamicDomainBound):
                 end = end.resolve(context.tasks_inputs)
+            elif callable(end):
+                resolver_task = self._freeze_domain_task()
+                bind_inputs = getattr(resolver_task, "bind_inputs", None)
+                if bind_inputs is not None:
+                    resolver_task = bind_inputs(context.tasks_inputs)
+                end = end(resolver_task, context.work_tile.tile_idx)
             stride = node.step
             distance = end - start
             num_iterations = (distance + stride - 1) // stride if distance > 0 else 0

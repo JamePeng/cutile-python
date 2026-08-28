@@ -9,6 +9,7 @@ from task_scheduling.task import (
     DeviceDomainLoop,
     DeviceGuard,
     DevicePipelineStep,
+    DeviceProducerTail,
 )
 
 
@@ -139,6 +140,61 @@ def test_barrier_layout_coalesces_equal_arrival_counts():
     assert allocator.initialization_runs == ((0, 1, 1), (1, 4, 32))
 
 
+def test_barrier_allocator_preserves_resource_mbarrier_layouts():
+    config = ts.PipelineConfig.create_tma_async_pipeline_cfg(
+        2,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(32),
+        full_mbarrier_layout=ts.MbarrierLayout.V1,
+        empty_mbarrier_layout=ts.MbarrierLayout.V0,
+    )
+    resource = ts.MemoryResource(name="pipe", pipeline_config=config)
+    allocator = ts.BarrierAllocator()
+    allocator.add_resource(resource)
+    allocator.compute_layout()
+
+    assert allocator.offset_of("pipe.empty") == 0
+    assert allocator.offset_of("pipe.full") == 32
+    assert allocator.padded_size == 64
+
+
+def test_barrier_allocator_honors_requested_storage_offsets():
+    config = ts.PipelineConfig.create_tma_async_pipeline_cfg(
+        2,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(32),
+        storage_offset_full=5,
+        storage_offset_empty=9,
+    )
+    resource = ts.MemoryResource(name="pipe", pipeline_config=config)
+    allocator = ts.BarrierAllocator()
+    allocator.add_resource(resource)
+    allocator.compute_layout()
+
+    assert allocator.offset_of("pipe.full") == 5
+    assert allocator.offset_of("pipe.empty") == 9
+    assert allocator.padded_size == 32
+
+    overlapping = ts.BarrierAllocator()
+    overlapping.add_resource(
+        ts.MemoryResource(
+            name="overlap",
+            pipeline_config=ts.PipelineConfig.create_tma_async_pipeline_cfg(
+                2,
+                128,
+                ts.CooperativeGroup(1),
+                ts.CooperativeGroup(32),
+                storage_offset_full=5,
+                storage_offset_empty=6,
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="overlaps"):
+        overlapping.compute_layout()
+
+
 def test_pipeline_group_merge_and_device_pipeline_boundary():
     left = ts.MemoryResource(name="left", pipeline_config=pipeline_config())
     right = ts.MemoryResource(name="right", pipeline_config=pipeline_config())
@@ -207,6 +263,11 @@ def test_pipeline_stages_lower_without_callbacks():
         DevicePipelineStep.ACQUIRE,
         DevicePipelineStep.COMMIT,
     ]
+    assert len(device_task.producer_tails) == 1
+    assert isinstance(device_task.producer_tails[0], DeviceProducerTail)
+    assert device_task.producer_tails[0].binding == binding.at_offsets(0, 3)
+    assert device_task.producer_tails[0].state_slot == 0
+    assert device_task.producer_tails[0].resource_name == "staged"
 
 
 def test_generic_pipeline_rejects_unmaterialized_metadata_options():
@@ -221,43 +282,64 @@ def test_generic_pipeline_rejects_unmaterialized_metadata_options():
         ts.DevicePipelineBinding.from_config(config)
 
 
-def test_device_pipeline_binding_supports_two_cta_nvfp4_pipelines():
+def test_device_pipeline_binding_supports_general_cluster_metadata():
     tma_umma = ts.PipelineConfig.create_tma_umma_pipeline_cfg(
         5,
         32768,
         ts.CooperativeGroup(1),
         ts.CooperativeGroup(1),
-        cta_layout_vmnk=(2, 1, 1, 1),
-        consumer_signaling_threads=ts.SignalingThreads.CtaLeader,
+        cta_layout_vmnk=(2, 2, 2, 1),
+        producer_signaling_threads=(
+            ts.SignalingThreads.CtaLeader
+            | ts.SignalingThreads.TaskWarpLeader
+        ),
+        consumer_wait_signaling_threads=ts.SignalingThreads.CtaLeader,
+        mcast_mode_mn=(1, 0),
         num_bytes_per_warp_per_cta=16384,
     )
     tma_binding = ts.DevicePipelineBinding.from_config(tma_umma)
     assert tma_binding.cta_group_size == 2
+    assert tma_binding.cluster_size == 8
+    assert tma_binding.cta_layout_vmnk == (2, 2, 2, 1)
+    assert tma_binding.mcast_mode_mn == (1, 0)
     assert tma_binding.uses_cluster
-    assert not tma_binding.producer_cta_leader
-    assert tma_binding.consumer_cta_leader
+    assert tma_binding.uses_two_cta_group
+    assert tma_binding.producer_cta_leader
+    assert tma_binding.producer_task_warp_leader
+    assert not tma_binding.consumer_cta_leader
+    assert tma_binding.consumer_wait_cta_leader
 
-    umma_async = ts.PipelineConfig.create_umma_async_pipeline_cfg(
-        1,
-        ts.CooperativeGroup(1),
-        ts.CooperativeGroup(256),
-        cta_layout_vmnk=(2, 1, 1, 1),
-        producer_signaling_threads=ts.SignalingThreads.CtaLeader,
-    )
-    accumulator_binding = ts.DevicePipelineBinding.from_config(umma_async)
-    assert accumulator_binding.kind == ts.DevicePipelineBinding.UMMA_ASYNC
-    assert accumulator_binding.cta_group_size == 2
-    assert accumulator_binding.producer_cta_leader
-    assert not accumulator_binding.consumer_cta_leader
-
-    unsupported = ts.PipelineConfig.create_tma_async_pipeline_cfg(
+    tma_async = ts.PipelineConfig.create_tma_async_pipeline_cfg(
         1,
         128,
         ts.CooperativeGroup(1),
-        ts.CooperativeGroup(1),
-        cta_layout_vmnk=(2, 1, 1, 1),
+        ts.CooperativeGroup(4),
+        cta_layout_vmnk=(1, 2, 4, 1),
+        mcast_mode_mn=(0, 1),
     )
-    with pytest.raises(NotImplementedError, match="TmaUmma/UmmaAsync"):
+    tma_async_binding = ts.DevicePipelineBinding.from_config(tma_async)
+    assert tma_async_binding.kind == ts.DevicePipelineBinding.TMA_ASYNC
+    assert tma_async_binding.cta_group_size == 1
+    assert tma_async_binding.cluster_size == 8
+    assert not tma_async_binding.uses_two_cta_group
+
+    clc = ts.PipelineConfig.create_clc_fetch_async_pipeline_cfg(
+        1,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(1),
+        cta_layout_vmnk=(4, 1, 1, 1),
+    )
+    clc_binding = ts.DevicePipelineBinding.from_config(clc)
+    assert clc_binding.cta_group_size == 4
+    assert clc_binding.cluster_size == 4
+
+    unsupported = ts.PipelineConfig.create_umma_async_pipeline_cfg(
+        1,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(1),
+        cta_layout_vmnk=(4, 1, 1, 1),
+    )
+    with pytest.raises(NotImplementedError, match="V-group sizes"):
         ts.DevicePipelineBinding.from_config(unsupported)
 
 

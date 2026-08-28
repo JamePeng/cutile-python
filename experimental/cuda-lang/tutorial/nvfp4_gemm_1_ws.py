@@ -1,16 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of the CuTe DSL ``nvfp4_gemm_1_ws.py`` tutorial.
+"""Warp-specialized clustered CUDA Lang NVFP4 GEMM tutorial.
 
 Two CTAs collaborate on each 256x256x256 collective tile.  Each CTA loads a
 128-row A slice and a 128-column B slice, while B scale factors are multicast
 to both CTAs.  The leader issues CTA_2 MXF4NVF4 tcgen05 MMA instructions and
 each CTA writes its own 128 output rows as FP16.
 
-The port retains the six specialized warps, five-stage input pipeline,
-cluster TMA transfers, SMEM-to-TMEM scale staging, FP32 accumulation, and
-vectorized epilogue used by the CuTe DSL source.
+The kernel uses six specialized warps, a five-stage input pipeline, cluster
+TMA transfers, SMEM-to-TMEM scale staging, FP32 accumulation, and a vectorized
+epilogue.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ SF_VECTOR_SIZE = 16
 SF_K_PER_TILE = BLOCK_K // SF_VECTOR_SIZE
 AB_STAGES = 5
 TMEM_COLUMNS = 512
-# CuTe DSL sets descriptor bit 12 (sparsity_version). It is ignored on SM100,
-# but preserving it makes the emitted MMA descriptor match the reference PTX.
+# Descriptor bit 12 selects the sparsity version. It is ignored on SM100 but
+# retained to produce the expected MMA descriptor encoding.
 NVFP4_SPARSITY_VERSION_BIT = 1 << 12
 
 A_STAGE_BYTES = CTA_M * PACKED_BLOCK_K
@@ -49,8 +49,8 @@ B_STAGE_BYTES = CTA_N * PACKED_BLOCK_K
 SFA_STAGE_BYTES = CTA_M * SF_K_PER_TILE
 SFB_CTA_BYTES = CTA_N * SF_K_PER_TILE
 SFB_STAGE_BYTES = CLUSTER_M * SFB_CTA_BYTES
-# Transaction accounting follows the source: A/B/SFA are one-CTA transfers;
-# each CTA's SFB slice is multicast to both CTAs.
+# A/B/SFA are one-CTA transfers; each CTA's SFB slice is multicast to both
+# CTAs.
 TMA_STAGE_BYTES = (
     A_STAGE_BYTES + B_STAGE_BYTES + SFA_STAGE_BYTES + SFB_STAGE_BYTES
 ) * CLUSTER_M
@@ -298,9 +298,8 @@ def _kernel(
                 swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
             ).encode()
 
-            # Pack the lane/column fields once for each scale region. CuTe DSL
-            # reloads the allocated address here, then advances the packed
-            # addresses by constant column offsets inside the K-tile loop.
+            # Pack the lane/column fields once for each scale region, then
+            # advance them by constant column offsets inside the K-tile loop.
             scale_tmem_base = tmem_storage[0]
             sfa_tmem_base = cl.tcgen05_tmem_offset(
                 scale_tmem_base, column_offset=SFA_TMEM_COLUMN
@@ -381,7 +380,7 @@ def _kernel(
         row = coord_m + tid
         vsize = VEC_BYTES // 2
         # c.shape metadata is i32; explicit i64 dimensions let NVVM fuse the
-        # linear output index into the same 64-bit MAD form used by CuTe DSL.
+        # linear output index into one 64-bit MAD.
         output_base = (
             c.get_base_pointer()
             + row * problem_n

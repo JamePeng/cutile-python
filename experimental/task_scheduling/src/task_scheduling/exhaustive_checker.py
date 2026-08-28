@@ -12,6 +12,7 @@ from .enums import (
     LAST_ITER,
     Every,
     OpaqueCondition,
+    PipelineType,
     SKIPPABLE,
     ScheduleStage,
     guard_fires,
@@ -23,6 +24,7 @@ from .schedule_builder import (
     WorkTileLoop,
     _iter_nodes,
 )
+from .resources import WorkQueue
 from .task import Task
 
 
@@ -43,7 +45,10 @@ def _bound(value: object, task: Task, fallback: int) -> int:
     if type(value) is int:
         return value
     if callable(value):
-        folded = value(task, (0, 0, 0))
+        try:
+            folded = value(task, (0, 0, 0))
+        except (AttributeError, TypeError):
+            return fallback
         if type(folded) is int:
             return folded
     return fallback
@@ -64,6 +69,13 @@ def expand_task(
     def emit(nodes, iteration=None, count=None, phase="O", skipped=False):
         for node in nodes:
             if isinstance(node, Step):
+                # Static work-queue stages only update task-local scheduler
+                # state; unlike a CLC queue, they do not synchronize tasks.
+                if (
+                    isinstance(node.memory_resource, WorkQueue)
+                    and node.memory_resource.pipeline_config is None
+                ):
+                    continue
                 result.append(
                     FlatScheduleOp(
                         node.memory_resource,
@@ -434,18 +446,45 @@ def check_all_interleavings(
         for resource in resources.values()
     )
     initial_cons = tuple((rid, 0) for rid in resources)
-    queue = deque([((0,) * len(tasks), initial_prod, initial_cons, (), None)])
+    clc_consumer_counts = {
+        rid: sum(
+            any(
+                id(op.resource) == rid
+                and op.schedule_stage is ScheduleStage.ConsumerWait
+                for op in schedule
+            )
+            for schedule in schedules
+        )
+        for rid, resource in resources.items()
+        if resource.pipeline_config is not None
+        and resource.pipeline_config.pipeline_type is PipelineType.ClcFetchAsync
+    }
+    initial_releases = tuple((rid, 0) for rid in clc_consumer_counts)
+    queue = deque(
+        [
+            (
+                (0,) * len(tasks),
+                initial_prod,
+                initial_cons,
+                initial_releases,
+                (),
+                None,
+            )
+        ]
+    )
     visited = set()
     deadlocks = []
     races = []
     explored = complete = 0
 
     while queue and explored < max_states:
-        cursors, frozen_prod, frozen_cons, held, trace = queue.popleft()
+        cursors, frozen_prod, frozen_cons, frozen_releases, held, trace = (
+            queue.popleft()
+        )
         key = (
             cursors
             if cursor_only_visited
-            else (cursors, frozen_prod, frozen_cons, held)
+            else (cursors, frozen_prod, frozen_cons, frozen_releases, held)
         )
         if key in visited:
             continue
@@ -457,6 +496,7 @@ def check_all_interleavings(
                 reporter.print_complete(explored, cursors, trace)
             continue
         prod, cons = dict(frozen_prod), dict(frozen_cons)
+        releases = dict(frozen_releases)
         enabled = 0
         for task_index, task in enumerate(tasks):
             cursor = cursors[task_index]
@@ -471,18 +511,25 @@ def check_all_interleavings(
                 continue
             enabled += 1
             next_prod, next_cons = dict(prod), dict(cons)
+            next_releases = dict(releases)
             next_held = list(held)
             if stage is ScheduleStage.ProducerAcquire:
                 next_prod[rid] -= 1
                 next_held.append((task_index, rid, "write"))
             elif stage is ScheduleStage.ProducerCommit:
-                next_cons[rid] += 1
+                next_cons[rid] += clc_consumer_counts.get(rid, 1)
                 next_held = [h for h in next_held if h != (task_index, rid, "write")]
             elif stage is ScheduleStage.ConsumerWait:
                 next_cons[rid] -= 1
                 next_held.append((task_index, rid, "read"))
             elif stage is ScheduleStage.ConsumerRelease:
-                next_prod[rid] += 1
+                if rid in clc_consumer_counts:
+                    next_releases[rid] += 1
+                    if next_releases[rid] == clc_consumer_counts[rid]:
+                        next_prod[rid] += 1
+                        next_releases[rid] = 0
+                else:
+                    next_prod[rid] += 1
                 next_held = [h for h in next_held if h != (task_index, rid, "read")]
             access = None
             if stage is ScheduleStage.ProducerWork:
@@ -549,6 +596,7 @@ def check_all_interleavings(
                     tuple(next_cursors),
                     tuple(sorted(next_prod.items())),
                     tuple(sorted(next_cons.items())),
+                    tuple(sorted(next_releases.items())),
                     tuple(sorted(next_held)),
                     next_trace,
                 )

@@ -1,29 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of the CuTe DSL ``fp16_gemm_1.py`` tutorial.
+"""Two-CTA clustered CUDA Lang FP16 GEMM tutorial.
 
 Computes ``C = A @ B.T`` with an optional FP16 row bias. Two CTAs collaborate
 on each 256x256 output tile: each CTA loads one 128-row A slice and one
 128-column B slice, the leader issues CTA_2 tcgen05 MMA instructions, and both
 CTAs store their 128 output rows.
 
-Additional CuTe DSL -> CUDA Lang notes beyond ``fp16_gemm_0.py``:
-
-* CuTe DSL differentiates CTA-local and cluster TMA with different primitive
-  names: ``cp_async_bulk_tensor_shared_cta_global`` in ``fp16_gemm_0.py`` and
-  ``cp_async_bulk_tensor_shared_cluster_global`` here. CUDA Lang uses the same
-  ``cl.copy_async_bulk_tensor_global_to_shared`` API for both; cluster TMA is
-  selected by passing a destination pointer in
-  ``cl.MemorySpace.SHARED_CLUSTER`` plus the CTA_2 multicast arguments.
-  Completion still has to arrive on the leader CTA's mbarrier, so this sample
-  maps the local ``ab_full`` pointer with ``cl.map_shared_to_leader_block``.
-* The source kernel takes K as a runtime argument. This sample keeps M, N, and K
-  runtime dimensions; only the optional-bias path is specialized.
-
-The implementation otherwise retains the source's cluster shape, work
-decomposition, data movement, barrier phases, CTA_2 MMA sequence, TMEM
-epilogue, and vector stores.
+Cluster TMA uses a destination pointer in ``cl.MemorySpace.SHARED_CLUSTER``
+with CTA_2 multicast arguments. Completion arrives on the leader CTA's
+mbarrier, mapped with ``cl.map_shared_to_leader_block``. M, N, and K remain
+runtime dimensions; only the optional-bias path is specialized.
 """
 
 from __future__ import annotations

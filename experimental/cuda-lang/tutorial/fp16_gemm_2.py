@@ -1,23 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of the CuTe DSL ``fp16_gemm_2.py`` tutorial.
+"""Two-CTA clustered CUDA Lang FP16 GEMM tutorial with FP32 output.
 
 Computes ``C = A @ B.T`` with an optional FP32 row bias. Two CTAs collaborate
 on each 256x128 output tile: each CTA loads one 128-row A slice and one
 64-column B slice, the leader issues CTA_2 tcgen05 MMA instructions, and both
 CTAs store their 128 output rows.
 
-Additional CuTe DSL -> CUDA Lang notes beyond ``fp16_gemm_1.py``:
-
-* The collective N tile is 128 instead of 256. CTA_2 still splits the tile
-  across the two CTA ranks, so each CTA loads a 64-column B slice.
-* C and the optional row bias are FP32. The epilogue stores FP32 accumulator
-  vectors directly instead of converting them to FP16.
-
-The implementation otherwise retains the source's cluster shape, work
-decomposition, data movement, barrier phases, CTA_2 MMA sequence, TMEM
-epilogue, and vector stores.
+The collective N tile is 128 and is split across the two CTA ranks, so each CTA
+loads a 64-column B slice. C and the optional row bias are FP32; the epilogue
+stores accumulator vectors directly without an FP16 conversion.
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ import itertools
 import warnings
 from contextlib import redirect_stdout
 
-from .enums import ScheduleStage
+from .enums import PipelineType, ScheduleStage
 from .exhaustive_checker import (
     check_all_interleavings,
     collect_opaque_keys,
@@ -36,7 +36,7 @@ class TaskManager:
     def __init__(
         self,
         tasks: list[Task],
-        resource_dependency_graph: dict[object, list[object]] | None = None,
+        resource_dependency_graph: dict[object, list[object]],
         *,
         skip_validation: bool = False,
         smem_allocator=None,
@@ -56,6 +56,8 @@ class TaskManager:
             raise ValueError("TaskManager requires at least one task")
         if any(not isinstance(task, Task) for task in tasks):
             raise TypeError("TaskManager tasks must all be Task instances")
+        if not isinstance(resource_dependency_graph, dict):
+            raise TypeError("resource_dependency_graph must be a dictionary")
         self.user_tasks = tuple(tasks)
         minimum_cta_warps = max(task.warp_end for task in tasks)
         self.cta_warps = minimum_cta_warps if cta_warps is None else cta_warps
@@ -67,9 +69,7 @@ class TaskManager:
                 f"{minimum_cta_warps}"
             )
         self.tasks = [*tasks, *self._make_padding_tasks(tasks)]
-        self.resource_dependency_graph = (
-            {} if resource_dependency_graph is None else resource_dependency_graph
-        )
+        self.resource_dependency_graph = resource_dependency_graph
         self.skip_validation = skip_validation
         self.smem_allocator = smem_allocator
         self.tmem_allocator = tmem_allocator
@@ -177,7 +177,13 @@ class TaskManager:
             for resource in self.resources
             if resource.pipeline_config is not None
         ]
-        if self.barrier_allocator is None and len(pipeline_resources) > 1:
+        has_requested_barrier_offsets = any(
+            resource.pipeline_config.storage_offset_full is not None
+            for resource in pipeline_resources
+        )
+        if self.barrier_allocator is None and (
+            len(pipeline_resources) > 1 or has_requested_barrier_offsets
+        ):
             self.barrier_allocator = BarrierAllocator()
             for resource in pipeline_resources:
                 self.barrier_allocator.add_resource(resource)
@@ -600,6 +606,38 @@ class TaskManager:
         for resource in self.resources:
             resource.create_pipeline()
 
+    def _consumer_release_uses_per_warp_election(self, resource) -> bool:
+        """Return whether a TMA consumer contributes one arrival per warp."""
+        config = resource.pipeline_config
+        if config.pipeline_type is not PipelineType.TmaAsync:
+            return False
+        release_tasks = self._consumer_release_tasks(resource)
+        return bool(release_tasks) and config.consumer_group.size == sum(
+            task.num_warps for task in release_tasks
+        )
+
+    def _consumer_release_uses_all_threads(self, resource) -> bool:
+        """Return whether a TMA consumer deliberately bypasses lane routing."""
+        config = resource.pipeline_config
+        if config.pipeline_type is not PipelineType.TmaAsync:
+            return False
+        release_tasks = self._consumer_release_tasks(resource)
+        return bool(release_tasks) and config.consumer_group.size == sum(
+            task.num_warps * 32 for task in release_tasks
+        )
+
+    def _consumer_release_tasks(self, resource) -> list[Task]:
+        """Return tasks that release the specified resource's empty barrier."""
+        return [
+            task
+            for task in self.tasks
+            if any(
+                step.memory_resource is resource
+                and step.schedule_stage is ScheduleStage.ConsumerRelease
+                for step in _iter_steps(task.schedule)
+            )
+        ]
+
     def to_device(
         self,
         task_callbacks: (
@@ -632,7 +670,15 @@ class TaskManager:
             for resource in pipeline_resources:
                 pipeline_bindings.setdefault(
                     resource,
-                    DevicePipelineBinding.from_config(resource.pipeline_config),
+                    DevicePipelineBinding.from_config(
+                        resource.pipeline_config,
+                        consumer_elected_per_warp=(
+                            self._consumer_release_uses_per_warp_election(resource)
+                        ),
+                        consumer_all_threads=(
+                            self._consumer_release_uses_all_threads(resource)
+                        ),
+                    ),
                 )
         for resource in pipeline_resources:
             if resource not in pipeline_bindings:
@@ -655,7 +701,7 @@ class TaskManager:
                 raise ValueError("barrier allocator layout has not been computed")
             for resource in pipeline_resources:
                 try:
-                    barrier_offsets[resource] = (
+                    offsets = (
                         self.barrier_allocator.offset_of(f"{resource.name}.full"),
                         self.barrier_allocator.offset_of(f"{resource.name}.empty"),
                     )
@@ -664,6 +710,18 @@ class TaskManager:
                         "BarrierAllocator is missing full/empty storage for "
                         f"pipeline resource {resource.name!r}"
                     ) from error
+                config = resource.pipeline_config
+                requested_offsets = (
+                    config.storage_offset_full,
+                    config.storage_offset_empty,
+                )
+                if requested_offsets[0] is not None and offsets != requested_offsets:
+                    raise ValueError(
+                        f"BarrierAllocator assigned {resource.name!r} offsets "
+                        f"{offsets}, but its PipelineConfig requests "
+                        f"{requested_offsets}"
+                    )
+                barrier_offsets[resource] = offsets
             barrier_arena_size = self.barrier_allocator.padded_size
             barrier_initialization_runs = (
                 self.barrier_allocator.initialization_runs

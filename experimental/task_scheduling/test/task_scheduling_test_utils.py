@@ -29,3 +29,11 @@ def require_blackwell_cc100():
         compute_capability.major != 10,
         reason="feature requires Blackwell with compute capability 100",
     )
+
+
+def require_blackwell_cc120():
+    compute_capability = get_compute_capability()
+    return pytest.mark.skipif(
+        compute_capability.major != 12,
+        reason="feature requires Blackwell with compute capability 120",
+    )

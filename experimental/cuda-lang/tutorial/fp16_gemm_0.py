@@ -1,57 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of the CuTe DSL ``fp16_gemm_0.py`` tutorial.
+"""Single-CTA CUDA Lang FP16 GEMM tutorial.
 
-Computes ``C = A @ B.T`` with an optional FP16 row bias. The kernel retains
-the source tutorial's 128x128x64 single-CTA baseline: one shared-memory stage,
-explicit TMA and mbarrier operations, tcgen05 MMA into TMEM, FP32 accumulation,
-and an FP16 epilogue.
-
-CuTe DSL -> CUDA Lang API mapping used here:
-
-* ``@cute.kernel`` maps to ``@cl.kernel``. CuTe's ``warp_idx``, thread/block
-  indices, ``ceil_div``, and ``range_constexpr`` map to the corresponding
-  ``cl`` index operations, ``cl.cdiv``, and ``cl.static_iter``.
-* ``cutlass.Array(..., space=cutlass.AddressSpace.smem)`` maps to
-  ``cl.shared_array``. The A/B arrays are flattened in CUDA Lang, but retain
-  the source sizes, 128-byte alignment, and physical shared-memory layout.
-* ``cuda.create_tensor_map_tiled_from_view`` maps to ``cl.tensor_map_tiled``.
-  A and B remain row-major, K-contiguous 2-D tensors. CUDA Lang expresses the
-  TMA coordinate order explicitly as ``(K, M)`` / ``(K, N)`` using tile shapes
-  ``(BLOCK_K, BLOCK_M)`` / ``(BLOCK_K, BLOCK_N)`` and ``order="F"``; this is
-  equivalent to CuTe DSL automatically selecting K as the leading mode.
-* ``prims.cp_async_bulk_tensor_shared_cta_global`` maps to
-  ``cl.copy_async_bulk_tensor_global_to_shared``. The expected transaction
-  byte count and the TMA-completion mbarrier are unchanged.
-* ``prims.mbarrier_init``, ``mbarrier_arrive_expect_tx``, and
-  ``mbarrier_try_wait_parity`` map to ``cl.mbarrier_initialize``,
-  ``cl.mbarrier_arrive_expect_transaction``, and
-  ``cl.mbarrier_wait_parity``. The full/empty/accumulator barrier topology
-  and phase progression are preserved.
-* ``prims.Tcgen05InstrDesc.build`` and ``Tcgen05SmemDesc.build`` map to
-  ``cl.Tcgen05InstructionDescriptor`` and
-  ``cl.Tcgen05SharedMemoryDescriptor``, each followed by ``encode()``. Both
-  builders take byte-valued leading/stride offsets. Once encoded, the per-MMA
-  K-step is added in descriptor units of 16 bytes, hence ``2 * kk`` for each
-  32-byte F16 MMA K-step.
-* ``prims.tcgen05_alloc``, ``tcgen05_mma``, ``tcgen05_commit``,
-  ``tcgen05_ld``, and ``tcgen05_dealloc`` map directly to the corresponding
-  ``cl.tcgen05_*`` operations. Allocation size, MMA accumulation predicate,
-  commit barriers, 32-column TMEM loads, and deallocation size match the
-  source.
-* The CuTe ``@cute.jit`` host function builds tensor maps and launches the
-  device kernel. CUDA Lang instead declares tensor maps in ``@cl.kernel``;
-  compilation hoists their construction into the generated host program, so
-  both public launch interfaces still accept ordinary 2-D tensors.
-* ``cute.compile`` has no explicit CUDA Lang counterpart here. ``run()`` calls
-  ``cl.launch`` directly; the first launch compiles the kernel and later
-  launches reuse CUDA Lang's internal cache. K and ``has_bias`` are
-  ``cl.Constant`` specialization keys, while M and N remain runtime dimensions
-  of C.
-
-The CLI retains the source tutorial's correctness-checking interface. CUDA
-Lang-specific restrictions are validated explicitly.
+Computes ``C = A @ B.T`` with an optional FP16 row bias using a 128x128x64
+tile, one shared-memory stage, explicit TMA and mbarrier operations, tcgen05
+MMA into TMEM, FP32 accumulation, and an FP16 epilogue. A and B are row-major,
+K-contiguous tensors; ``order="F"`` expresses K as the leading TMA coordinate.
+Tensor maps declared in ``@cl.kernel`` are hoisted into the generated host
+program. K and ``has_bias`` are specialization keys, while M and N remain
+runtime dimensions of C. The CLI validates inputs and checks correctness.
 """
 
 from __future__ import annotations
@@ -100,8 +58,7 @@ def _kernel(
 
     # A/B are ordinary row-major (rows, K) arrays. ``order="F"`` reverses the
     # tensor-map modes to (K, rows), making K the contiguous TMA coordinate.
-    # This is the explicit CUDA Lang equivalent of CuTe DSL's leading-mode
-    # detection in create_tensor_map_tiled_from_view.
+    # The explicit mode order makes K the leading tensor-map dimension.
     a_tmap = cl.tensor_map_tiled(
         a,
         (BLOCK_K, BLOCK_M),

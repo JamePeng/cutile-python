@@ -331,8 +331,8 @@ class ScheduleBuilder:
         if escaped_loop:
             message += (
                 "; Python reassignment inside domain_loop() does not create "
-                "loop-carried state—declare the initial value with carried=... "
-                "and read and assign it through the loop handle"
+                "loop-carried state—use the functional domain_loop() form, "
+                "pass the initial value to loop_body, and return its next value"
             )
         raise ScheduleError(message)
 
@@ -606,53 +606,55 @@ def when_false(cond: object, *, key: Hashable | None = None):
     return _conditional(cond, key, True)
 
 
+def _require_active_domain_loop(api: str) -> None:
+    builder = _require_active_builder(f"{api}()")
+    if not any(isinstance(node, DomainLoop) for node in builder.stack):
+        raise ScheduleError(f"{api}() must be called inside domain_loop()")
+
+
+def first_iter():
+    """Capture a block that runs only on the first domain-loop iteration."""
+    _require_active_domain_loop("first_iter")
+    return when_true(FIRST_ITER)
+
+
+def last_iter():
+    """Capture a block that runs only on the last domain-loop iteration."""
+    _require_active_domain_loop("last_iter")
+    return when_true(LAST_ITER)
+
+
+def every(period: int, *, start: int = 0):
+    """Capture a block that runs periodically within the current domain loop."""
+    _require_active_domain_loop("every")
+    return when_true(Every(period, start))
+
+
 class DomainLoopProxy:
-    _RESERVED_NAMES = frozenset(
-        {"builder", "node", "first_iter", "last_iter", "every"}
-    )
+    __slots__ = ("builder", "node")
 
     def __init__(self, builder: ScheduleBuilder, node: DomainLoop) -> None:
         object.__setattr__(self, "builder", builder)
         object.__setattr__(self, "node", node)
 
-    def __getattr__(self, name: str) -> ScheduleValue:
-        if name not in self.node.initial_values:
-            raise AttributeError(name)
-        if self.node in self.builder.stack:
-            value = self.node.yield_values.get(name, self.node.iter_values[name])
-        else:
-            try:
-                value = self.node.result_values[name]
-            except KeyError as error:
-                raise ScheduleError("domain loop did not finish capturing") from error
-        return value
-
-    def __setattr__(self, name: str, value: ScheduleValue) -> None:
-        if name in {"builder", "node"}:
-            object.__setattr__(self, name, value)
-            return
-        if name not in self.node.initial_values:
-            raise AttributeError(name)
-        self._assign(name, value)
-
-    def _assign(self, name: str, value: ScheduleValue) -> None:
+    def _set_yield_values(self, values: tuple[object, ...]) -> None:
         self._check()
         if self.builder.stack[-1] is not self.node:
             raise ScheduleError(
-                "domain-loop carried assignments must be unconditional"
+                "functional domain-loop carried results must be unconditional"
             )
-        if not isinstance(value, ScheduleValue):
-            raise ScheduleError(
-                f"carried value {name!r} must be a work-call output token"
-            )
-        self.builder.validate_value_use(value, name)
-        initial = self.node.initial_values[name]
-        if value.stage_resource is not initial.stage_resource:
-            raise ScheduleError(
-                f"carried value {name!r} changes pipeline stage provenance"
-            )
-        updated = dict(self.node.yield_values)
-        updated[name] = value
+        updated = {}
+        for (name, initial), value in zip(self.node.initial_values.items(), values):
+            if not isinstance(value, ScheduleValue):
+                raise ScheduleError(
+                    f"carried value {name!r} must be a work-call output token"
+                )
+            self.builder.validate_value_use(value, name)
+            if value.stage_resource is not initial.stage_resource:
+                raise ScheduleError(
+                    f"carried value {name!r} changes pipeline stage provenance"
+                )
+            updated[name] = value
         object.__setattr__(self.node, "yield_values", updated)
 
     def _create_iter_values(self) -> None:
@@ -686,15 +688,15 @@ class DomainLoopProxy:
 
     def first_iter(self):
         self._check()
-        return when_true(FIRST_ITER)
+        return first_iter()
 
     def last_iter(self):
         self._check()
-        return when_true(LAST_ITER)
+        return last_iter()
 
     def every(self, period: int, *, start: int = 0):
         self._check()
-        return when_true(Every(period, start))
+        return every(period, start=start)
 
 
 class WorkTileLoopProxy:
@@ -709,12 +711,12 @@ class WorkTileLoopProxy:
 
 
 @contextmanager
-def domain_loop(
+def _domain_loop_scope(
     *bounds: object,
     unroll: int | None = None,
-    carried: Mapping[str, ScheduleValue] | None = None,
+    initial_values: Mapping[str, ScheduleValue] | None = None,
 ):
-    """Capture a range-like loop with optional named loop-carried SSA values."""
+    """Capture a range-like loop with internal loop-carried SSA values."""
     builder = _require_active_builder("domain_loop()")
     if len(bounds) == 1:
         start, end, step = 0, bounds[0], 1
@@ -728,22 +730,15 @@ def domain_loop(
         raise ScheduleError("domain_loop() step must be non-zero")
     if unroll is not None and (type(unroll) is not int or unroll < 1):
         raise ScheduleError("domain_loop() unroll must be a positive integer")
-    if carried is None:
+    if initial_values is None:
         initial_values = {}
-    elif not isinstance(carried, Mapping):
-        raise ScheduleError("domain_loop carried values must be a mapping")
+    elif not isinstance(initial_values, Mapping):
+        raise ScheduleError("domain_loop initial values must be a mapping")
     else:
-        initial_values = dict(carried)
+        initial_values = dict(initial_values)
     for name, value in initial_values.items():
-        if (
-            not isinstance(name, str)
-            or not name.isidentifier()
-            or name.startswith("_")
-            or name in DomainLoopProxy._RESERVED_NAMES
-        ):
-            raise ScheduleError(
-                "domain-loop carried names must be usable loop attributes"
-            )
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ScheduleError("domain-loop carried names must be valid identifiers")
         if not isinstance(value, ScheduleValue):
             raise ScheduleError(
                 f"carried value {name!r} must be a work-call output token"
@@ -766,6 +761,88 @@ def domain_loop(
     finally:
         builder.close_scope(node)
     proxy._create_results()
+
+
+def _functional_domain_loop(
+    start: object,
+    end: object,
+    step: object,
+    body: Callable[..., object],
+    initial_values: tuple[object, ...],
+    *,
+    unroll: int | None,
+):
+    """Capture a callback body and return its loop-carried results."""
+    parameters = tuple(inspect.signature(body).parameters.values())
+    expected_parameters = len(initial_values)
+    if len(parameters) != expected_parameters or any(
+        parameter.kind
+        not in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+        for parameter in parameters
+    ):
+        raise ScheduleError(
+            "functional domain_loop body must take exactly "
+            f"{len(initial_values)} carried values"
+        )
+    carried_names = tuple(parameter.name for parameter in parameters)
+    initial_values_by_name = dict(zip(carried_names, initial_values))
+    with _domain_loop_scope(
+        start,
+        end,
+        step,
+        unroll=unroll,
+        initial_values=initial_values_by_name,
+    ) as loop:
+        iter_values = tuple(loop.node.iter_values[name] for name in carried_names)
+        yielded = body(*iter_values)
+        if len(initial_values) == 0:
+            yielded_values = () if yielded is None else (yielded,)
+        elif len(initial_values) == 1 and isinstance(yielded, ScheduleValue):
+            yielded_values = (yielded,)
+        elif isinstance(yielded, tuple):
+            yielded_values = yielded
+        else:
+            yielded_values = (yielded,)
+        if len(yielded_values) != len(initial_values):
+            raise ScheduleError(
+                "functional domain_loop body must return one value for every "
+                f"carried input; expected {len(initial_values)}, got "
+                f"{len(yielded_values)}"
+            )
+        loop._set_yield_values(yielded_values)
+    results = tuple(loop.node.result_values[name] for name in carried_names)
+    if not results:
+        return None
+    return results[0] if len(results) == 1 else results
+
+
+def domain_loop(
+    *args: object,
+    unroll: int | None = None,
+):
+    """Capture a range-like loop in context-manager or functional form.
+
+    ``domain_loop(start, end, step, body, *initial_values)`` invokes ``body``
+    once during schedule capture with the iteration values. Its returned
+    work-call outputs form the loop backedge and are returned as the post-loop
+    results. Device work reads the current offset from ``stage_info.loop_offset``.
+    The context-manager form captures loops without loop-carried values.
+    """
+    if len(args) >= 4:
+        start, end, step, body, *initial_values = args
+        if not callable(body):
+            raise ScheduleError(
+                "the fourth functional domain_loop argument must be callable"
+            )
+        return _functional_domain_loop(
+            start,
+            end,
+            step,
+            body,
+            tuple(initial_values),
+            unroll=unroll,
+        )
+    return _domain_loop_scope(*args, unroll=unroll)
 
 
 def dynamic_domain_bound(

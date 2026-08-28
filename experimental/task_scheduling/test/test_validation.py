@@ -9,6 +9,7 @@ from task_scheduling_test_requirements import cuda_lang as cl
 from task_scheduling_test_requirements import task_scheduling as ts
 
 from cuda.lang.compilation import KernelSignature
+from task_scheduling.task import DeviceDebugStep
 
 
 def config(stages=1):
@@ -109,6 +110,7 @@ def test_manager_infers_task_roles_padding_and_frozen_ir():
     consumer_task = ts.Task(1, 1, schedule=consumer(pipe), name="consumer")
     manager = ts.TaskManager(
         [producer_task, consumer_task],
+        {},
         cta_warps=4,
         verbose=False,
     )
@@ -152,6 +154,7 @@ def test_manager_infers_memory_allocators_when_omitted():
 
     manager = ts.TaskManager(
         [ts.Task(0, 1, schedule=captured(resource))],
+        {},
         verbose=False,
         exhaustive_deadlock_race_check=False,
     )
@@ -160,6 +163,16 @@ def test_manager_infers_memory_allocators_when_omitted():
     assert manager.smem_allocator.layout_computed
     assert manager.tmem_allocator is not None
     assert manager.tmem_allocator.layout_computed
+
+
+def test_manager_requires_explicit_resource_dependency_graph():
+    @ts.schedule
+    def empty_schedule():
+        pass
+
+    task = ts.Task(0, 1, schedule=empty_schedule())
+    with pytest.raises(TypeError, match="resource_dependency_graph"):
+        ts.TaskManager([task], verbose=False)
 
 
 def test_verbose_report_prints_budgets_schedules_and_safety(capsys):
@@ -235,6 +248,47 @@ def test_manager_freezes_device_tasks_in_validated_order():
         manager.to_device([consumer_device, producer_device])
 
 
+def test_task_debug_print_lowers_before_and_after_runtime_diagnostics():
+    resource = Pipe(name="debug_resource")
+
+    @ts.schedule
+    def captured(data):
+        data.write()
+
+    task = ts.Task(
+        0,
+        1,
+        schedule=captured(resource),
+        name="DebugTask",
+        debug_print=True,
+    )
+    device_task = task.to_device()
+    debug_step = device_task.body[0]
+
+    assert task.debug_print
+    assert isinstance(debug_step, DeviceDebugStep)
+    assert debug_step.task_name == "DebugTask"
+    assert debug_step.resource_name == "debug_resource"
+    assert debug_step.stage_name == "ProducerWork"
+
+    @cl.kernel
+    def kernel():
+        device_task(device_task.make_context(()))
+
+    compiled = cl.compile_simt(
+        kernel,
+        [KernelSignature(())],
+        gpu_name="sm_100a",
+        arch="compute_100a",
+        keep_final_ir=True,
+    )
+    final_ir = str(compiled.final_ir)
+    assert final_ir.count("tile_printf") == 2
+    assert "DebugTask : debug_resource" in final_ir
+    assert "BeforeProducerWork" in final_ir
+    assert "AfterProducerWork" in final_ir
+
+
 def test_manager_derives_pipeline_binding_and_hides_barrier_offsets():
     pipe = Pipe(name="pipe", pipeline_config=config())
     source, sink, producer, consumer = make_balanced_tasks(pipe)
@@ -260,6 +314,136 @@ def test_manager_derives_pipeline_binding_and_hides_barrier_offsets():
     assert device_manager.smem_size_bytes == 0
     assert device_manager.pipeline_bindings[0].full_barrier_offset == 0
     assert device_manager.pipeline_bindings[0].empty_barrier_offset == 1
+
+
+def test_manager_honors_pipeline_barrier_storage_offsets():
+    pipeline_config = ts.PipelineConfig.create_async_async_pipeline_cfg(
+        2,
+        ts.CooperativeGroup(32),
+        ts.CooperativeGroup(32),
+        storage_offset_full=5,
+        storage_offset_empty=9,
+    )
+    pipe = Pipe(name="offset_pipe", pipeline_config=pipeline_config)
+    source, sink, producer, consumer = make_balanced_tasks(pipe)
+    manager = ts.TaskManager(
+        [producer, consumer],
+        {pipe: [source], sink: [pipe]},
+        verbose=False,
+    )
+
+    device_manager = manager.to_device()
+    binding = device_manager.pipeline_bindings[0]
+    assert binding.full_barrier_offset == 5
+    assert binding.empty_barrier_offset == 9
+    assert device_manager.barrier_arena_size == 32
+
+
+def test_clustered_tma_async_multicast_routing_compiles():
+    pipeline_config = ts.PipelineConfig.create_tma_async_pipeline_cfg(
+        1,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(2),
+        cta_layout_vmnk=(1, 2, 2, 1),
+        mcast_mode_mn=(1, 0),
+        consumer_wait_signaling_threads=ts.SignalingThreads.CtaLeader,
+    )
+    pipe = Pipe(name="cluster_pipe", pipeline_config=pipeline_config)
+    source, sink, producer, consumer = make_balanced_tasks(pipe)
+    manager = ts.TaskManager(
+        [producer, consumer],
+        {pipe: [source], sink: [pipe]},
+        verbose=False,
+    )
+    device_manager = manager.to_device()
+
+    binding = device_manager.pipeline_bindings[0]
+    assert binding.cluster_size == 4
+    assert binding.mcast_mode_mn == (1, 0)
+    assert binding.consumer_wait_cta_leader
+
+    @cl.kernel
+    def kernel():
+        device_allocators = device_manager.setup_resources_and_tasks()
+        device_manager.run((), device_allocators)
+
+    compiled = cl.compile_simt(
+        kernel,
+        [KernelSignature(())],
+        gpu_name="sm_100a",
+        arch="compute_100a",
+        keep_ptx=True,
+    )
+    assert "mapa.shared::cluster" in compiled.ptx
+
+
+def test_multigroup_tma_umma_release_mask_compiles():
+    pipeline_config = ts.PipelineConfig.create_tma_umma_pipeline_cfg(
+        1,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(4),
+        cta_layout_vmnk=(2, 2, 2, 1),
+        mcast_mode_mn=(0, 1),
+        consumer_signaling_threads=ts.SignalingThreads.CtaLeader,
+    )
+    pipe = Pipe(name="multigroup_pipe", pipeline_config=pipeline_config)
+    source, sink, producer, consumer = make_balanced_tasks(pipe)
+    manager = ts.TaskManager(
+        [producer, consumer],
+        {pipe: [source], sink: [pipe]},
+        verbose=False,
+    )
+    device_manager = manager.to_device()
+
+    @cl.kernel
+    def kernel():
+        device_allocators = device_manager.setup_resources_and_tasks()
+        device_manager.run((), device_allocators)
+
+    compiled = cl.compile_simt(
+        kernel,
+        [KernelSignature(())],
+        gpu_name="sm_100a",
+        arch="compute_100a",
+        keep_ptx=True,
+    )
+    assert "tcgen05.commit.cta_group::2" in compiled.ptx
+    assert "multicast::cluster" in compiled.ptx
+
+
+def test_multigroup_async_umma_routes_to_v_group_leader():
+    pipeline_config = ts.PipelineConfig.create_async_umma_pipeline_cfg(
+        1,
+        ts.CooperativeGroup(64),
+        ts.CooperativeGroup(1),
+        cta_layout_vmnk=(2, 2, 1, 1),
+        consumer_signaling_threads=ts.SignalingThreads.CtaLeader,
+    )
+    pipe = Pipe(name="async_umma_pipe", pipeline_config=pipeline_config)
+    source, sink, producer, consumer = make_balanced_tasks(pipe)
+    manager = ts.TaskManager(
+        [producer, consumer],
+        {pipe: [source], sink: [pipe]},
+        verbose=False,
+    )
+    device_manager = manager.to_device()
+
+    @cl.kernel
+    def kernel():
+        device_allocators = device_manager.setup_resources_and_tasks()
+        device_manager.run((), device_allocators)
+
+    compiled = cl.compile_simt(
+        kernel,
+        [KernelSignature(())],
+        gpu_name="sm_100a",
+        arch="compute_100a",
+        keep_ptx=True,
+    )
+    assert "mapa.shared::cluster" in compiled.ptx
+    assert "tcgen05.commit.cta_group::2" in compiled.ptx
 
 
 def test_manager_coalesces_more_than_three_pipeline_resources():

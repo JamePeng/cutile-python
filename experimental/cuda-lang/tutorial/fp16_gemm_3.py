@@ -1,31 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of the CuTe DSL ``fp16_gemm_3.py`` tutorial.
+"""Warp-specialized persistent CUDA Lang FP16 GEMM tutorial.
 
 Computes ``C = A @ B.T`` with an optional FP16 row bias. Two CTAs collaborate
 on each 256x256 output tile. GEMM3 adds warp specialization, persistent tile
 scheduling, a six-stage A/B SMEM pipeline, and a two-stage TMEM accumulator
 pipeline: epilogue warps 0-3 store C, warp 4 issues MMA, and warp 5 issues TMA.
 
-Additional CuTe DSL -> CUDA Lang notes beyond ``fp16_gemm_2.py``:
-
-* CuTe DSL uses ``StaticPersistentTileScheduler``. This sample shows that a
-  similar abstraction can be built from CUDA Lang's ordinary Python
-  primitives: a frozen dataclass holding the configuration plus methods that
-  CUDA Lang inlines into the kernel. The instance uses the source's no-swizzle,
-  M-raster, one-batch, (2, 1, 1)-cluster configuration. CUDA Lang does not
-  support dataclass ``__post_init__``, so configuration validation is an
-  explicit host-side method call.
-* The source queries ``utils.HardwareInfo().get_max_active_clusters`` using a
-  compiled dummy kernel and the CUDA occupancy API. PyTorch does not expose
-  that occupancy query, so at launch time this sample queries the current
-  device's SM count and divides by the number of CTAs per cluster. This gives
-  the same value for the source's two-CTA cluster on B200, without adding a
-  dummy compile step.
-The implementation otherwise retains the source's warp roles, cluster shape,
-pipeline stages, data movement, barrier phases, CTA_2 MMA sequence, staged TMEM
-epilogue, peer deallocation synchronization, and vector stores.
+The persistent scheduler is a frozen dataclass whose methods are inlined into
+the kernel. It uses a no-swizzle, M-raster, one-batch, (2, 1, 1)-cluster
+configuration, with explicit host-side validation. At launch, the persistent
+cluster count is derived from the current device's SM count and the number of
+CTAs per cluster, avoiding a separate occupancy-probe kernel.
 """
 
 from __future__ import annotations

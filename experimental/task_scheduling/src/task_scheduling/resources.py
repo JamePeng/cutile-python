@@ -1,13 +1,15 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pure-Python resource, pipeline, and work-method metadata."""
+"""Resource, pipeline, and work-method definitions."""
 
 import functools
 import inspect
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable
+
+import cuda.lang as cl
 
 from .enums import PipelineType, ScheduleStage, SignalingThreads, WorkAttr
 
@@ -249,6 +251,14 @@ class PipelineConfig:
 
 
 @dataclass(frozen=True)
+class WorkTileInfo:
+    """Coordinates and validity of the work tile currently owned by a task."""
+
+    tile_idx: object
+    is_valid_tile: object = True
+
+
+@dataclass(frozen=True)
 class StageInfo:
     """Current loop and pipeline stage passed to device work methods."""
 
@@ -453,8 +463,8 @@ class MemoryResource:
     def create_pipeline(self) -> object:
         if self.pipeline_config is None:
             return None
-        # Keep the resource model independent of the device implementation at
-        # import time; pipeline.py imports PipelineConfig from this module.
+        # Import lazily to avoid a module cycle; pipeline.py imports
+        # PipelineConfig from this module.
         from .pipeline import require_device_support
 
         require_device_support(self.pipeline_config)
@@ -462,13 +472,43 @@ class MemoryResource:
 
 
 @dataclass(kw_only=True, eq=False)
+class PdlWaitBarrier(MemoryResource):
+    """Ordering resource for a programmatic launch dependency wait.
+
+    The host schedule records :meth:`wait_griddep` as an ordinary resource
+    operation and uses the same static work method as its device callback.
+    """
+
+    is_barrier: bool = True
+
+    @consumer_work(work_attrs=WorkAttr.AUXILIARY)
+    @staticmethod
+    def wait_griddep(stage_info):
+        cl.grid_dependency_control_wait()
+
+
+@dataclass(kw_only=True, eq=False)
+class PdlLaunchBarrier(MemoryResource):
+    """Ordering resource for launching a programmatically dependent grid."""
+
+    is_barrier: bool = True
+
+    @producer_work(work_attrs=WorkAttr.AUXILIARY)
+    @staticmethod
+    def launch_griddep(stage_info):
+        cl.grid_dependency_control_launch_dependents()
+
+
+@dataclass(kw_only=True, eq=False)
 class WorkQueue(MemoryResource):
     """Resource marker used by persistent work-tile loops."""
 
+    tile_scheduler_config: object | None = None
+
     @consumer_work(outputs=1)
     def get_and_advance_work_tile(self, stage_info):
-        raise RuntimeError("WorkQueue methods are executed only in a device context")
+        raise RuntimeError("WorkQueue methods lower to scheduler-state device nodes")
 
     @producer_work
     def fetch_work_tile(self, stage_info):
-        raise RuntimeError("WorkQueue methods are executed only in a device context")
+        raise RuntimeError("WorkQueue methods lower to scheduler-state device nodes")

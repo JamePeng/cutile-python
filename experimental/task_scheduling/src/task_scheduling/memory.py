@@ -370,11 +370,18 @@ class BarrierAllocation:
     num_barriers: int
     arrive_count: int
     mbarrier_layout: MbarrierLayout = MbarrierLayout.V0
+    requested_offset: int | None = None
     offset: int = field(init=False, default=0)
 
     def __post_init__(self) -> None:
         if self.num_barriers <= 0 or self.arrive_count <= 0:
             raise ValueError("barrier count and arrival count must be positive")
+        if self.mbarrier_layout is MbarrierLayout.V1 and self.arrive_count > 511:
+            raise ValueError("V1 mbarrier arrival count must be at most 511")
+        if self.requested_offset is not None and (
+            type(self.requested_offset) is not int or self.requested_offset < 0
+        ):
+            raise ValueError("requested barrier offset must be a nonnegative integer")
 
     @classmethod
     def from_group(
@@ -383,8 +390,15 @@ class BarrierAllocation:
         num_barriers: int,
         group: CooperativeGroup,
         mbarrier_layout: MbarrierLayout = MbarrierLayout.V0,
+        requested_offset: int | None = None,
     ) -> "BarrierAllocation":
-        return cls(name, num_barriers, group.size, mbarrier_layout)
+        return cls(
+            name,
+            num_barriers,
+            group.size,
+            mbarrier_layout,
+            requested_offset,
+        )
 
 
 class BarrierAllocator:
@@ -428,17 +442,77 @@ class BarrierAllocator:
         config = getattr(resource, "pipeline_config", None)
         if config is None:
             raise ValueError(f"resource {resource.name!r} has no pipeline_config")
-        self.add_producer_consumer(
-            resource.name,
-            config.num_stages,
-            config.producer_group,
-            config.consumer_group,
+        self.add(
+            BarrierAllocation.from_group(
+                f"{resource.name}.full",
+                config.num_stages,
+                config.producer_group,
+                config.full_mbarrier_layout,
+                config.storage_offset_full,
+            )
+        )
+        self.add(
+            BarrierAllocation.from_group(
+                f"{resource.name}.empty",
+                config.num_stages,
+                config.consumer_group,
+                config.empty_mbarrier_layout,
+                config.storage_offset_empty,
+            )
         )
         self._resources.append(resource)
 
     def compute_layout(self) -> None:
         if self._computed:
             raise RuntimeError("compute_layout() already called")
+        requested = [
+            allocation
+            for allocation in self._allocations.values()
+            if allocation.requested_offset is not None
+        ]
+        if requested:
+            occupied: list[tuple[int, int, str]] = []
+            for allocation in sorted(
+                requested, key=lambda item: item.requested_offset
+            ):
+                begin = allocation.requested_offset
+                end = begin + allocation.num_barriers
+                for other_begin, other_end, other_name in occupied:
+                    if begin < other_end and other_begin < end:
+                        raise ValueError(
+                            f"barrier allocation {allocation.name!r} overlaps "
+                            f"{other_name!r}"
+                        )
+                allocation.offset = begin
+                occupied.append((begin, end, allocation.name))
+
+            cursor = max(end for _, end, _ in occupied)
+            automatic = [
+                allocation
+                for allocation in self._allocations.values()
+                if allocation.requested_offset is None
+            ]
+            for layout in MbarrierLayout:
+                layout_allocations = [
+                    allocation
+                    for allocation in automatic
+                    if allocation.mbarrier_layout is layout
+                ]
+                if not layout_allocations:
+                    continue
+                cursor = _align_up(cursor, 32)
+                for arrive_count in sorted(
+                    {allocation.arrive_count for allocation in layout_allocations}
+                ):
+                    for allocation in layout_allocations:
+                        if allocation.arrive_count == arrive_count:
+                            allocation.offset = cursor
+                            cursor += allocation.num_barriers
+                cursor = _align_up(cursor, 32)
+            self._padded = _align_up(cursor, 32)
+            self._computed = True
+            return
+
         cursor = 0
         for layout in MbarrierLayout:
             allocations = [

@@ -1,19 +1,18 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-"""CUDA Lang port of ``nvfp4_gemm_2_quantize_fp4.py``.
+"""CUDA Lang NVFP4 GEMM tutorial with a fused FP4 epilogue.
 
 The kernel performs a CTA_2 NVFP4 GEMM and supports either an FP16 epilogue or
-fused per-row, block-16 E2M1 FP4 quantization with E4M3 output scales.  It keeps
-the source tutorial's 256x256x256 collective tile, five-stage cluster-TMA
-pipeline, eight-warp role assignment, bulk/interleaved scale-factor staging,
-CTA_2 MXF4NVF4 MMA, FP32 accumulation, and packed FP4 byte order.
+fused per-row, block-16 E2M1 FP4 quantization with E4M3 output scales. It uses a
+256x256x256 collective tile, a five-stage cluster-TMA pipeline, eight
+specialized warps, bulk/interleaved scale-factor staging, CTA_2 MXF4NVF4 MMA,
+FP32 accumulation, and packed FP4 byte order.
 
-Like the CuTe DSL source, this port uses a CLC dynamic persistent scheduler,
-two overlapped TMEM accumulator windows, and a shared-memory TMA output store.
-The main shared-memory regions use one 1024-byte-aligned dynamic allocation;
-the two CLC response tokens remain statically allocated to match CuTe's CLC
-response allocation.
+A CLC dynamic persistent scheduler drives two overlapped TMEM accumulator
+windows and a shared-memory TMA output store. The main shared-memory regions
+use one 1024-byte-aligned dynamic allocation, while the two CLC response tokens
+remain statically allocated.
 """
 
 from __future__ import annotations
@@ -176,7 +175,7 @@ def _quantize_fp4_block(values, base, alpha):
 
 
 def _swizzle_128b(byte_offset):
-    """Apply CuTe's Swizzle<3, 4, 3> to a byte address."""
+    """Apply the 128-byte TMA swizzle to a byte address."""
     return byte_offset ^ ((byte_offset >> 3) & 0x70)
 
 
@@ -393,8 +392,8 @@ def _kernel(
 
                 empty_bar = ab_empty.get_element_pointer(stage)
                 full_bar = ab_full.get_element_pointer(stage)
-                # Match CuTe: re-elect for each divergent collective region
-                # instead of carrying one elected lane across K iterations.
+                # Re-elect for each divergent collective region instead of
+                # carrying one elected lane across K iterations.
                 if cl.elect_sync():
                     cl.mbarrier_wait_parity(empty_bar, empty_phase)
                     if is_leader:
@@ -486,9 +485,9 @@ def _kernel(
 
         while has_work:
             if is_leader:
-                # Match CuTe's initial phase-1 token. The initialized barrier
-                # makes the first accumulator window immediately available;
-                # each epilogue arrival releases the next alternating window.
+                # The initial phase-1 token makes the first accumulator window
+                # immediately available; each epilogue arrival releases the
+                # next alternating window.
                 acc_empty_phase = (tile_iteration + 1) & 1
                 cl.mbarrier_wait_parity(
                     acc_empty.get_base_pointer(), acc_empty_phase

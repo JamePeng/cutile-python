@@ -3,10 +3,9 @@
 
 """Shared helpers for the CUDA Lang Blackwell FMHA-prefill tutorial.
 
-This module mirrors DKG's single fmha_prefill_helpers.py dependency. It
-contains the pure-Python mask/work-tile formulas, specialization traits,
-CUDA Lang leaf device helpers, and host-side tensor/reference utilities used
-by fmha_prefill.py and its focused tests.
+This module contains the pure-Python mask/work-tile formulas, specialization
+traits, CUDA Lang leaf device helpers, and host-side tensor/reference utilities
+used by fmha_prefill.py and its focused tests.
 """
 
 from __future__ import annotations
@@ -1218,9 +1217,9 @@ def _validate_output_traits(traits: OutputTraits) -> None:
 # Leaf CUDA Lang device helpers.
 # ---------------------------------------------------------------------------
 
-# CUTLASS Swizzle<B, 4, 3> uses B={1,2,3} for 32/64/128-byte TMA
-# swizzles.  The XOR source bits start at byte-address bit 7 and the
-# destination bits start at bit 4.
+# Swizzle<B, 4, 3> uses B={1,2,3} for 32/64/128-byte TMA swizzles. The XOR
+# source bits start at byte-address bit 7 and the destination bits start at
+# bit 4.
 SWIZZLE_32B_BITS = 1
 SWIZZLE_64B_BITS = 2
 SWIZZLE_128B_BITS = 3
@@ -1312,7 +1311,7 @@ def unpack_e4m3_lane(packed, lane):
 
 @cl.function
 def swizzle_byte_offset(byte_offset, swizzle_bits):
-    """Apply CUTLASS ``Swizzle<B,4,3>`` to a slice-local byte offset.
+    """Apply ``Swizzle<B,4,3>`` to a slice-local byte offset.
 
     The operation is its own inverse because it XORs bits 4..6 using bits
     7..9, which are not modified.  ``swizzle_bits`` must be 1, 2, or 3.
@@ -1906,8 +1905,8 @@ def prepare_tensors(
     """Allocate fixed or flattened-varlen tensors on ``device``.
 
     Custom Q/K/V inputs are interpreted in storage order and must be supplied
-    together.  Reference inputs retain the original FP32 source values, matching
-    the CUTLASS example's ``create_and_pad_tensor`` contract.
+    together. Reference inputs retain the original FP32 values used for the
+    correctness calculation.
     """
 
     torch_module = _require_torch()

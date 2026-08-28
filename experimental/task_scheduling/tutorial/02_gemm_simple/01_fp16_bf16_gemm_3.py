@@ -56,6 +56,7 @@ B_SMEM_OFFSET_BYTES = AB_STAGES * A_STAGE_ELEMS * IO_ELEMENT_BYTES
 _DEFAULT_MNK = (512, 512, 512)
 _DEFAULT_TOLERANCE = 1.0e-1
 _DTYPE_MAP = {"fp16": torch.float16, "bf16": torch.bfloat16}
+debug_print = False
 
 
 # -----------------------------------------------------------------------------
@@ -265,12 +266,20 @@ class GmemDResource(ts.MemoryResource):
 def load_schedule(stage_info, gmem_ab, smem_ab):
     # Initialize A/B views once, then route them with each coordinate value.
     a_smem, b_smem = smem_ab.init_load_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         coord_k, coord_m, coord_n = gmem_ab.compute_coords()
         smem_ab.try_acquire()
         smem_ab.acquire()
         smem_ab.tma_load(a_smem, b_smem, coord_k, coord_m, coord_n)
         smem_ab.commit()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
 
 
 @ts.schedule
@@ -281,12 +290,20 @@ def mma_schedule(stage_info, smem_ab, tmem_c):
     tmem_c.init_work_tile_state()
     tmem_c.try_acquire()
     tmem_c.acquire()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         smem_ab.try_wait()
         smem_ab.wait()
         desc_a_base, desc_b_base = smem_ab.build_descriptors(a_smem, b_smem)
         tmem_c.mma(desc_a_base, desc_b_base, idesc)
         smem_ab.release()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
     tmem_c.commit()
 
 
@@ -381,6 +398,7 @@ def make_gemm_program():
         schedule=load_schedule(gmem_ab, smem_ab),
         num_registers=40,
         name="LoadTask",
+        debug_print=debug_print,
     )
     mma_task = ts.Task(
         MMA_TASK_WARP_IDX,
@@ -388,6 +406,7 @@ def make_gemm_program():
         schedule=mma_schedule(smem_ab, tmem_c),
         num_registers=40,
         name="MmaTask",
+        debug_print=debug_print,
     )
     store_task = ts.Task(
         STORE_TASK_WARP_IDX,
@@ -395,6 +414,7 @@ def make_gemm_program():
         schedule=store_schedule(tmem_c, gmem_d),
         num_registers=160,
         name="StoreTask",
+        debug_print=debug_print,
     )
     padding_task = ts.Task(
         PADDING_TASK_WARP_IDX,
@@ -402,6 +422,7 @@ def make_gemm_program():
         schedule=padding_schedule(),
         num_registers=40,
         name="PaddingTask",
+        debug_print=debug_print,
     )
 
     smem_allocator = ts.SmemAllocator()
@@ -433,6 +454,7 @@ def make_gemm_program():
 
     manager = ts.TaskManager(
         tasks=[load_task, mma_task, store_task, padding_task],
+        resource_dependency_graph={},
         smem_allocator=smem_allocator,
         tmem_allocator=tmem_allocator,
         barrier_allocator=barrier_allocator,

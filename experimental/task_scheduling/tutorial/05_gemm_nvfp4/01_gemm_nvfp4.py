@@ -76,6 +76,7 @@ VEC_BYTES = 32
 
 _DEFAULT_MNKL = (256, 256, 256, 1)
 _DEFAULT_TOLERANCE = 1.0e-1
+debug_print = False
 
 
 @dataclass(frozen=True)
@@ -216,7 +217,7 @@ class SmemAResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base
+            stage_info.context.cluster_smem_base.get_base_pointer()
             + cl.uint32(A_SMEM_OFFSET_BYTES)
         )
 
@@ -265,7 +266,7 @@ class SmemBResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base
+            stage_info.context.cluster_smem_base.get_base_pointer()
             + cl.uint32(B_SMEM_OFFSET_BYTES)
         )
 
@@ -314,7 +315,7 @@ class SmemSfAResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base
+            stage_info.context.cluster_smem_base.get_base_pointer()
             + cl.uint32(SFA_SMEM_OFFSET_BYTES)
         )
 
@@ -363,7 +364,7 @@ class SmemSfBResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base
+            stage_info.context.cluster_smem_base.get_base_pointer()
             + cl.uint32(SFB_SMEM_OFFSET_BYTES)
         )
 
@@ -584,7 +585,8 @@ def load_schedule(
     b_smem_address = smem_b.init_load_state()
     sfa_smem_address = smem_sfa.init_load_state()
     sfb_smem_address = smem_sfb.init_load_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         a_coord_k, a_coord_m, a_coord_l = gmem_a.compute_coords()
         b_coord_k, b_coord_n, b_coord_l = gmem_b.compute_coords()
         sfa_coord_k, sfa_coord_m, sfa_coord_l = gmem_sfa.compute_coords()
@@ -609,13 +611,21 @@ def load_schedule(
         smem_b.commit()
         smem_sfa.commit()
         smem_sfb.commit()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
 
 
 @ts.schedule
 def load_a_sf_schedule(stage_info, gmem_a, gmem_sfa, smem_a, smem_sfa):
     a_smem_address = smem_a.init_load_state()
     sfa_smem_address = smem_sfa.init_load_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         a_coord_k, a_coord_m, a_coord_l = gmem_a.compute_coords()
         sfa_coord_k, sfa_coord_m, sfa_coord_l = gmem_sfa.compute_coords()
         smem_a.try_acquire()
@@ -629,12 +639,20 @@ def load_a_sf_schedule(stage_info, gmem_a, gmem_sfa, smem_a, smem_sfa):
         smem_a.commit()
         smem_sfa.commit()
 
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
+
 
 @ts.schedule
 def load_b_sf_schedule(stage_info, gmem_b, gmem_sfb, smem_b, smem_sfb):
     b_smem_address = smem_b.init_load_state()
     sfb_smem_address = smem_sfb.init_load_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         b_coord_k, b_coord_n, b_coord_l = gmem_b.compute_coords()
         sfb_coord_k, sfb_coord_n, sfb_coord_l = gmem_sfb.compute_coords()
         smem_b.try_acquire()
@@ -647,6 +665,13 @@ def load_b_sf_schedule(stage_info, gmem_b, gmem_sfb, smem_b, smem_sfb):
         )
         smem_b.commit()
         smem_sfb.commit()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
 
 
 @ts.schedule
@@ -670,7 +695,8 @@ def mma_schedule(
     tmem_c.init_work_tile_state()
     tmem_c.try_acquire()
     tmem_c.acquire()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_k_tiles):
+
+    def loop_body():
         smem_a.try_wait()
         smem_b.try_wait()
         smem_sfa.try_wait()
@@ -690,6 +716,13 @@ def mma_schedule(
         smem_b.release()
         smem_sfa.release()
         smem_sfb.release()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_k_tiles,
+        1,
+        loop_body,
+    )
     tmem_c.commit()
 
 
@@ -837,6 +870,7 @@ def make_gemm_program(use_two_tma_warps=False):
                 ),
                 num_registers=40,
                 name="LoadTask",
+                debug_print=debug_print,
             )
         )
     else:
@@ -850,6 +884,7 @@ def make_gemm_program(use_two_tma_warps=False):
                     ),
                     num_registers=40,
                     name="LoadATask",
+                    debug_print=debug_print,
                 ),
                 ts.Task(
                     LOAD_B_TASK_WARP_IDX,
@@ -859,6 +894,7 @@ def make_gemm_program(use_two_tma_warps=False):
                     ),
                     num_registers=40,
                     name="LoadBTask",
+                    debug_print=debug_print,
                 ),
             )
         )
@@ -876,6 +912,7 @@ def make_gemm_program(use_two_tma_warps=False):
         ),
         num_registers=40,
         name="MmaTask",
+        debug_print=debug_print,
         run_only_on_cta_id=0,
     )
     store_task = ts.Task(
@@ -884,6 +921,7 @@ def make_gemm_program(use_two_tma_warps=False):
         schedule=store_schedule(tmem_c, gmem_d),
         num_registers=160,
         name="StoreTask",
+        debug_print=debug_print,
     )
     max_warp_end = max(task.warp_end for task in [mma_task, store_task, *load_tasks])
     padding_warps = config.block_warps - max_warp_end
@@ -895,6 +933,7 @@ def make_gemm_program(use_two_tma_warps=False):
             schedule=padding_schedule(),
             num_registers=40,
             name="PaddingTask",
+            debug_print=debug_print,
         )
 
     smem_allocator = ts.SmemAllocator(default_add_barriers=False)
@@ -943,6 +982,7 @@ def make_gemm_program(use_two_tma_warps=False):
         tasks.append(padding_task)
     manager = ts.TaskManager(
         tasks=tasks,
+        resource_dependency_graph={},
         smem_allocator=smem_allocator,
         tmem_allocator=tmem_allocator,
         barrier_allocator=barrier_allocator,

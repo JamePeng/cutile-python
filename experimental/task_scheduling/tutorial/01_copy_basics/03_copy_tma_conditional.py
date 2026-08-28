@@ -213,10 +213,11 @@ class TraceGmemResource(ts.MemoryResource):
 def load_schedule(stage_info, input_gmem, smem, trace):
     # Initialize once per task and route the same typed view through every row.
     smem_view = smem.init_load_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_rows) as domain:
-        with domain.first_iter():
+
+    def loop_body():
+        with ts.first_iter():
             trace.mark_begin()
-        with domain.every(HEARTBEAT_PERIOD):
+        with ts.every(HEARTBEAT_PERIOD):
             trace.record_heartbeat()
         coordinate = input_gmem.compute_coords()
         smem.try_acquire()
@@ -224,12 +225,20 @@ def load_schedule(stage_info, input_gmem, smem, trace):
         smem.tma_load(smem_view, coordinate)
         smem.commit()
 
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_rows,
+        1,
+        loop_body,
+    )
+
 
 @ts.schedule
 def store_schedule(stage_info, smem, output_gmem, trace):
     # The consumer task has a private context, so it initializes its own route.
     smem_view = smem.init_read_state()
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_rows) as domain:
+
+    def loop_body():
         smem.try_wait()
         smem.wait()
         value = smem.read_smem(smem_view)
@@ -238,14 +247,28 @@ def store_schedule(stage_info, smem, output_gmem, trace):
         with ts.when_true(highlight):
             trace.mark_highlight()
         output_gmem.store(value)
-        with domain.last_iter():
+        with ts.last_iter():
             trace.mark_end()
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_rows,
+        1,
+        loop_body,
+    )
 
 
 @ts.schedule
 def padding_schedule(stage_info):
-    with ts.domain_loop(stage_info.context.tasks_inputs.num_rows):
+    def loop_body():
         pass
+
+    ts.domain_loop(
+        0,
+        stage_info.context.tasks_inputs.num_rows,
+        1,
+        loop_body,
+    )
 
 
 @dataclass(frozen=True)
@@ -321,6 +344,7 @@ def make_tma_copy_program():
 
     manager = ts.TaskManager(
         tasks=[load_task, store_task, padding_task],
+        resource_dependency_graph={},
         smem_allocator=allocator,
         exhaustive_deadlock_race_check=True,
         exhaustive_representative_domain=True,
