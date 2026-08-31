@@ -44,6 +44,16 @@ _NVVM_ROUNDING_MODES = {
 }
 
 
+def _enum_to_nvvm_enum(cl_enum_value, nvvm_enum):
+    nvvm_enum_value = getattr(nvvm_enum, cl_enum_value.name, None)
+    if nvvm_enum_value is None:
+        raise InternalError(
+            f"Expected enum {type(cl_enum_value)} to have corresponding "
+            "enum in MLIR bindings but it could not be found"
+        )
+    return nvvm_enum_value
+
+
 def _expect_arith_type(ty: ir_type.Type) -> ir_type.TensorLikeTy:
     assert isinstance(ty, ir_type.TensorLikeTy)
     assert datatype.is_arithmetic(ty.tensor_dtype())
@@ -1640,13 +1650,13 @@ def lower_raw_llvm_intrinsic(
     return tuple(_lower_intrinsic_result(context, mlir_values))
 
 
-@mlir_op_lowering
-def lower_raw_mlir_operation(
-    context: MLIRLoweringContext, operation: ops.RawMLIROperation
+def _emit_mlir_operation(
+    context: MLIRLoweringContext,
+    operation: ir.Operation,
+    name: str,
+    operands: Sequence[ir.Var],
+    attributes: Sequence[tuple[str, mlir.Attribute]] = (),
 ) -> Sequence[mlir.Value]:
-    operands = tuple(
-        _lower_intrinsic_operand(context, operand) for operand in operation.operands_
-    )
     result_types = tuple(
         _lower_intrinsic_result_type(
             context,
@@ -1654,13 +1664,230 @@ def lower_raw_mlir_operation(
         )
     )
     results = mlir.add_operation(
-        name=operation.op_name,
+        name=name,
         result_type=result_types,
-        operands=operands,
+        operands=tuple(
+            _lower_intrinsic_operand(context, operand) for operand in operands
+        ),
         properties=(),
-        attributes=operation.mlir_attributes,
+        attributes=attributes,
     )
     return tuple(_lower_intrinsic_result(context, results))
+
+
+def _math_fast_attributes(approx: bool) -> tuple[tuple[str, mlir.Attribute], ...]:
+    flags = mlir.arith.FastMathFlags.afn if approx else mlir.arith.FastMathFlags.none
+    return (("fastmath", mlir.arith.FastMathFlagsAttr(value=flags)),)
+
+
+@mlir_op_lowering
+def lower_math_unary(
+    context: MLIRLoweringContext, operation: ops.MathUnaryOperation
+) -> Sequence[mlir.Value]:
+    if operation.fn == "exp2" and operation.flush_to_zero:
+        return _emit_mlir_operation(
+            context,
+            operation,
+            "nvvm.ex2",
+            (operation.x,),
+            (("ftz", mlir.BoolAttr(value=True)),),
+        )
+
+    fastmath_operations = {
+        "exp", "sin", "cos", "tan", "log", "log2", "sincos"
+    }
+    plain_operations = {
+        "ceil",
+        "sinh",
+        "cosh",
+        "tanh",
+        "sqrt",
+        "rsqrt",
+        "floor",
+        "exp2",
+        "isnan",
+        "isinf",
+        "isfinite",
+    }
+
+    if operation.fn == "abs":
+        dtype = operation.result_var.get_type().tensor_dtype()
+        suffix = "f" if datatype.is_float(dtype) else "i"
+        name = "math.abs" + suffix
+    elif operation.fn in fastmath_operations or operation.fn in plain_operations:
+        name = "math." + operation.fn
+    else:
+        raise NotImplementedError(f"Unknown math unary operation {operation.fn}")
+    attributes = (
+        _math_fast_attributes(operation.approx)
+        if operation.fn in fastmath_operations
+        else ()
+    )
+    return _emit_mlir_operation(
+        context, operation, name, (operation.x,), attributes
+    )
+
+
+@mlir_op_lowering
+def lower_math_binary(
+    context: MLIRLoweringContext, operation: ops.MathBinaryOperation
+) -> Sequence[mlir.Value]:
+    dtype = operation.result_var.get_type().tensor_dtype()
+    if operation.fn == "pow":
+        exponent_dtype = operation.rhs.get_type().tensor_dtype()
+        name = (
+            "math.fpowi"
+            if datatype.is_integral(exponent_dtype)
+            else "math.powf"
+        )
+        attributes = _math_fast_attributes(operation.approx)
+    elif operation.fn == "atan2":
+        name = "math.atan2"
+        attributes = ()
+    elif operation.fn in {"min", "max"}:
+        if datatype.is_float(dtype):
+            if operation.propagate_nan:
+                name = "arith.maximumf" if operation.fn == "max" else "arith.minimumf"
+            else:
+                name = "arith.maxnumf" if operation.fn == "max" else "arith.minnumf"
+        elif datatype.is_signed(dtype):
+            name = "arith.maxsi" if operation.fn == "max" else "arith.minsi"
+        else:
+            name = "arith.maxui" if operation.fn == "max" else "arith.minui"
+        attributes = ()
+    else:
+        raise NotImplementedError(f"Unknown math binary operation {operation.fn}")
+    return _emit_mlir_operation(
+        context, operation, name, (operation.lhs, operation.rhs), attributes
+    )
+
+
+@mlir_op_lowering
+def lower_vector_construct(
+    context: MLIRLoweringContext, operation: ops.VectorConstruct
+) -> Sequence[mlir.Value]:
+    (result_type,) = tuple(
+        _lower_intrinsic_result_type(
+            context, (operation.result_var.get_type(),)
+        )
+    )
+    (result,) = mlir.add_operation(
+        name="llvm.mlir.undef",
+        result_type=(result_type,),
+        operands=(),
+        properties=(),
+        attributes=(),
+    )
+    for index, element in enumerate(operation.elements):
+        position = mlir_constant_of_type(T.i32(), index)
+        result = mlir.llvm.add_InsertElementOp(
+            vector=result,
+            value=_lower_intrinsic_operand(context, element),
+            position=position,
+        )
+    return tuple(_lower_intrinsic_result(context, (result,)))
+
+
+@mlir_op_lowering
+def lower_vector_insert(
+    context: MLIRLoweringContext, operation: ops.VectorInsert
+) -> Sequence[mlir.Value]:
+    result = mlir.llvm.add_InsertElementOp(
+        vector=_lower_intrinsic_operand(context, operation.vector),
+        value=_lower_intrinsic_operand(context, operation.value),
+        position=_lower_intrinsic_operand(context, operation.index),
+    )
+    return tuple(_lower_intrinsic_result(context, (result,)))
+
+
+def _optional_mlir_operand(
+    context: MLIRLoweringContext, operand: ir.Var | None
+) -> mlir.Value | None:
+    return None if operand is None else _lower_intrinsic_operand(context, operand)
+
+
+@mlir_op_lowering(host=False)
+def lower_copy_async_bulk_tensor_g2s(
+    context: DeviceLoweringContext,
+    operation: ops.CopyAsyncBulkTensorGlobalToShared,
+) -> Sequence[mlir.Value]:
+    group = (
+        None
+        if operation.cta_group is None
+        else _enum_to_nvvm_enum(operation.cta_group, mlir.nvvm.CTAGroupKind)
+    )
+    mlir.nvvm.add_CpAsyncBulkTensorGlobalToSharedClusterOp(
+        dstMem=_lower_intrinsic_operand(context, operation.dst_memory),
+        tmaDescriptor=_lower_intrinsic_operand(context, operation.tensor_map),
+        coordinates=tuple(
+            _lower_intrinsic_operand(context, value)
+            for value in operation.coordinates
+        ),
+        mbar=_lower_intrinsic_operand(context, operation.mbarrier),
+        im2colOffsets=tuple(
+            _lower_intrinsic_operand(context, value)
+            for value in operation.im2col_offsets
+        ),
+        multicastMask=_optional_mlir_operand(context, operation.multicast_mask),
+        l2CacheHint=_optional_mlir_operand(context, operation.l2_cache_hint),
+        mode=_enum_to_nvvm_enum(operation.mode, mlir.nvvm.TMALoadMode),
+        isCTAOnly=operation.is_cta_only,
+        group=group,
+        predicate=_optional_mlir_operand(context, operation.predicate),
+    )
+    return ()
+
+
+@mlir_op_lowering(host=False)
+def lower_copy_async_bulk_tensor_s2g(
+    context: DeviceLoweringContext,
+    operation: ops.CopyAsyncBulkTensorSharedToGlobal,
+) -> Sequence[mlir.Value]:
+    mlir.nvvm.add_CpAsyncBulkTensorSharedCTAToGlobalOp(
+        tmaDescriptor=_lower_intrinsic_operand(context, operation.tensor_map),
+        srcMem=_lower_intrinsic_operand(context, operation.src_memory),
+        coordinates=tuple(
+            _lower_intrinsic_operand(context, value)
+            for value in operation.coordinates
+        ),
+        l2CacheHint=_optional_mlir_operand(context, operation.l2_cache_hint),
+        mode=_enum_to_nvvm_enum(operation.mode, mlir.nvvm.TMAStoreMode),
+        predicate=_optional_mlir_operand(context, operation.predicate),
+    )
+    return ()
+
+
+@mlir_op_lowering(host=False)
+def lower_tcgen05_copy(
+    context: DeviceLoweringContext, operation: ops.Tcgen05Copy
+) -> Sequence[mlir.Value]:
+    multicast = (
+        mlir.nvvm.Tcgen05CpMulticast.NONE
+        if operation.multicast is None
+        else _enum_to_nvvm_enum(
+            operation.multicast, mlir.nvvm.Tcgen05CpMulticast
+        )
+    )
+    source_format = (
+        None
+        if operation.source_format is None
+        else _enum_to_nvvm_enum(
+            operation.source_format, mlir.nvvm.Tcgen05CpSrcFormat
+        )
+    )
+    mlir.nvvm.add_Tcgen05CpOp(
+        shape=_enum_to_nvvm_enum(operation.shape, mlir.nvvm.Tcgen05CpShape),
+        group=_enum_to_nvvm_enum(
+            operation.cta_group, mlir.nvvm.CTAGroupKind
+        ),
+        multicast=multicast,
+        srcFormat=source_format,
+        taddr=_lower_intrinsic_operand(context, operation.address),
+        smem_desc=_lower_intrinsic_operand(
+            context, operation.shared_memory_descriptor
+        ),
+    )
+    return ()
 
 
 @mlir_op_lowering

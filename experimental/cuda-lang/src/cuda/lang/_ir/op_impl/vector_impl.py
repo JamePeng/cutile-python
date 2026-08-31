@@ -21,8 +21,8 @@ from cuda.lang._exception import InternalError, TypeCheckingError, InvalidValueE
 import cuda.lang._datatype as datatype
 from cuda.lang._enums import VectorReduction
 from ..type_checking_helpers import require_vector_type, require_scalar_type
-from ..op_defs import RawMLIROperation, VectorGetItem, VectorReduce
-from ..type import ScalarTy, Type, VectorTy, SliceType
+from ..op_defs import VectorConstruct, VectorGetItem, VectorInsert, VectorReduce
+from ..type import ScalarTy, VectorTy, SliceType
 from ..._stub.types import Vector
 from ..ir import Var, add_operation
 
@@ -35,10 +35,14 @@ def vector_impl_registry() -> ImplRegistry:
     return _registry
 
 
-def vector_undef(res_type: Type):
-    return add_operation(
-        RawMLIROperation, res_type, op_name="llvm.mlir.undef", operands_=()
-    )
+def vector_construct(
+    res_type: VectorTy, elements: tuple[Var[ScalarTy], ...]
+) -> Var[VectorTy]:
+    if len(elements) != res_type.length:
+        raise InternalError(
+            f"Expected {res_type.length} vector elements but got {len(elements)}"
+        )
+    return add_operation(VectorConstruct, res_type, elements=elements)
 
 
 def vector_with_item(vector: Var[VectorTy], key: int | Var[ScalarTy], value: Var[ScalarTy]):
@@ -50,10 +54,11 @@ def vector_with_item(vector: Var[VectorTy], key: int | Var[ScalarTy], value: Var
         value, ty.element_dtype, "vector setitem cast RHS to value type"
     )
     return add_operation(
-        RawMLIROperation,
+        VectorInsert,
         vector.get_type(),
-        op_name="llvm.insertelement",
-        operands_=(vector, value, key),
+        vector=vector,
+        value=value,
+        index=key,
     )
 
 
@@ -104,11 +109,11 @@ def vector_constructor_impl(elements: tuple[Var, ...], dtype: Var) -> Var[Vector
         if explicit_dtype is not None
         else _vector_constructor_element_dtype(elements)
     )
-    res = vector_undef(VectorTy(element_dtype, len(elements)))
-    for index, element in enumerate(elements):
-        value = implicit_cast(element, element_dtype, f"Vector() element {index}")
-        res = vector_with_item(res, index, value)
-    return res
+    values = tuple(
+        implicit_cast(element, element_dtype, f"Vector() element {index}")
+        for index, element in enumerate(elements)
+    )
+    return vector_construct(VectorTy(element_dtype, len(values)), values)
 
 
 impl(slice)(slice_impl)
@@ -130,12 +135,11 @@ def vector_slice_impl(object: Var[VectorTy], key: Var[SliceType]):
         )
 
     new_vt = VectorTy(vt.element_dtype, length=len(indices))
-    vector = vector_undef(new_vt)
-    for dst_index, src_index in enumerate(indices):
-        item = vector_getitem(object, loosely_typed_const(src_index))
-        vector = vector_with_item(vector, loosely_typed_const(dst_index), item)
-
-    return vector
+    elements = tuple(
+        vector_getitem(object, loosely_typed_const(src_index))
+        for src_index in indices
+    )
+    return vector_construct(new_vt, elements)
 
 
 @impl(tuple, overload=(VectorTy,))
@@ -171,21 +175,16 @@ def vector_elementwise_apply(
         element = callable(*operands)
         return element
 
-    first_element = apply_one(0)
-    element_type = first_element.get_type()
+    elements = tuple(apply_one(i) for i in range(length))
+    element_type = elements[0].get_type()
     if not isinstance(element_type, ScalarTy):
         raise InternalError(
             "Expected elementwise application of function to vector to "
             f"return a scalar but got {element_type}"
         )
-
-    res = vector_undef(VectorTy(element_type.dtype, length))
-    res = vector_with_item(res, 0, first_element)
-    for i in range(1, length):
-        element = apply_one(i)
-        res = vector_with_item(res, i, element)
-
-    return res
+    if not all(element.get_type() == element_type for element in elements[1:]):
+        raise InternalError("Expected all elementwise results to have the same type")
+    return vector_construct(VectorTy(element_type.dtype, length), elements)
 
 
 @impl(operator.setitem, overload=(VectorTy, WILDCARD, WILDCARD))

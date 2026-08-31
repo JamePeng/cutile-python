@@ -60,6 +60,31 @@ class TestG2S(CopyAsyncPtxTestBase):
             **HOPPER_TARGET,
         )
 
+    def test_l2_cache_hint(self):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            cache_hint = cl.create_fractional_cache_policy(
+                cl.CachePolicy.L2_EVICT_FIRST
+            )
+
+            cl.copy_async_bulk_tensor_global_to_shared(
+                tensor_map,
+                (i, j),
+                smem.get_base_pointer(),
+                mbar,
+                l2_cache_hint=cache_hint,
+            )
+
+        compile_kernel(
+            kernel,
+            signature=self.signature(),
+            assert_in_ptx="cp.async.bulk.tensor.2d.shared::cta.global",
+            **HOPPER_TARGET,
+        )
+
     @pytest.mark.parametrize(
         "cta_group,expect_group",
         (
@@ -387,6 +412,29 @@ class TestS2G(CopyAsyncPtxTestBase):
                 smem.get_base_pointer(),
                 tensor_map,
                 (i, j),
+            )
+
+        compile_kernel(
+            kernel,
+            signature=self.signature(),
+            assert_in_ptx="cp.async.bulk.tensor.2d.global.shared::cta",
+            **HOPPER_TARGET,
+        )
+
+    def test_l2_cache_hint(self):
+        @cl.kernel
+        def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
+            tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
+            smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
+            cache_hint = cl.create_fractional_cache_policy(
+                cl.CachePolicy.L2_EVICT_FIRST
+            )
+
+            cl.copy_async_bulk_tensor_shared_to_global(
+                smem.get_base_pointer(),
+                tensor_map,
+                (i, j),
+                l2_cache_hint=cache_hint,
             )
 
         compile_kernel(

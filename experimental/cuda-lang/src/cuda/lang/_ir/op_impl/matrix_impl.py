@@ -12,9 +12,8 @@ from cuda.lang._exception import InvalidValueError, TypeCheckingError
 from cuda.lang._ir.ir import Var
 from cuda.lang._ir.op_defs import RawLLVMIntrinsic
 from cuda.lang._ir.op_impl.vector_impl import (
+    vector_construct,
     vector_getitem,
-    vector_undef,
-    vector_with_item,
 )
 from cuda.lang._ir.type import MemorySpace, ScalarTy, VectorTy
 from cuda.lang._ir.type_checking_helpers import (
@@ -86,10 +85,7 @@ def load_matrix_impl(
     if register_count == 1:
         return registers[0]
 
-    result = vector_undef(VectorTy(datatype.int32, register_count))
-    for index, register in enumerate(registers):
-        result = vector_with_item(result, index, register)
-    return result
+    return vector_construct(VectorTy(datatype.int32, register_count), registers)
 
 
 def _store_register_count(values: Var) -> int:

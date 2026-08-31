@@ -4,15 +4,18 @@
 
 from cuda.tile._ir.op_impl import ImplRegistry
 from cuda.tile._ir.ops import implicit_cast
+from cuda.tile._ir.ir import add_operation_variadic
 import cuda.lang._datatype as datatype
-from cuda.lang._ir.enum_to_mlir import cl_enum_to_mlir_attribute
-from cuda.lang._mlir import BoolAttr
 from cuda.lang._enums import MemorySpace
+from cuda.lang._ir.op_defs import (
+    CopyAsyncBulkTensorGlobalToShared,
+    CopyAsyncBulkTensorSharedToGlobal,
+)
 from cuda.lang._stub import copy_async
 from cuda.lang._ir.type import TensorMapTy
-from .raw_mlir_operation_utils import RawMLIROperationBuilder
 from ..type_checking_helpers import (
     optional_cast,
+    is_none,
     make_type_checking_error,
     require_boolean_scalar_type,
     require_mbarrier_ptr,
@@ -32,6 +35,10 @@ impl = _registry.impl
 
 def copy_async_impl_registry() -> ImplRegistry:
     return _registry
+
+
+def _optional_operand(value):
+    return None if value is None or is_none(value) else value
 
 
 def validate_g2s_mode(mode: copy_async.TMALoadMode, im2col_count: int) -> None:
@@ -75,7 +82,6 @@ def copy_async_bulk_tensor_global_to_shared_impl(
     require_mbarrier_ptr(mbarrier, (MemorySpace.SHARED,))
     mode = require_constant_enum(mode, copy_async.TMALoadMode)
     validate_g2s_mode(mode, len(im2col_offset_vars))
-    mode_attribute = cl_enum_to_mlir_attribute(mode)
     if isinstance(src_tensor_map_ty, TensorMapTy):
         validate_tensor_map_load_mode(src_tensor_map_ty, mode)
     tensor_map = tensor_map_descriptor_like(src_tensor_map_descriptor)
@@ -84,7 +90,7 @@ def copy_async_bulk_tensor_global_to_shared_impl(
         (MemorySpace.SHARED, MemorySpace.SHARED_CLUSTER),
     )
     is_cta_only = dst_ty.memory_space == MemorySpace.SHARED
-    group_attr = None
+    cta_group_value = None
     src_coordinates = tuple(
         implicit_cast(coord, datatype.int32, "TMA coordinates")
         for coord in src_coordinate_vars
@@ -111,33 +117,23 @@ def copy_async_bulk_tensor_global_to_shared_impl(
         cta_group_value = require_optional_constant_enum(
             cta_group, copy_async.CTAGroup
         )
-        group_attr = (
-            None
-            if cta_group_value is None
-            else cl_enum_to_mlir_attribute(cta_group_value)
-        )
-
-    builder = (
-        RawMLIROperationBuilder(
-            name="nvvm.cp.async.bulk.tensor.shared.cluster.global"
-        )
-        .add_attribute("mode", mode_attribute)
-        .add_attribute("isCTAOnly", BoolAttr(value=is_cta_only))
+    add_operation_variadic(
+        CopyAsyncBulkTensorGlobalToShared,
+        (),
+        dst_memory=dst_memory,
+        tensor_map=tensor_map,
+        coordinates=src_coordinates,
+        mbarrier=mbarrier,
+        im2col_offsets=im2col_offsets,
+        multicast_mask=(
+            None if is_cta_only else _optional_operand(multicast_mask)
+        ),
+        l2_cache_hint=_optional_operand(l2_cache_hint),
+        predicate=None if is_cta_only else _optional_operand(predicate),
+        mode=mode,
+        is_cta_only=is_cta_only,
+        cta_group=cta_group_value,
     )
-    if not is_cta_only and group_attr is not None:
-        builder = builder.add_attribute("group", group_attr)
-
-    builder = (
-        builder.add_operand(dst_memory)
-        .add_operand(tensor_map)
-        .add_variadic_operand(src_coordinates)
-        .add_operand(mbarrier)
-        .add_variadic_operand(im2col_offsets)
-        .add_optional_operand(multicast_mask)
-        .add_optional_operand(l2_cache_hint)
-        .add_optional_operand(predicate)
-    )
-    builder.emit()
 
 
 @impl(copy_async.copy_async_bulk_tensor_shared_to_global)
@@ -153,20 +149,19 @@ def copy_async_bulk_tensor_shared_to_global_impl(
     tensor_map = tensor_map_descriptor_like(dst_tensor_map_descriptor)
     dst_coordinate_vars = require_uniform_int_tuple_type(dst_coordinates)
     mode = require_constant_enum(mode, copy_async.TMAStoreMode)
-    mode_attribute = cl_enum_to_mlir_attribute(mode)
     dst_coordinates = tuple(
         implicit_cast(coord, datatype.int32, "TMA coordinates")
         for coord in dst_coordinate_vars
     )
     l2_cache_hint = optional_cast(l2_cache_hint, datatype.int64, "TMA L2 cache hint")
     predicate = optional_cast(predicate, datatype.bool_, "TMA predicate")
-    builder = (
-        RawMLIROperationBuilder(name="nvvm.cp.async.bulk.tensor.global.shared.cta")
-        .add_attribute("mode", mode_attribute)
-        .add_operand(tensor_map)
-        .add_operand(src_memory)
-        .add_variadic_operand(dst_coordinates)
-        .add_optional_operand(l2_cache_hint)
-        .add_optional_operand(predicate)
+    add_operation_variadic(
+        CopyAsyncBulkTensorSharedToGlobal,
+        (),
+        tensor_map=tensor_map,
+        src_memory=src_memory,
+        coordinates=dst_coordinates,
+        l2_cache_hint=_optional_operand(l2_cache_hint),
+        predicate=_optional_operand(predicate),
+        mode=mode,
     )
-    builder.emit()

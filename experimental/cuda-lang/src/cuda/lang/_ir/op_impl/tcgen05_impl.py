@@ -4,7 +4,7 @@
 
 from cuda.lang._enums import SwizzleMode
 from cuda.tile._ir.type import ArrayTy
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple
 
 from cuda.tile._ir.cast_ops import implicit_cast
 from cuda.tile._ir.arithmetic_ops import (
@@ -39,9 +39,7 @@ from cuda.lang._ir.ops import (
     astype,
     require_scalar_type,
 )
-from cuda.lang._ir.op_defs import BitCast, RawLLVMIntrinsic
-from .raw_mlir_operation_utils import RawMLIROperationBuilder
-from cuda.lang._ir.enum_to_mlir import cl_enum_to_mlir_attribute
+from cuda.lang._ir.op_defs import BitCast, RawLLVMIntrinsic, Tcgen05Copy
 from cuda.lang._ir.type_checking_helpers import (
     is_none,
     make_type_checking_error,
@@ -56,8 +54,8 @@ from cuda.tile._ir.op_impl import (
     require_constant_bool,
     require_constant_enum,
     require_constant_int,
+    require_optional_constant_enum,
 )
-import cuda.lang._mlir as mlir
 from .core_api_impl import bitcast, reinterpret_to
 
 
@@ -119,7 +117,7 @@ def tcgen05_allocate_impl(
     number_of_columns = implicit_cast(
         number_of_columns, datatype.int32, "cast number of columns to int32"
     )
-    cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
+    cta_group_value = require_constant_enum(cta_group, CTAGroup)
     intrinsic = "llvm.nvvm.tcgen05.alloc.shared." + cta_group_value.value
     add_operation_variadic(
         RawLLVMIntrinsic,
@@ -139,7 +137,7 @@ def tcgen05_deallocate_impl(
     number_of_columns = implicit_cast(
         number_of_columns, datatype.int32, "cast number of columns to int32"
     )
-    cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
+    cta_group_value = require_constant_enum(cta_group, CTAGroup)
     intrinsic = "llvm.nvvm.tcgen05.dealloc." + cta_group_value.value
     add_operation_variadic(
         RawLLVMIntrinsic,
@@ -186,7 +184,7 @@ def tcgen05_commit_impl(
 ):
     require_mbarrier_ptr(mbarrier)
     operands = [mbarrier]
-    cta_group_value = cast(CTAGroup, require_constant_enum(cta_group, CTAGroup))
+    cta_group_value = require_constant_enum(cta_group, CTAGroup)
     intrinsic = "llvm.nvvm.tcgen05.commit"
     if not is_none(multicast_mask):
         intrinsic += ".mc"
@@ -215,36 +213,23 @@ def tcgen05_copy_impl(
     shared_memory_descriptor = astype(shared_memory_descriptor, datatype.int64)
 
     group_value = require_constant_enum(cta_group, CTAGroup)
-    group_attribute = cl_enum_to_mlir_attribute(group_value)
-
     shape_value = require_constant_enum(shape, Tcgen05CopyShape)
-    shape_attribute = cl_enum_to_mlir_attribute(shape_value)
-
-    builder = (
-        RawMLIROperationBuilder(name="nvvm.tcgen05.cp")
-        .add_operand(address)
-        .add_operand(shared_memory_descriptor)
-        .add_attribute("group", group_attribute)
-        .add_attribute("shape", shape_attribute)
+    multicast_value = require_optional_constant_enum(
+        multicast, Tcgen05CopyMulticast
     )
-
-    if is_none(multicast):
-        value = mlir.nvvm.Tcgen05CpMulticast.NONE
-        multicast_attribute = mlir.nvvm.Tcgen05CpMulticastAttr(value=value)
-    else:
-        multicast_value = require_constant_enum(multicast, Tcgen05CopyMulticast)
-        multicast_attribute = cl_enum_to_mlir_attribute(multicast_value)
-
-    builder = builder.add_attribute("multicast", multicast_attribute)
-
-    if not is_none(source_format):
-        source_format_value = require_constant_enum(
-            source_format, Tcgen05CopySourceFormat
-        )
-        source_format_attribute = cl_enum_to_mlir_attribute(source_format_value)
-        builder = builder.add_attribute("srcFormat", source_format_attribute)
-
-    builder.emit()
+    source_format_value = require_optional_constant_enum(
+        source_format, Tcgen05CopySourceFormat
+    )
+    add_operation_variadic(
+        Tcgen05Copy,
+        (),
+        address=address,
+        shared_memory_descriptor=shared_memory_descriptor,
+        shape=shape_value,
+        cta_group=group_value,
+        multicast=multicast_value,
+        source_format=source_format_value,
+    )
 
 
 @impl(tcgen05_stub.tcgen05_store)

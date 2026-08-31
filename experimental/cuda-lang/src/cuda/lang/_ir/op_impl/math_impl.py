@@ -8,7 +8,6 @@ from cuda.tile._ir.ir import add_operation_variadic
 from cuda.tile._ir.ops_utils import promote_dtypes, promote_types
 
 import cuda.lang._datatype as datatype
-import cuda.lang._mlir as mlir
 from cuda.lang._exception import TypeCheckingError
 from cuda.lang._ir.ir import Var, add_operation
 from .vector_impl import vector_elementwise_apply
@@ -19,9 +18,10 @@ from cuda.lang._ir.type import (
 )
 from cuda.lang._ir.op_defs import (
     RawLLVMIntrinsic,
-    RawMLIROperation,
     ForeignFunction,
     FmaOperation,
+    MathBinaryOperation,
+    MathUnaryOperation,
 )
 from cuda.lang._ir.type_checking_helpers import (
     broadcast_to_same_shape,
@@ -307,12 +307,7 @@ def math_negative_impl(x: Var):
 def math_exp2_impl(x: Var, flush_to_zero: Var):
     x_ty = require_scalar_or_vector_float_type(x)
     if not require_constant_bool(flush_to_zero):
-        return add_operation(
-            RawMLIROperation,
-            x_ty,
-            op_name="math.exp2",
-            operands_=(x,),
-        )
+        return add_operation(MathUnaryOperation, x_ty, fn="exp2", x=x)
 
     dtype = x_ty.tensor_dtype()
     if dtype != datatype.float32:
@@ -323,11 +318,11 @@ def math_exp2_impl(x: Var, flush_to_zero: Var):
 
     def exp2_ftz(value):
         return add_operation(
-            RawMLIROperation,
+            MathUnaryOperation,
             ScalarTy(datatype.float32),
-            op_name="nvvm.ex2",
-            operands_=(value,),
-            mlir_attributes=(("ftz", mlir.BoolAttr(value=True)),),
+            fn="exp2",
+            x=value,
+            flush_to_zero=True,
         )
 
     if isinstance(x_ty, ScalarTy):
@@ -335,43 +330,32 @@ def math_exp2_impl(x: Var, flush_to_zero: Var):
     return vector_elementwise_apply(exp2_ftz, x)
 
 
-@impl(cl_math.ceil, fixed_args=["math.ceil"])
-@impl(cl_math.sinh, fixed_args=["math.sinh"])
-@impl(cl_math.cosh, fixed_args=["math.cosh"])
-@impl(cl_math.tanh, fixed_args=["math.tanh"])
-@impl(cl_math.sqrt, fixed_args=["math.sqrt"])
-@impl(cl_math.rsqrt, fixed_args=["math.rsqrt"])
-@impl(cl_math.floor, fixed_args=["math.floor"])
-def math_float_unary_impl(op_name: str, x: Var):
+@impl(cl_math.ceil, fixed_args=["ceil"])
+@impl(cl_math.sinh, fixed_args=["sinh"])
+@impl(cl_math.cosh, fixed_args=["cosh"])
+@impl(cl_math.tanh, fixed_args=["tanh"])
+@impl(cl_math.sqrt, fixed_args=["sqrt"])
+@impl(cl_math.rsqrt, fixed_args=["rsqrt"])
+@impl(cl_math.floor, fixed_args=["floor"])
+def math_float_unary_impl(fn: str, x: Var):
+    x_ty = require_scalar_or_vector_float_type(x)
+    return add_operation(MathUnaryOperation, x_ty, fn=fn, x=x)
+
+
+@impl(cl_math.exp, fixed_args=["exp"])
+@impl(cl_math.sin, fixed_args=["sin"])
+@impl(cl_math.cos, fixed_args=["cos"])
+@impl(cl_math.tan, fixed_args=["tan"])
+@impl(cl_math.log, fixed_args=["log"])
+@impl(cl_math.log2, fixed_args=["log2"])
+def math_float_approx_unary_impl(fn: str, x: Var, approx: Var):
     x_ty = require_scalar_or_vector_float_type(x)
     return add_operation(
-        RawMLIROperation,
+        MathUnaryOperation,
         x_ty,
-        op_name=op_name,
-        operands_=(x,),
-    )
-
-
-def _fastmath_attributes(approx: Var):
-    approx = require_constant_bool(approx)
-    flags = mlir.arith.FastMathFlags.afn if approx else mlir.arith.FastMathFlags.none
-    return (("fastmath", mlir.arith.FastMathFlagsAttr(value=flags)),)
-
-
-@impl(cl_math.exp, fixed_args=["math.exp"])
-@impl(cl_math.sin, fixed_args=["math.sin"])
-@impl(cl_math.cos, fixed_args=["math.cos"])
-@impl(cl_math.tan, fixed_args=["math.tan"])
-@impl(cl_math.log, fixed_args=["math.log"])
-@impl(cl_math.log2, fixed_args=["math.log2"])
-def math_float_approx_unary_impl(op_name: str, x: Var, approx: Var):
-    x_ty = require_scalar_or_vector_float_type(x)
-    return add_operation(
-        RawMLIROperation,
-        x_ty,
-        op_name=op_name,
-        operands_=(x,),
-        mlir_attributes=_fastmath_attributes(approx),
+        fn=fn,
+        x=x,
+        approx=require_constant_bool(approx),
     )
 
 
@@ -379,11 +363,11 @@ def math_float_approx_unary_impl(op_name: str, x: Var, approx: Var):
 def math_sincos_impl(x: Var, approx: Var):
     x_ty = require_scalar_type(x, is_float)
     results = add_operation_variadic(
-        RawMLIROperation,
+        MathUnaryOperation,
         (x_ty, x_ty),
-        op_name="math.sincos",
-        operands_=(x,),
-        mlir_attributes=_fastmath_attributes(approx),
+        fn="sincos",
+        x=x,
+        approx=require_constant_bool(approx),
     )
     return build_tuple(results)
 
@@ -408,20 +392,20 @@ def math_isnormal_impl(x: Var):
     )
 
 
-@impl(cl_math.isnan, fixed_args=["math.isnan"])
-@impl(cl_math.isinf, fixed_args=["math.isinf"])
-@impl(cl_math.isfinite, fixed_args=["math.isfinite"])
-def math_float_fpclass_impl(op_name: str, x: Var):
+@impl(cl_math.isnan, fixed_args=["isnan"])
+@impl(cl_math.isinf, fixed_args=["isinf"])
+@impl(cl_math.isfinite, fixed_args=["isfinite"])
+def math_float_fpclass_impl(fn: str, x: Var):
     x_ty = require_scalar_or_vector_type(x, datatype.is_float)
 
     # Work around MathToNVVM checking boolean result types before its vector
     # scalarization pattern can run.
     def scalar_fpclass(element: Var):
         return add_operation(
-            RawMLIROperation,
+            MathUnaryOperation,
             ScalarTy(datatype.bool_),
-            op_name=op_name,
-            operands_=(element,),
+            fn=fn,
+            x=element,
         )
 
     if isinstance(x_ty, ScalarTy):
@@ -459,13 +443,13 @@ def _math_pow_impl(x: Var, y: Var, approx: Var):
     y = astype(y, exp_dt)
     x, y = broadcast_to_same_shape(x, y)
 
-    op_name = "math.fpowi" if is_integral(exp_dt) else "math.powf"
     return add_operation(
-        RawMLIROperation,
+        MathBinaryOperation,
         x.get_type(),
-        op_name=op_name,
-        operands_=(x, y),
-        mlir_attributes=_fastmath_attributes(approx),
+        fn="pow",
+        lhs=x,
+        rhs=y,
+        approx=require_constant_bool(approx),
     )
 
 
@@ -480,24 +464,25 @@ def math_operator_pow_impl(x: Var, y: Var):
     return _math_pow_impl(x, y, approx)
 
 
-@impl(cl_math.atan2, fixed_args=["math.atan2"])
-def math_float_binary_impl(op_name: str, x: Var, y: Var):
+@impl(cl_math.atan2, fixed_args=["atan2"])
+def math_float_binary_impl(fn: str, x: Var, y: Var):
     require_scalar_or_vector_float_type(x)
     require_scalar_or_vector_float_type(y)
     ty = common_type(x, y)
     x = promote_and_broadcast_to(x, ty)
     y = promote_and_broadcast_to(y, ty)
     return add_operation(
-        RawMLIROperation,
+        MathBinaryOperation,
         ty,
-        op_name=op_name,
-        operands_=(x, y),
+        fn=fn,
+        lhs=x,
+        rhs=y,
     )
 
 
 @impl(cl_math.maximum, fixed_args=["max"])
 @impl(cl_math.minimum, fixed_args=["min"])
-def math_minmax_impl(kind: str, x: Var, y: Var, propagate_nan: Var) -> Var:
+def math_minmax_impl(fn: str, x: Var, y: Var, propagate_nan: Var) -> Var:
     propagate_nan = require_constant_bool(propagate_nan)
 
     require_scalar_or_vector_type(x)
@@ -507,26 +492,16 @@ def math_minmax_impl(kind: str, x: Var, y: Var, propagate_nan: Var) -> Var:
     y = promote_and_broadcast_to(y, ty)
     dtype = ty.tensor_dtype()
 
-    if datatype.is_float(dtype):
-        # propagate_nan selects IEEE-754 minimum/maximum (NaN-propagating) vs
-        # minimumNumber/maximumNumber (NaN-ignoring).
-        if propagate_nan:
-            op_name = "arith.maximumf" if kind == "max" else "arith.minimumf"
-        else:
-            op_name = "arith.maxnumf" if kind == "max" else "arith.minnumf"
-    elif datatype.is_integral(dtype):
-        if datatype.is_signed(dtype):
-            op_name = "arith.maxsi" if kind == "max" else "arith.minsi"
-        else:
-            op_name = "arith.maxui" if kind == "max" else "arith.minui"
-    else:
-        raise TypeCheckingError(f"{kind}() expects arithmetic operands, got {ty}")
+    if not (datatype.is_float(dtype) or datatype.is_integral(dtype)):
+        raise TypeCheckingError(f"{fn}() expects arithmetic operands, got {ty}")
 
     return add_operation(
-        RawMLIROperation,
+        MathBinaryOperation,
         ty,
-        op_name=op_name,
-        operands_=(x, y),
+        fn=fn,
+        lhs=x,
+        rhs=y,
+        propagate_nan=propagate_nan,
     )
 
 
@@ -534,18 +509,15 @@ def math_minmax_impl(kind: str, x: Var, y: Var, propagate_nan: Var) -> Var:
 def abs_impl(x: Var) -> Var:
     x_ty = require_scalar_or_vector_type(x)
     x_dtype = x_ty.tensor_dtype()
-    if datatype.is_float(x_dtype):
-        op_name = "math.absf"
-    elif datatype.is_integral(x_dtype):
+    if datatype.is_integral(x_dtype):
         # If it's unsigned, then the absolute value is the identity
         if not datatype.is_signed(x_dtype):
             return x
-        op_name = "math.absi"
-    else:
+    elif not datatype.is_float(x_dtype):
         raise TypeCheckingError(f"abs() expects an arithmetic scalar, got {x_ty}")
     return add_operation(
-        RawMLIROperation,
+        MathUnaryOperation,
         x_ty,
-        op_name=op_name,
-        operands_=(x,),
+        fn="abs",
+        x=x,
     )

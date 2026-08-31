@@ -9,8 +9,8 @@ import re
 from collections import defaultdict, Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
-from enum import EnumMeta
-from typing import Optional, NamedTuple, Tuple, Sequence, Any, Union, Callable
+from enum import Enum
+from typing import Optional, NamedTuple, Tuple, Sequence, Any, Union, Callable, TypeVar, cast
 
 from cuda.tile._datatype import (
     is_integral, is_float,
@@ -391,7 +391,10 @@ def require_constant_pointer_info(var: Var) -> PointerInfo:
     return ty.info
 
 
-def require_optional_constant_enum(var: Var, enum: EnumMeta):
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+
+def require_optional_constant_enum(var: Var, enum: type[_EnumT]) -> Optional[_EnumT]:
     if var.is_constant() and var.get_constant() is None:
         return None
     return require_constant_enum(var, enum)
@@ -408,7 +411,7 @@ def require_optional_range_type(var: Var) -> RangeIterType | None:
     return ty
 
 
-def require_constant_enum(var: Var, enum: EnumMeta):
+def require_constant_enum(var: Var, enum: type[_EnumT]) -> _EnumT:
     if not var.is_constant():
         raise make_type_checking_error(
             f"Expected {enum.__name__} constant,"
@@ -419,7 +422,7 @@ def require_constant_enum(var: Var, enum: EnumMeta):
         raise make_type_checking_error(
             f"Expected {enum.__name__}, but given value has type {ty}", var
         )
-    return var.get_constant()
+    return cast(_EnumT, var.get_constant())
 
 
 def normalize_axis(axis: int, ndim: int, var: Optional[Var] = None) -> int:

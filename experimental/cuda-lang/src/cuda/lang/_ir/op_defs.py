@@ -6,8 +6,17 @@ from dataclasses import dataclass
 from typing import Optional
 from enum import Enum, auto
 
-import cuda.lang._mlir as mlir
-from cuda.lang._enums import MemoryOrder, RoundingMode, SaturationMode
+from cuda.lang._enums import (
+    CTAGroup,
+    MemoryOrder,
+    RoundingMode,
+    SaturationMode,
+    Tcgen05CopyMulticast,
+    Tcgen05CopyShape,
+    Tcgen05CopySourceFormat,
+    TMALoadMode,
+    TMAStoreMode,
+)
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.ir import MemoryEffect
 import cuda.lang._datatype as datatype
@@ -25,12 +34,73 @@ class RawLLVMIntrinsic(
 
 
 @dataclass(eq=False)
-class RawMLIROperation(
-    Operation, opcode="mlir.operation", memory_effect=MemoryEffect.STORE
+class MathUnaryOperation(Operation, opcode="math_unary"):
+    fn: str = attribute()
+    x: Var = operand()
+    approx: bool = attribute(default=False)
+    flush_to_zero: bool = attribute(default=False)
+
+
+@dataclass(eq=False)
+class MathBinaryOperation(Operation, opcode="math_binary"):
+    fn: str = attribute()
+    lhs: Var = operand()
+    rhs: Var = operand()
+    approx: bool = attribute(default=False)
+    propagate_nan: bool = attribute(default=False)
+
+
+@dataclass(eq=False)
+class VectorConstruct(Operation, opcode="vector_construct"):
+    elements: tuple[Var[ScalarTy], ...] = operand()
+
+
+@dataclass(eq=False)
+class VectorInsert(Operation, opcode="vector_insert"):
+    vector: Var[VectorTy] = operand()
+    value: Var[ScalarTy] = operand()
+    index: Var[ScalarTy] = operand()
+
+
+@dataclass(eq=False)
+class CopyAsyncBulkTensorGlobalToShared(
+    Operation, opcode="copy_async_bulk_tensor_g2s", memory_effect=MemoryEffect.STORE
 ):
-    op_name: str = attribute()
-    operands_: tuple[Var, ...] = operand()
-    mlir_attributes: tuple[tuple[str, mlir.Attribute], ...] = attribute(default=())
+    dst_memory: Var = operand()
+    tensor_map: Var = operand()
+    coordinates: tuple[Var, ...] = operand()
+    mbarrier: Var = operand()
+    im2col_offsets: tuple[Var, ...] = operand()
+    multicast_mask: Var | None = operand(default=None)
+    l2_cache_hint: Var | None = operand(default=None)
+    predicate: Var | None = operand(default=None)
+    mode: TMALoadMode = attribute()
+    is_cta_only: bool = attribute()
+    cta_group: CTAGroup | None = attribute(default=None)
+
+
+@dataclass(eq=False)
+class CopyAsyncBulkTensorSharedToGlobal(
+    Operation, opcode="copy_async_bulk_tensor_s2g", memory_effect=MemoryEffect.STORE
+):
+    tensor_map: Var = operand()
+    src_memory: Var = operand()
+    coordinates: tuple[Var, ...] = operand()
+    l2_cache_hint: Var | None = operand(default=None)
+    predicate: Var | None = operand(default=None)
+    mode: TMAStoreMode = attribute()
+
+
+@dataclass(eq=False)
+class Tcgen05Copy(
+    Operation, opcode="tcgen05_copy", memory_effect=MemoryEffect.STORE
+):
+    address: Var = operand()
+    shared_memory_descriptor: Var = operand()
+    shape: Tcgen05CopyShape = attribute()
+    cta_group: CTAGroup = attribute()
+    multicast: Tcgen05CopyMulticast | None = attribute(default=None)
+    source_format: Tcgen05CopySourceFormat | None = attribute(default=None)
 
 
 @dataclass(eq=False)
