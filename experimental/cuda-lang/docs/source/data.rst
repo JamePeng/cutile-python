@@ -68,7 +68,7 @@ temporary storage:
 
    @cl.kernel
    def kernel(out):
-       smem = cl.shared_array(shape=(2,), dtype=cl.int32)
+       smem = cl.shared_array(2, cl.int32)
        tx = cl.thread_index(0)
 
        if tx == 0:
@@ -120,7 +120,7 @@ vectorized load:
 
    @cl.kernel
    def kernel(out):
-       values = cl.shared_array(shape=(4,), dtype=cl.int32, alignment=16)
+       values = cl.shared_array(4, cl.int32, alignment=16)
        tx = cl.thread_index(0)
 
        values[tx] = tx + 1
@@ -151,6 +151,13 @@ Vectors
 A :class:`Vector` is a fixed-size collection of elements used by low-level
 pointer operations. For example, :meth:`Pointer.load` returns a vector when a
 ``count`` is provided.
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+   :template: autosummary/class_no_init.rst
+
+   VectorReduction
 
 .. seealso::
   :ref:`cuda.lang.Vector class documentation <data-vector-cuda-lang-vector>`
@@ -201,3 +208,11 @@ Data Types
 
 |cuda lang| shares the same data types and arithmetic promotion rules as
 |cuTile|.
+
+Use :func:`dtype_of` to get the data type of a scalar, pointer, or vector.
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+   dtype_of

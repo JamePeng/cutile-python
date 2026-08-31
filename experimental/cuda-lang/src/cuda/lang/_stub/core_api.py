@@ -258,7 +258,7 @@ def shared_array(
 
         @cl.kernel
         def kernel():
-            shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
+            shmem = cl.shared_array(32, cl.int32)
             tx = cl.thread_index(0)
             if tx == 0:
                 shmem[0] = 42
@@ -281,7 +281,7 @@ def shared_array(
 
         @cl.kernel
         def kernel(n):
-            shmem = cl.shared_array(shape=(n,), dtype=cl.int32, dynamic=True)
+            shmem = cl.shared_array(n, cl.int32, dynamic=True)
             tx = cl.thread_index(0)
             if tx == 0:
                 shmem[0] = 42

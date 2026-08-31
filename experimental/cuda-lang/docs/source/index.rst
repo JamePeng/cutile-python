@@ -26,7 +26,7 @@ memory:
 
    @cl.kernel
    def normalize_kernel(values, normalized):
-       total = cl.shared_array(shape=(1,), dtype=cl.float32)
+       total = cl.shared_array(1, cl.float32)
        tx = cl.thread_index(0)
        offset = tx * 4
 

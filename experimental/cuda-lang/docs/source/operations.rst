@@ -90,6 +90,7 @@ SIMT Model
     lane_index
     lane_count
     warp_index
+    warp_count
     full_mask
     elect_sync
 
@@ -133,9 +134,12 @@ Math
     add
     sub
     mul
+    fma
     truediv
     floordiv
     mod
+    integer_remainder
+    divmod
     pow
     minimum
     maximum
@@ -151,6 +155,7 @@ Math
     rsqrt
     sin
     cos
+    sincos
     tan
     sinh
     cosh
@@ -160,7 +165,25 @@ Math
     isinf
     isfinite
     isnormal
+    bitwise_and
+    bitwise_or
+    bitwise_xor
+    bitwise_not
+    greater
+    greater_equal
+    less
+    less_equal
+    equal
+    not_equal
 .. currentmodule:: cuda.lang
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+   :template: autosummary/class_no_init.rst
+
+    RoundingMode
+    SaturationMode
 
 .. autosummary::
    :toctree: generated
@@ -221,8 +244,6 @@ TensorMap
    :nosignatures:
 
     tensor_map_tiled
-    copy_async_bulk_tensor_global_to_shared
-    copy_async_bulk_tensor_shared_to_global
 
 .. autosummary::
    :toctree: generated
@@ -242,6 +263,27 @@ TensorMap Async Copy
     copy_async_bulk_tensor_shared_to_global
     copy_async_bulk_commit_group
     copy_async_bulk_wait_group
+
+
+Cache Control
+-------------
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+
+    prefetch
+    prefetch_uniform
+    prefetch_tensor_map
+    create_range_cache_policy
+    create_fractional_cache_policy
+
+.. autosummary::
+   :toctree: generated
+   :nosignatures:
+   :template: autosummary/class_no_init.rst
+
+    CachePolicy
+    PrefetchLevel
 
 
 Synchronization
@@ -310,11 +352,14 @@ TensorCore (Gen5)
 
     tcgen05_allocate
     tcgen05_deallocate
+    tcgen05_tmem_offset
     tcgen05_commit
     tcgen05_load
     tcgen05_copy
     tcgen05_store
     tcgen05_mma
+    tcgen05_mma_block_scale
+    tcgen05_mma_weight_stationary
     tcgen05_wait_load
     tcgen05_wait_store
     tcgen05_fence_before_thread_sync
@@ -332,7 +377,6 @@ TensorCore (Gen5)
     Tcgen05Mxf8f6f4InstructionDescriptor
     Tcgen05Mxf4InstructionDescriptor
     CTAGroup
-    SwizzleMode
     Tcgen05MMAKind
     Tcgen05MMABlockScaleKind
     Tcgen05MMAScaleVectorSize
@@ -374,8 +418,6 @@ Utility
    :nosignatures:
 
     nanosleep
-    create_range_cache_policy
-    create_fractional_cache_policy
 
 
 .. _operations-classes:
