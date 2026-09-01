@@ -58,3 +58,17 @@ def test_static_iter():
     a = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
     assert a.tolist() == [10, 20]
+
+
+def test_static_eval_pointer_arithmetic():
+    @cl.kernel
+    def kern(a):
+        p = a.get_base_pointer()
+        p2 = cl.static_eval(p + 3)
+        p2[0] = 5
+        p3 = cl.static_eval(p2 - 1)
+        p3[0] = 7
+
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
+    assert a.tolist() == [0, 0, 7, 5]

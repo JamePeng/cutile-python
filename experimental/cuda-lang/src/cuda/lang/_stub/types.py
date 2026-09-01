@@ -227,7 +227,7 @@ class Pointer(Generic[T]):
     Pointer offsets are given in element counts, not in bytes.
     """
 
-    @stub
+    @stub(static_eval_ok=True)
     def __add__(self, other):
         """Return a pointer that is ``other`` elements after this pointer.
 
@@ -235,7 +235,7 @@ class Pointer(Generic[T]):
             other: Integral scalar that gives the element offset.
         """
 
-    @stub
+    @stub(static_eval_ok=True)
     def __sub__(self, other):
         """Return a pointer that is ``other`` elements before this pointer.
 

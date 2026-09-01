@@ -158,6 +158,7 @@ from .._stub import (
     core_api,
     tensor_map,
 )
+from .._stub.types import Pointer
 from cuda.tile._ir import hir_stubs
 
 from .op_impl.tcgen05_impl import tcgen05_impl_registry
@@ -342,33 +343,53 @@ def atomic_cas_impl(
     )
 
 
+def pointer_add(ptr: Var[PointerTy], offset: Var[TensorLikeTy]):
+    offset_dtype = require_scalar_type(offset).dtype
+    if not datatype.is_integral(offset_dtype):
+        raise TypeCheckingError(f"Expected integer pointer offset, got {offset_dtype}")
+    return pointer_with_offset(ptr, offset)
+
+
 @impl(operator.add, overload=(TensorLikeTy, TensorLikeTy))
-async def add_impl(x: Var, y: Var) -> Var:
+def add_impl(x: Var, y: Var) -> Var:
     xty, yty = x.get_type(), y.get_type()
     if isinstance(yty, PointerTy):
         xty, yty = yty, xty
     if isinstance(xty, PointerTy):
-        offset_dtype = require_scalar_type(y).dtype
-        if not datatype.is_integral(offset_dtype):
-            raise TypeCheckingError(f"Expected integer pointer offset, got {offset_dtype}")
-        return pointer_with_offset(x, y)
+        return pointer_add(x, y)
     return binary_arithmetic_tensorlike("add", x, y)
+
+
+@impl(Pointer.__add__)
+def pointer_add_impl(self: Var, other: Var):
+    require_pointer_type(self)
+    return pointer_add(self, other)
+
+
+def pointer_sub(pointer: Var[PointerTy], other: Var):
+    offset_dtype = require_scalar_type(other).dtype
+    if not datatype.is_integral(offset_dtype):
+        raise TypeCheckingError(f"Expected integer pointer offset, got {offset_dtype}")
+    other = astype(other, datatype.int64)
+    c0 = loosely_typed_const(0)
+    offset = binary_arithmetic_tensorlike('sub', c0, other)
+    return pointer_with_offset(pointer, offset)
 
 
 @impl(operator.sub, overload=(TensorLikeTy, TensorLikeTy))
 async def sub_impl(x: Var, y: Var) -> Var:
     xty, yty = x.get_type(), y.get_type()
     if isinstance(xty, PointerTy):
-        offset_dtype = require_scalar_type(y).dtype
-        if not datatype.is_integral(offset_dtype):
-            raise TypeCheckingError(f"Expected integer pointer offset, got {offset_dtype}")
-        y = astype(y, datatype.int64)
-        c0 = loosely_typed_const(0)
-        offset = binary_arithmetic_tensorlike('sub', c0, y)
-        return pointer_with_offset(x, offset)
+        return pointer_sub(x, y)
     if isinstance(yty, PointerTy):
         raise TypeCheckingError('It is invalid to subtract a pointer from an integer')
     return binary_arithmetic_tensorlike("sub", x, y)
+
+
+@impl(Pointer.__sub__)
+def pointer_sub_impl(self: Var, other: Var):
+    require_pointer_type(self)
+    return pointer_sub(self, other)
 
 
 @impl(getattr, overload=(VectorTy, "element_count"))
