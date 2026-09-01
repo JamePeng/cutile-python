@@ -178,6 +178,7 @@ from ._stub.pointer import (
 )
 from cuda.tile._stub import (
     Constant,
+    ArrayAnnotation,
     static_eval,
     static_assert,
     static_iter,
@@ -352,6 +353,7 @@ __all__ = (
     "uint32",
     "uint64",
     "Constant",
+    "ArrayAnnotation",
     "cdiv",
     "shared_array",
     "local_array",

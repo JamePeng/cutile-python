@@ -205,8 +205,10 @@ class Var(Generic[T]):
         return self.ctx.constants[self.name]
 
     def set_constant(self, value):
-        assert self.name not in self.ctx.constants
-        self.ctx.constants[self.name] = value
+        if self.name in self.ctx.constants:
+            assert self.ctx.constants[self.name] == value
+        else:
+            self.ctx.constants[self.name] = value
 
     def get_loose_type(self) -> T | LooselyTypedScalar:
         ty = self.ctx._loose_typemap.get(self.name, None)

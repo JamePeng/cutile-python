@@ -3539,11 +3539,7 @@ def grid_dependency_control_launch_dependents_impl():
     add_operation(GridDependencyControlLaunchDependents, TokenTy())
 
 
-@tile_impl_registry.unflatten_aggregate_impl(ArrayTy)
-def _unflatten_aggregate_array_impl(val: ArrayValue, ty: ArrayTy, result_var: Var):
-    assert isinstance(val, ArrayValue)
-    base_ptr = val.base_ptr
-
+def make_array_value_with_constants(val: ArrayValue, ty: ArrayTy) -> ArrayValue:
     def get_all_shape_or_strides(val_shape_or_strides, ty_shape_or_strides):
         shape_or_strides = []
         for x, s in zip(val_shape_or_strides, ty_shape_or_strides, strict=True):
@@ -3556,16 +3552,23 @@ def _unflatten_aggregate_array_impl(val: ArrayValue, ty: ArrayTy, result_var: Va
 
     all_shape = get_all_shape_or_strides(val.shape, ty.shape)
     all_strides = get_all_shape_or_strides(val.strides, ty.strides)
+    return ArrayValue(val.base_ptr, tuple(all_shape), tuple(all_strides))
 
-    operands = dict(base_ptr=base_ptr, shape=tuple(all_shape),
-                    strides=tuple(all_strides))
+
+@tile_impl_registry.unflatten_aggregate_impl(ArrayTy)
+def _unflatten_aggregate_array_impl(val: ArrayValue, ty: ArrayTy, result_var: Var | None):
+    assert isinstance(val, ArrayValue)
+    base_ptr = val.base_ptr
+
+    val = make_array_value_with_constants(val, ty)
+    operands = dict(base_ptr=base_ptr, shape=val.shape, strides=val.strides)
     ret = Builder.get_current().add_operation(MakeTensorView, ty, operands, result_var)
-    ret.set_aggregate(ArrayValue(base_ptr, tuple(all_shape), tuple(all_strides)))
+    ret.set_aggregate(val)
     return ret
 
 
 @tile_impl_registry.unflatten_aggregate_impl(ListTy)
-def _unflatten_aggregate_list_impl(val: ListValue, ty: ListTy, result_var: Var):
+def _unflatten_aggregate_list_impl(val: ListValue, ty: ListTy, result_var: Var | None):
     assert isinstance(val, ListValue)
     operands = dict(base_ptr=val.base_ptr, length=val.length)
     ret = Builder.get_current().add_operation(MakeListView, ty, operands, result_var)

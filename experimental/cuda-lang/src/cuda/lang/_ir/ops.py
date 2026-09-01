@@ -43,7 +43,7 @@ from cuda.tile._ir.ops import (
     MakeTensorView,
     PointerOffset,
     TilePrintf,
-    array_impl_registry,
+    array_impl_registry, make_array_value_with_constants,
 )
 from cuda.tile._ir.arithmetic_ops import astype
 from cuda.tile._ir.core_ops import (
@@ -67,7 +67,7 @@ from cuda.tile._ir.control_flow_ops import (
     return_,
     MakeDummy,
 )
-from cuda.tile._ir.ir import MemoryEffect, make_aggregate, add_operation_variadic
+from cuda.tile._ir.ir import MemoryEffect, make_aggregate, add_operation_variadic, Builder
 from cuda.lang._exception import TypeCheckingError
 import cuda.lang._datatype as datatype
 from cuda.tile._datatype import (
@@ -912,6 +912,12 @@ def _call_foreign_function_impl(func: Var, return_type: Var, parameters: Var):
             function_name=function_name,
             operands_=parameters,
         )
+
+
+@cuda_lang_impl_registry.unflatten_aggregate_impl(ArrayTy)
+def _unflatten_aggregate_array_impl(val: ArrayValue, ty: ArrayTy, result_var: Var | None):
+    val = make_array_value_with_constants(val, ty)
+    return Builder.get_current().make_aggregate(val, ty, result_var=result_var)
 
 
 __all__ = (
