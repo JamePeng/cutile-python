@@ -18,6 +18,7 @@ class BuildExtWithCmake(build_ext):
         ('disable-internal', None, 'Disable building internal extension'),
         ('enable-dev-features', None, 'Enable development-only features'),
         ('custom-static-libnvvm=', None, 'Include a custom NVVM built from a static library'),
+        ('custom-libdevice=', None, 'Include a custom libdevice object'),
         ('custom-ptxas=', None, 'Include a custom ptxas binary'),
     ]
 
@@ -26,6 +27,7 @@ class BuildExtWithCmake(build_ext):
         self.disable_internal = False
         self.enable_dev_features = False
         self.custom_static_libnvvm = None
+        self.custom_libdevice = None
         self.custom_ptxas = None
 
     def finalize_options(self):
@@ -55,6 +57,8 @@ class BuildExtWithCmake(build_ext):
             cmake_cmd.append("-DENABLE_DEV_FEATURES=1")
         if self.custom_static_libnvvm is not None:
             cmake_cmd.append(f"-DCUSTOM_STATIC_LIBNVVM={self.custom_static_libnvvm}")
+        if self.custom_libdevice is not None:
+            cmake_cmd.append(f"-DCUSTOM_LIBDEVICE={self.custom_libdevice}")
         if self.custom_ptxas is not None:
             cmake_cmd.append(f"-DCUSTOM_PTXAS={self.custom_ptxas}")
         self.spawn(cmake_cmd)

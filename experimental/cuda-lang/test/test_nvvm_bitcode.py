@@ -6,7 +6,7 @@ import torch
 from torch.testing import assert_close
 
 from cuda.lang._compile import get_compute_capability
-from cuda.lang._compilers import get_nvvm, PtxCompiler
+from cuda.lang._compilers import get_nvvm_and_libdevice, PtxCompiler
 from cuda.lang._llvm_bitcode import BitcodeBuilder, DATALAYOUT_PTX, CallingConvention, Binop
 from cuda.tile._cext import TileDispatcher
 
@@ -24,6 +24,10 @@ def _make_a_plus_b_bitcode() -> bytes:
                           tt.function(tt.I32, ())) as f:
         tid_x = f.value
 
+    with builder.function("__nv_fabsf",
+                          tt.function(tt.F32, (tt.F32,))) as f:
+        fabsf = f.value
+
     with builder.function("aplusb",
                           tt.function(tt.VOID,
                                       (tt.P0, tt.I32, tt.I32,
@@ -37,8 +41,9 @@ def _make_a_plus_b_bitcode() -> bytes:
         bp = builder.get_element_ptr(tt.F32, bptr, tid)
         b = builder.load(tt.F32, bp, alignment=4)
         cp = builder.get_element_ptr(tt.F32, cptr, tid)
-        c = builder.binop(tt.I32, Binop.ADD, a, b)
-        builder.store(cp, c, alignment=4)
+        c = builder.binop(tt.F32, Binop.ADD, a, b)
+        res = builder.call(tt.function(tt.F32, (tt.F32,)), fabsf, (c,))
+        builder.store(cp, res, alignment=4)
         builder.ret()
     return builder.build()
 
@@ -48,9 +53,10 @@ def test_a_plus_b():
     cc = get_compute_capability()
 
     # Compile bitcode to PTX using NVVM
-    nvvm = get_nvvm()
+    nvvm, libdevice = get_nvvm_and_libdevice()
     program = nvvm.create_program()
     program.add_module(bitcode, "main")
+    program.add_module(libdevice, "libdevice")
     ptx = program.compile(["-arch=" + cc.arch])
 
     ptx_compiler: PtxCompiler = PtxCompiler.get()
@@ -58,8 +64,8 @@ def test_a_plus_b():
 
     kernel = _HackKernel(cubin, "aplusb", 3)
     a = torch.ones(32, dtype=torch.float32, device="cuda")
-    b = torch.arange(32, dtype=torch.float32, device="cuda")
-    ref = a + b
+    b = torch.arange(-16, 16, dtype=torch.float32, device="cuda")
+    ref = (a + b).abs()
     c = torch.zeros_like(a)
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (a, b, c))
     assert_close(c, ref, rtol=0, atol=0)

@@ -53,17 +53,21 @@ class PtxCompiler:
 
 # TODO: isolate in a subprocess
 @cache
-def get_nvvm() -> NVVM:
-    return NVVM(_find_nvvm())
+def get_nvvm_and_libdevice() -> tuple[NVVM, bytes]:
+    nvvm_so_path, libdevice_path = _find_nvvm_and_libdevice()
+    with open(libdevice_path, "rb") as f:
+        libdevice = f.read()
+    return NVVM(nvvm_so_path), libdevice
 
 
-def _find_nvvm() -> str:
+def _find_nvvm_and_libdevice() -> tuple[str, str]:
     # Included libnvvm trumps any other option
     included_lib_name = "nvvm.dll" if is_windows() else "libnvvm.so"
-    included_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                 "bin", included_lib_name)
-    if os.path.exists(included_path):
-        return included_path
+    bin_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bin")
+    included_path = os.path.join(bin_path, included_lib_name)
+    included_libdevice_path = os.path.join(bin_path, "libdevice.10.bc")
+    if os.path.exists(included_path) and os.path.exists(included_libdevice_path):
+        return included_path, included_libdevice_path
 
     if is_windows():
         lib_names = ["nvvm64_40_0.dll"]
@@ -72,14 +76,20 @@ def _find_nvvm() -> str:
 
     path = _find_file_in_python_package("nvidia-nvvm", lib_names)
     if path is not None:
-        return path
+        libdevice_path = _find_file_in_python_package("nvidia-nvvm", ["libdevice.10.bc"])
+        if libdevice_path is not None:
+            return path, libdevice_path
 
-    cuda_paths = _get_default_cuda_toolkit_paths()
-    res = _find_file(cuda_paths, ["nvvm/lib64", "lib64", "nvvm/bin", "nvvm/bin/x64"],
-                     lib_names, require_executable=True)
-    if res is not None:
-        path, _ = res
-        return path
+    for prefix in _get_default_cuda_toolkit_paths():
+        res = _find_file([prefix], ["nvvm/lib64", "lib64", "nvvm/bin", "nvvm/bin/x64"],
+                         lib_names, require_executable=False)
+        if res is not None:
+            nvvm_so_path, _ = res
+            res = _find_file([prefix], ["nvvm/libdevice"], ["libdevice.10.bc"],
+                             require_executable=False)
+            if res is not None:
+                libdevice_path, _ = res
+                return nvvm_so_path, libdevice_path
 
     cuda_home_var = "CUDA_PATH" if is_windows() else "CUDA_HOME"
     raise FileNotFoundError(

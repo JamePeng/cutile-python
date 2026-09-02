@@ -52,6 +52,7 @@ class BuildBinaries(Command):
             (os.path.join(build_dir, "internal/mlir2cubin"), "mlir2cubin", True),
             (os.path.join(build_dir, "experimental/cuda-lang"), "libnvvm.so", False),
             (os.path.join(build_dir, "experimental/cuda-lang"), "ptxas", False),
+            (os.path.join(build_dir, "experimental/cuda-lang"), "libdevice.10.bc", False),
         ]
 
         for src_dir, basename, required in files:

@@ -11,6 +11,17 @@ if (CUSTOM_STATIC_LIBNVVM)
         "-Wl,--no-whole-archive")
 endif()
 
+# Custom libdevice
+if (CUSTOM_LIBDEVICE)
+    set(dst "${CMAKE_CURRENT_BINARY_DIR}/libdevice.10.bc")
+    add_custom_command(
+        OUTPUT ${dst}
+        COMMAND ${CMAKE_COMMAND} -E copy "${CUSTOM_LIBDEVICE}" "${dst}"
+        DEPENDS "${CUSTOM_LIBDEVICE}"
+    )
+    add_custom_target(copy_custom_libdevice ALL DEPENDS ${dst})
+endif()
+
 # Custom ptxas
 if (CUSTOM_PTXAS)
     set(dst "${CMAKE_CURRENT_BINARY_DIR}/ptxas${CMAKE_EXECUTABLE_SUFFIX}")

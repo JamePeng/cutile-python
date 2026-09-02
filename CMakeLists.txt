@@ -100,6 +100,11 @@ if (CUSTOM_STATIC_LIBNVVM)
     message(STATUS "Using custom NVVM static library at ${CUSTOM_STATIC_LIBNVVM}")
 endif()
 
+set(CUSTOM_LIBDEVICE "" CACHE FILEPATH "Custom libdevice object to include in the package")
+if (CUSTOM_LIBDEVICE)
+    message(STATUS "Using custom libdevice at ${CUSTOM_LIBDEVICE}")
+endif()
+
 set(CUSTOM_PTXAS "" CACHE FILEPATH "Custom ptxas binary to include in the package")
 if (CUSTOM_PTXAS)
     message(STATUS "Using custom ptxas binary at ${CUSTOM_PTXAS}")
