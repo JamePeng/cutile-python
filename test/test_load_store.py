@@ -41,7 +41,7 @@ def load_store_with_hints_kernel(x, y):
 
 
 def test_load_store_with_hints():
-    x = make_tensor((32,), dtype=torch.float16, device='cuda')
+    x = make_tensor((32,), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (ceil(x.shape[0] / TILE_SIZE), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, load_store_with_hints_kernel, (x, y))
@@ -114,9 +114,9 @@ class TestArrayAssumption:
     @pytest.mark.parametrize("allow_tma", [False, None])
     def test_load_store(self, latency, allow_tma):
         m, n, k = 32, 32, 128
-        A = torch.randn((m, k), dtype=torch.float32, device="cuda")
-        B = torch.randn((k, n), dtype=torch.float32, device="cuda")
-        C = torch.zeros((m, n), dtype=torch.float32, device="cuda")
+        A = torch.randn((m, k), dtype=torch.float32, device="cuda:0")
+        B = torch.randn((k, n), dtype=torch.float32, device="cuda:0")
+        C = torch.zeros((m, n), dtype=torch.float32, device="cuda:0")
         tm, tn, tk = 32, 16, 64
         grid = (ceil(m / tm), ceil(n / tn), 1)
         kernel = ct.kernel(make_ct_matmul_kernel(latency, allow_tma))
@@ -133,7 +133,7 @@ class TestArrayAssumption:
     def test_gather_scatter(self, latency):
         shape = (1024, 1024)
         tile = (128, 128)
-        x = make_tensor(shape, dtype=torch.float32, device="cuda")
+        x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
         y = torch.zeros_like(x)
         grid = (*(ceil(i / j) for i, j in zip(shape, tile)), 1)
         kernel = ct.kernel(make_array_copy_2d_kernel(latency))
@@ -159,8 +159,8 @@ def array_copy_1d(x, y, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("x_dtype", float_dtypes+int_dtypes+bool_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("y_dtype", float_dtypes+int_dtypes+bool_dtypes, ids=dtype_id)
 def test_array_copy_dtype_implicit_cast(shape, tile, x_dtype, y_dtype):
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = torch.zeros_like(x, dtype=y_dtype, device='cuda')
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = torch.zeros_like(x, dtype=y_dtype, device='cuda:0')
     grid = (ceil(shape[0] / tile), 1, 1)
 
     def launch():
@@ -198,7 +198,7 @@ def load_store_0d_tile_index(x, y):
                                     load_store_scalar,
                                     load_store_0d_tile_index])
 def test_load_store_scalar_or_0d(kernel):
-    x = make_tensor((5,), dtype=torch.float16, device='cuda')
+    x = make_tensor((5,), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, x)
@@ -213,7 +213,7 @@ def test_load_invalid_axis_order_with_repeating_axis():
 
     with pytest.raises(TileTypeError,
                        match="Axis order must be a permutation, but axis 1 is used at least twice"):
-        x = torch.zeros((64, 64), device="cuda")
+        x = torch.zeros((64, 64), device="cuda:0")
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
 
@@ -231,7 +231,7 @@ def test_load_store_check_bounds():
     # check_bounds=False lowers to an all-true `inbounds` attribute on every dimension.
     shape = (64, 64)
     tile = (32, 32)
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (shape[0] // tile[0], shape[1] // tile[1], 1)
     bytecode = get_bytecode(copy_2d_no_check_bounds, (x, y, tile[0], tile[1]))
@@ -247,7 +247,7 @@ def test_load_store_check_bounds():
 @pytest.mark.use_mlir
 def test_load_store_check_bounds_default():
     # The default check_bounds=True emits no `inbounds` attribute.
-    x = make_tensor((32,), dtype=torch.float16, device="cuda")
+    x = make_tensor((32,), dtype=torch.float16, device="cuda:0")
     y = torch.zeros_like(x)
     bytecode = get_bytecode(array_copy_1d, (x, y, 16))
     filecheck(bytecode, "\n".join([
@@ -259,7 +259,7 @@ def test_load_store_check_bounds_default():
 @pytest.mark.skipif(get_tileiras_version() >= BytecodeVersion.V_13_4,
                     reason="check_bounds=False is supported on tileiras 13.4+")
 def test_check_bounds_requires_13_4():
-    x = make_tensor((64, 64), dtype=torch.float16, device="cuda")
+    x = make_tensor((64, 64), dtype=torch.float16, device="cuda:0")
     y = torch.zeros_like(x)
     with pytest.raises(TileUnsupportedFeatureError, match="check_bounds=False.*requires tileiras"):
         get_bytecode(copy_2d_no_check_bounds, (x, y, 32, 32))

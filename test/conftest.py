@@ -373,3 +373,8 @@ def get_cupy_or_skip():
 @pytest.fixture(scope="session")
 def cupy():
     return get_cupy_or_skip()
+
+
+@pytest.fixture(autouse=True)
+def reset_torch_device():
+    torch.cuda.set_device(0)

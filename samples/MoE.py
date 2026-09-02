@@ -424,7 +424,7 @@ if __name__ == "__main__":
     topk = 8
     dtype = torch.bfloat16
 
-    device = "cuda"
+    device = "cuda:0"
     print(
         f"Tokens: {num_tokens}, Hidden: {hidden_size}, "
         f"Experts: {num_experts}, Intermediate: {intermediate_size}, "

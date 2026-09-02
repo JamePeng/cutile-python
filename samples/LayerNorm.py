@@ -274,9 +274,9 @@ if __name__ == "__main__":
 
     shape = (1024, 2048)
     dtype = torch.bfloat16
-    weight = torch.randn(shape[-1], dtype=dtype, device='cuda', requires_grad=True)
-    bias = torch.randn(shape[-1], dtype=dtype, device='cuda', requires_grad=True)
-    x = -2.3 + 0.5 * torch.randn(shape, dtype=dtype, device='cuda')
+    weight = torch.randn(shape[-1], dtype=dtype, device='cuda:0', requires_grad=True)
+    bias = torch.randn(shape[-1], dtype=dtype, device='cuda:0', requires_grad=True)
+    x = -2.3 + 0.5 * torch.randn(shape, dtype=dtype, device='cuda:0')
     dy = 0.1 * torch.randn_like(x)
     x.requires_grad_(True)
     eps = 1e-5

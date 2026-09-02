@@ -150,7 +150,7 @@ def test_histogram64():
             device="cpu",
         )
         .to(torch.uint32)
-        .cuda()
+        .cuda(0)
     )
 
     byteCount = d_Data.numel() * 4
@@ -161,9 +161,9 @@ def test_histogram64():
     d_PartialHistograms = torch.zeros(
         histogramCount * HISTOGRAM64_BIN_COUNT,
         dtype=torch.uint32,
-        device="cuda",
+        device="cuda:0",
     )
-    d_Histogram = torch.zeros(HISTOGRAM64_BIN_COUNT, dtype=torch.uint32, device="cuda")
+    d_Histogram = torch.zeros(HISTOGRAM64_BIN_COUNT, dtype=torch.uint32, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),

@@ -105,9 +105,9 @@ def test_write_simple_module():
         cubin = Path(cubin_path).read_bytes()
 
     kernel = _HackKernel(cubin, "foo")
-    x_tensor = torch.tensor([3.0], dtype=torch.float32, device="cuda")
-    y_tensor = torch.tensor([5.0], dtype=torch.float32, device="cuda")
-    result = torch.tensor([0.0], dtype=torch.float32, device="cuda")
+    x_tensor = torch.tensor([3.0], dtype=torch.float32, device="cuda:0")
+    y_tensor = torch.tensor([5.0], dtype=torch.float32, device="cuda:0")
+    result = torch.tensor([0.0], dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x_tensor, y_tensor, result))
     assert result.cpu().item() == 8.0
 

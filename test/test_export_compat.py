@@ -138,8 +138,8 @@ def test_export_compat_cutile_python_v1():
     io = BytesIO()
     ct.compilation.export_kernel(kernel_1, [sig], gpu_code=get_sm_arch(), output_file=io,
                                  output_format="cubin")
-    a1 = torch.zeros((32, 8), dtype=torch.int32, device="cuda")
-    a2 = torch.zeros((8, 8, 8), dtype=torch.float32, device="cuda")
+    a1 = torch.zeros((32, 8), dtype=torch.int32, device="cuda:0")
+    a2 = torch.zeros((8, 8, 8), dtype=torch.float32, device="cuda:0")
     _call_kernel(io.getvalue(),
                  "kernel_1_Kt1_I13_Si32_F4031000000000000_Sf32_A2i32_1v4l0_2t1_A3f32_7l0",
                  (5, 9.0, a1, a2))
@@ -175,8 +175,8 @@ def test_export_compat_static_shape():
     io = BytesIO()
     ct.compilation.export_kernel(kernel_static_shape, [sig], gpu_code=get_sm_arch(),
                                  output_file=io, output_format="cubin")
-    a = torch.zeros(8, dtype=torch.float32, device="cuda")
-    out = torch.zeros(8, dtype=torch.float32, device="cuda")
+    a = torch.zeros(8, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     # shape_constant=(8,): shape is still a runtime CUDA parameter — pass it as usual.
     # stride_lower_bound_incl for out is dropped (stride_constant=(1,) makes it redundant).
     _call_kernel(io.getvalue(), "kernel_static_shape_Kt2_A1f32_1s8l0_A1f32_1s8t1", (a, out))
@@ -207,7 +207,7 @@ def test_export_compat_cutile_python_v2():
     io = BytesIO()
     ct.compilation.export_kernel(kernel_2, [sig], gpu_code=get_sm_arch(), output_file=io,
                                  output_format="cubin")
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     _call_kernel(io.getvalue(), "kernel_2_Kt2_T2Si32Si32_T1I10_A0i32", ((3, 7), out))
     assert out.item() == 20
 
@@ -241,7 +241,7 @@ def test_export_compat_cutile_python_v3_dataclass():
     io = BytesIO()
     ct.compilation.export_kernel(kernel_3, [sig], gpu_code=get_sm_arch(), output_file=io,
                                  output_format="cubin")
-    out = torch.zeros((), dtype=torch.float32, device="cuda")
+    out = torch.zeros((), dtype=torch.float32, device="cuda:0")
     _call_kernel(io.getvalue(),
                  "kernel_3_Kt3_Dtest__export__compat_z_kernel3Args_z2Si32Sf32_A0f32",
                  (Kernel3Args(3, 7.5), out))
@@ -326,7 +326,7 @@ def add_one(x, y):
 
 
 def test_export_bytecode_without_gpu_code():
-    x = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     bytecode = get_bytecode(add_one, (x, y), lambda: None, bytecode_version="13.3")
     # Confirm bytecode generation by checking the headers
@@ -335,14 +335,14 @@ def test_export_bytecode_without_gpu_code():
 
 
 def test_export_bytecode_without_gpu_code_requires_13_3():
-    x = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     with pytest.raises(TileUnsupportedFeatureError, match="13.3 or later"):
         get_bytecode(add_one, (x, y), lambda: None, bytecode_version="13.1")
 
 
 def test_export_cubin_requires_gpu_code():
-    x = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     sig = ct.compilation.KernelSignature.from_kernel_args(
         add_one, (x, y), ct.compilation.CallingConvention.cutile_python_v1())

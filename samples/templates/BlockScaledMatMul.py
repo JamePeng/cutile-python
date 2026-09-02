@@ -118,8 +118,8 @@ if __name__ == "__main__":
     print("\n--- Test Case: Block Scaled Matrix Multiplication with M = 512, N = 512, "
           "K = 768, Scaling Block Size = 32 ---")
 
-    A = torch.rand((M_dim, K_dim), device='cuda')
-    B = torch.rand((N_dim, K_dim), device='cuda')
+    A = torch.rand((M_dim, K_dim), device='cuda:0')
+    B = torch.rand((N_dim, K_dim), device='cuda:0')
 
     A, A_scale = block_quantize(A, scaling_block_size)
     B, B_scale = block_quantize(B, scaling_block_size)

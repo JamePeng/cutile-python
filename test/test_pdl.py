@@ -40,8 +40,8 @@ def test_pdl():
         tpo = ct.load(producer_out, index=(bid,), shape=(32,))
         ct.store(consumer_out, index=(bid,), tile=tpo + tb)
 
-    a = torch.arange(32, dtype=torch.float32, device="cuda")
-    b = torch.arange(32, dtype=torch.float32, device="cuda")
+    a = torch.arange(32, dtype=torch.float32, device="cuda:0")
+    b = torch.arange(32, dtype=torch.float32, device="cuda:0")
     producer_out = torch.zeros_like(a)
     consumer_out = torch.zeros_like(a)
 

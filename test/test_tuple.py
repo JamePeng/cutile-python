@@ -24,9 +24,9 @@ def test_tuple_concatenation():
         ct.store(y, (2,), t[2])
         ct.scatter(z, (), len(t))
 
-    x = torch.arange(48, dtype=torch.int32, device="cuda")
-    y = torch.zeros((48,), dtype=torch.int32, device="cuda")
-    z = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.arange(48, dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((48,), dtype=torch.int32, device="cuda:0")
+    z = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, z))
     assert_equal(y, x)
     assert z.item() == 3
@@ -94,7 +94,7 @@ def test_build_tuple_starred():
         for i, v in ct.static_iter(enumerate(t)):
             ct.scatter(x, i, v)
 
-    x = torch.zeros(9, dtype=torch.int32, device="cuda")
+    x = torch.zeros(9, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [7, 10, 20, 30, 8, 9, 40, 50, 10]
 
@@ -108,7 +108,7 @@ def test_pass_tuple_starred_to_user_defined_helper():
     def kernel(x):
         helper(x, 123, *(10, 20), 456, *(30,))
 
-    x = torch.zeros(5, dtype=torch.int32, device="cuda")
+    x = torch.zeros(5, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [123, 10, 20, 456, 30]
 
@@ -119,7 +119,7 @@ def test_pass_tuple_starred_to_builtin():
         args = (x, (), 1234)
         ct.scatter(*args)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 1234
 
@@ -145,7 +145,7 @@ def test_tuple_compare_empty_eq():
         else:
             ct.scatter(x, (), 0)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 1
 
@@ -158,7 +158,7 @@ def test_tuple_compare_constants_eq():
         else:
             ct.scatter(x, (), 0)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 1
 
@@ -171,7 +171,7 @@ def test_tuple_compare_constants_ne():
         else:
             ct.scatter(x, (), 0)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 1
 
@@ -185,7 +185,7 @@ def test_tuple_compare_different_lengths():
         else:
             ct.scatter(x, (), 0)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 1
 
@@ -200,7 +200,7 @@ def test_tuple_compare_0d_tiles_eq():
         else:
             ct.scatter(x, (a, b), -1)
 
-    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2, 2), kernel, (x,))
     assert x.tolist() == [[1, -1], [-1, -1]]
 
@@ -235,7 +235,7 @@ def test_tuple_compare_nested():
         else:
             ct.scatter(x, (a, ), -1)
 
-    x = torch.zeros((2, ), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, ), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2, ), kernel, (x,))
     assert x.tolist() == [1, -1]
 
@@ -248,8 +248,8 @@ def test_tuple_compare_array_element_error():
 
     with pytest.raises(TileTypeError, match="not supported for elements of type"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel,
-                  (torch.zeros(4, dtype=torch.int32, device="cuda"),
-                   torch.zeros(4, dtype=torch.int32, device="cuda")))
+                  (torch.zeros(4, dtype=torch.int32, device="cuda:0"),
+                   torch.zeros(4, dtype=torch.int32, device="cuda:0")))
 
 
 def test_tuple_compare_constant_args():
@@ -260,7 +260,7 @@ def test_tuple_compare_constant_args():
         else:
             ct.scatter(x, (), -1)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4, 8))
     assert x.item() == 1
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4, 9))
@@ -279,7 +279,7 @@ def test_element_in_tuple():
         if 5 not in (1, 2, 3):  # True
             ct.scatter(x, 3, 1)
 
-    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    x = torch.zeros(4, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [1, 0, 0, 1]
 
@@ -291,7 +291,7 @@ def test_element_in_tuple_runtime():
         if a in (0, 2):
             ct.scatter(x, (a,), 1)
 
-    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    x = torch.zeros(4, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (4,), kernel, (x,))
     assert x.tolist() == [1, 0, 1, 0]
 
@@ -307,7 +307,7 @@ def test_element_in_tuple_shortcircuit():
         if 2 not in (2, t):   # short-circuit → False
             ct.scatter(x, 2, 1)
 
-    x = torch.zeros(3, dtype=torch.int32, device="cuda")
+    x = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [1, 1, 0]
 
@@ -341,7 +341,7 @@ def test_tuple_in_tuple_nested():
         else:
             ct.scatter(x, (a,), -1)
 
-    x = torch.zeros(4, dtype=torch.int32, device="cuda")
+    x = torch.zeros(4, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (4,), kernel, (x,))
     assert x.tolist() == [1, -1, 1, -1]
 
@@ -354,6 +354,6 @@ def test_tuple_global_capture():
         ct.scatter(x, 0, tup[0])
         ct.scatter(x, 1, tup[2][1][1])
 
-    x = torch.zeros(2, dtype=torch.int32, device="cuda")
+    x = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [100, 105]

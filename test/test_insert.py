@@ -37,7 +37,7 @@ def insert_1d(x, y, TILE: ct.Constant[int], SUB: ct.Constant[int], IDX: ct.Const
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("use_method", [True, False])
 def test_insert_1d(shape, dtype, tile, sub, idx, use_method):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, insert_1d, (x, y, tile, sub, idx, use_method))
@@ -62,7 +62,7 @@ def test_insert_2d(dtype):
     tile = (128, 128)
     sub = (64, 32)
     ix, iy = 1, 2
-    x = make_tensor(tile, dtype=dtype, device='cuda')
+    x = make_tensor(tile, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, insert_2d,
@@ -84,7 +84,7 @@ def insert_0d(x, y, TILE: ct.Constant[int], IDX: ct.Constant[int]):
 def test_insert_0d(dtype):
     tile = 128
     idx = 7
-    x = make_tensor((tile,), dtype=dtype, device='cuda')
+    x = make_tensor((tile,), dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_0d, (x, y, tile, idx))
     ref = x.clone()
@@ -105,8 +105,8 @@ def insert_dynamic_index(x, idx, y, TILE: ct.Constant[int], SUB: ct.Constant[int
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_insert_dynamic_index(dtype, idx_val):
     tile, sub = 128, 32
-    x = make_tensor((tile,), dtype=dtype, device='cuda')
-    idx = torch.tensor([idx_val], dtype=torch.int32, device='cuda')
+    x = make_tensor((tile,), dtype=dtype, device='cuda:0')
+    idx = torch.tensor([idx_val], dtype=torch.int32, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_dynamic_index,
               (x, idx, y, tile, sub))
@@ -124,7 +124,7 @@ def insert_dtype_mismatch(x, y, TILE: ct.Constant[int]):
 
 
 def test_insert_dtype_mismatch():
-    x = make_tensor((128,), dtype=torch.float16, device='cuda')
+    x = make_tensor((128,), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileTypeError, match="Cannot insert a tile of dtype"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_dtype_mismatch, (x, y, 128))
@@ -140,7 +140,7 @@ def insert_non_divisible(x, y, TILE: ct.Constant[int]):
 
 
 def test_insert_non_divisible():
-    x = make_tensor((128,), dtype=torch.float16, device='cuda')
+    x = make_tensor((128,), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileTypeError, match="not divisible by"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_non_divisible, (x, y, 128))
@@ -156,7 +156,7 @@ def insert_oob(x, y, TILE: ct.Constant[int]):
 
 
 def test_insert_oob():
-    x = make_tensor((128,), dtype=torch.float16, device='cuda')
+    x = make_tensor((128,), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileTypeError, match="out of bounds"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_oob, (x, y, 128))
@@ -171,7 +171,7 @@ def insert_rank_mismatch(x, y, TILE_X: ct.Constant[int], TILE_Y: ct.Constant[int
 
 
 def test_insert_rank_mismatch():
-    x = make_tensor((128, 128), dtype=torch.float16, device='cuda')
+    x = make_tensor((128, 128), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileTypeError, match=re.escape("does not match the tile rank")):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), insert_rank_mismatch, (x, y, 128, 128))

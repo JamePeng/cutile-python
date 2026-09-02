@@ -38,9 +38,9 @@ def test_pack_to_bytes(dtype):
         ct.store(y, index=(0,), tile=ty)
 
     tile = 128
-    x = make_test_tensor((tile,), dtype=dtype, device='cuda')
+    x = make_test_tensor((tile,), dtype=dtype, device='cuda:0')
     nbytes = tile * x.element_size()
-    y = torch.zeros(nbytes, dtype=torch.uint8, device='cuda')
+    y = torch.zeros(nbytes, dtype=torch.uint8, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, tile))
     ref = x.view(torch.uint8)
     assert_equal(y, ref)
@@ -54,7 +54,7 @@ def test_unpack_from_bytes(dtype):
         ty = ct.unpack_from_bytes(tx, y.dtype)
         ct.store(y, index=(0,), tile=ty)
 
-    ref = make_test_tensor((32,), dtype=dtype, device='cuda')
+    ref = make_test_tensor((32,), dtype=dtype, device='cuda:0')
     x = ref.view(torch.uint8)
     y = torch.zeros_like(ref)
     tile = x.shape[0]
@@ -65,7 +65,7 @@ def test_unpack_from_bytes(dtype):
 @pytest.mark.parametrize("dtype", test_dtypes, ids=dtype_id)
 def test_pack_unpack_roundtrip(dtype):
     tile = 128
-    x = make_test_tensor((tile,), dtype=dtype, device='cuda')
+    x = make_test_tensor((tile,), dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), pack_unpack_1d, (x, y, tile))
     assert_equal(y, x)
@@ -81,7 +81,7 @@ def test_pack_unpack_roundtrip_0d(dtype):
         ty = ty.reshape(())
         ct.scatter(y, (), ty)
 
-    x = make_test_tensor((), dtype=dtype, device='cuda')
+    x = make_test_tensor((), dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, x)
@@ -101,7 +101,7 @@ def test_pack_unpack_roundtrip_2d(dtype):
 
     shape = (64, 128)
     tiles = (32, 64)
-    x = make_test_tensor(shape, dtype=dtype, device='cuda')
+    x = make_test_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (ct.cdiv(shape[0], tiles[0]), ct.cdiv(shape[1], tiles[1]))
     ct.launch(torch.cuda.current_stream(), grid,
@@ -113,7 +113,7 @@ def test_pack_unpack_roundtrip_2d(dtype):
 @pytest.mark.parametrize("dtype_y", test_dtypes, ids=dtype_id)
 def test_cross_type_pack_unpack(dtype_x, dtype_y):
     tile = 128
-    x = make_test_tensor((tile,), dtype=dtype_x, device='cuda')
+    x = make_test_tensor((tile,), dtype=dtype_x, device='cuda:0')
     ref = x.view(torch.uint8).view(dtype_y)
     y = torch.zeros_like(ref)
     ct.launch(torch.cuda.current_stream(), (1,), pack_unpack_1d, (x, y, tile))
@@ -132,8 +132,8 @@ def test_unpack_pack_roundtrip(dtype):
         ct.store(y, index=(0,), tile=packed)
 
     tile = 128
-    x = torch.randint(0, 256, (tile,), dtype=torch.uint8, device='cuda')
-    y = torch.zeros(tile, dtype=torch.uint8, device='cuda')
+    x = torch.randint(0, 256, (tile,), dtype=torch.uint8, device='cuda:0')
+    y = torch.zeros(tile, dtype=torch.uint8, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, tile))
     assert_equal(y, x)
 
@@ -144,8 +144,8 @@ def test_unpack_from_bytes_not_divisible():
         tx = ct.load(x, index=(0,), shape=(2,))
         ct.unpack_from_bytes(tx, y.dtype)
 
-    x = torch.ones(2, dtype=torch.uint8, device='cuda')
-    y = torch.zeros(1, dtype=torch.int32, device='cuda')
+    x = torch.ones(2, dtype=torch.uint8, device='cuda:0')
+    y = torch.zeros(1, dtype=torch.int32, device='cuda:0')
     with pytest.raises(TileTypeError, match="not divisible by 32"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -156,8 +156,8 @@ def test_unpack_from_bytes_wrong_input_dtype():
         tx = ct.load(x, index=(0,), shape=(4,))
         ct.unpack_from_bytes(tx, y.dtype)
 
-    x = torch.ones(4, dtype=torch.int32, device='cuda')
-    y = torch.zeros(4, dtype=torch.int32, device='cuda')
+    x = torch.ones(4, dtype=torch.int32, device='cuda:0')
+    y = torch.zeros(4, dtype=torch.int32, device='cuda:0')
     with pytest.raises(TileTypeError, match="unpack_from_bytes requires uint8 tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -168,8 +168,8 @@ def test_unpack_from_bytes_not_1d():
         tx = ct.load(x, index=(0, 0), shape=(4, 4))
         ct.unpack_from_bytes(tx, y.dtype)
 
-    x = torch.ones((4, 4), dtype=torch.uint8, device='cuda')
-    y = torch.zeros(4, dtype=torch.int32, device='cuda')
+    x = torch.ones((4, 4), dtype=torch.uint8, device='cuda:0')
+    y = torch.zeros(4, dtype=torch.int32, device='cuda:0')
     with pytest.raises(TileTypeError, match="unpack_from_bytes requires a 1D tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -180,8 +180,8 @@ def test_pack_to_bytes_bool():
         tx = ct.load(x, index=(0,), shape=(TILE,))
         ct.pack_to_bytes(tx)
 
-    x = torch.ones(4, dtype=torch.bool, device='cuda')
-    y = torch.zeros(4, dtype=torch.uint8, device='cuda')
+    x = torch.ones(4, dtype=torch.bool, device='cuda:0')
+    y = torch.zeros(4, dtype=torch.uint8, device='cuda:0')
     with pytest.raises(TileTypeError, match="pack_to_bytes from a bool_ tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 4))
 
@@ -192,7 +192,7 @@ def test_unpack_from_bytes_bool():
         tx = ct.load(x, index=(0,), shape=(4,))
         ct.unpack_from_bytes(tx, y.dtype)
 
-    x = torch.ones(4, dtype=torch.uint8, device='cuda')
-    y = torch.zeros(4, dtype=torch.bool, device='cuda')
+    x = torch.ones(4, dtype=torch.uint8, device='cuda:0')
+    y = torch.zeros(4, dtype=torch.bool, device='cuda:0')
     with pytest.raises(TileTypeError, match="unpack_from_bytes to a bool_ tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))

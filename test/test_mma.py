@@ -107,9 +107,9 @@ int_cases = [
 @pytest.mark.parametrize("case", regular_float_cases, ids=str)
 def test_mma_regular_float(tile_size, case):
     m, n, k = tile_size
-    A = torch.randn((m, k), dtype=case.dtype, device="cuda")
-    B = torch.randn((k, n), dtype=case.dtype, device="cuda")
-    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda")
+    A = torch.randn((m, k), dtype=case.dtype, device="cuda:0")
+    B = torch.randn((k, n), dtype=case.dtype, device="cuda:0")
+    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda:0")
     ref = torch.mm(A, B, out_dtype=C.dtype) + C
     ct.launch(torch.cuda.current_stream(), (1,), mma_kernel,
               (A, B, C, m, n, k, False))
@@ -137,10 +137,10 @@ def test_mma_fp8(tile_size, case, use_fast_acc):
     if use_fast_acc and get_tileiras_version() < BytecodeVersion.V_13_3:
         pytest.skip("use_fast_acc requires tileiras 13.3")
     m, n, k = tile_size
-    A = torch.randn((m, k), dtype=torch.float32, device="cuda").to(case.dtype)
-    B = torch.randn((n, k), dtype=torch.float32, device="cuda").to(case.dtype)
-    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda")
-    scale = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+    A = torch.randn((m, k), dtype=torch.float32, device="cuda:0").to(case.dtype)
+    B = torch.randn((n, k), dtype=torch.float32, device="cuda:0").to(case.dtype)
+    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda:0")
+    scale = torch.tensor([1.0], dtype=torch.float32, device="cuda:0")
     try:
         ref = torch._scaled_mm(A, B.T, scale, scale, out_dtype=C.dtype,
                                use_fast_accum=use_fast_acc) + C
@@ -155,9 +155,9 @@ def test_mma_fp8(tile_size, case, use_fast_acc):
 
 
 def test_mma_fast_acc_non_fp8_error():
-    A = torch.randn((2, 4), dtype=torch.float16, device="cuda")
-    B = torch.randn((4, 2), dtype=torch.float16, device="cuda")
-    C = torch.zeros((2, 2), dtype=torch.float16, device="cuda")
+    A = torch.randn((2, 4), dtype=torch.float16, device="cuda:0")
+    B = torch.randn((4, 2), dtype=torch.float16, device="cuda:0")
+    C = torch.zeros((2, 2), dtype=torch.float16, device="cuda:0")
     with pytest.raises(TileTypeError, match="use_fast_acc is only supported for fp8"):
         ct.launch(torch.cuda.current_stream(), (1,), mma_fast_acc_kernel, (A, B, C, 2, 2, 4))
 
@@ -165,9 +165,9 @@ def test_mma_fast_acc_non_fp8_error():
 @pytest.mark.parametrize("tile_size", [(8, 2, 4)])
 def test_mma_tf32(tile_size):
     m, n, k = tile_size
-    A = torch.randn((m, k), dtype=torch.float32, device="cuda")
-    B = torch.randn((k, n), dtype=torch.float32, device="cuda")
-    C = torch.ones((m, n), dtype=torch.float32, device="cuda")
+    A = torch.randn((m, k), dtype=torch.float32, device="cuda:0")
+    B = torch.randn((k, n), dtype=torch.float32, device="cuda:0")
+    C = torch.ones((m, n), dtype=torch.float32, device="cuda:0")
     ref = C + torch_to_tf32(A) @ torch_to_tf32(B)
     ct.launch(torch.cuda.current_stream(), (1,), mma_tf32_kernel,
               (A, B, C, m, n, k))
@@ -184,9 +184,9 @@ def test_mma_tf32(tile_size):
 @pytest.mark.parametrize("case", int_cases, ids=str)
 def test_mma_int(tile_size, case):
     m, n, k = tile_size
-    A = torch.randint(32, (m, k), dtype=case.dtype, device="cuda")
-    B = torch.randint(32, (k, n), dtype=case.dtype, device="cuda")
-    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda")
+    A = torch.randint(32, (m, k), dtype=case.dtype, device="cuda:0")
+    B = torch.randint(32, (k, n), dtype=case.dtype, device="cuda:0")
+    C = torch.ones((m, n), dtype=case.acc_dtype, device="cuda:0")
     ref = C + (A.to(torch.float32) @ B.to(torch.float32)).to(C.dtype)
     ct.launch(torch.cuda.current_stream(), (1,), mma_kernel,
               (A, B, C, m, n, k, False))
@@ -196,9 +196,9 @@ def test_mma_int(tile_size, case):
 @pytest.mark.parametrize("tile_size", [(2, 2, 1)])
 def test_mma_mixed_int_uint(tile_size):
     m, n, k = tile_size
-    A = torch.randint(32, (m, k), dtype=torch.int8, device="cuda")
-    B = torch.randint(32, (k, n), dtype=torch.uint8, device="cuda")
-    C = torch.ones((m, n), dtype=torch.int32, device="cuda")
+    A = torch.randint(32, (m, k), dtype=torch.int8, device="cuda:0")
+    B = torch.randint(32, (k, n), dtype=torch.uint8, device="cuda:0")
+    C = torch.ones((m, n), dtype=torch.int32, device="cuda:0")
     ref = C + (A.to(torch.float32) @ B.to(torch.float32)).to(C.dtype)
     ct.launch(torch.cuda.current_stream(), (1,), mma_kernel,
               (A, B, C, m, n, k, False))
@@ -221,9 +221,9 @@ def mma_batch_kernel(A, B, C,
 def test_batch_mma():
     b, m, n, k = 2, 4, 8, 16
     dtype = torch.float32
-    A = torch.randn((m, k), device="cuda").to(dtype)
-    B = torch.randn((b, k, n), device="cuda").to(dtype)
-    C = torch.ones((b, m, n), device="cuda").to(dtype)
+    A = torch.randn((m, k), device="cuda:0").to(dtype)
+    B = torch.randn((b, k, n), device="cuda:0").to(dtype)
+    C = torch.ones((b, m, n), device="cuda:0").to(dtype)
     ref = A @ B + C
     ct.launch(torch.cuda.current_stream(), (1,), mma_batch_kernel,
               (A, B, C, b, m, n, k))
@@ -249,9 +249,9 @@ dtype_error_cases = [
 
 @pytest.mark.parametrize("case", dtype_error_cases, ids=str)
 def test_mma_dtype_error(case):
-    A = torch.randn((2, 2), device='cuda').to(case.x_dtype)
-    B = torch.randn((2, 2), device='cuda').to(case.y_dtype)
-    C = torch.randn((2, 2), device='cuda').to(case.acc_dtype)
+    A = torch.randn((2, 2), device='cuda:0').to(case.x_dtype)
+    B = torch.randn((2, 2), device='cuda:0').to(case.y_dtype)
+    C = torch.randn((2, 2), device='cuda:0').to(case.acc_dtype)
     with pytest.raises(TileTypeError, match=case.message):
         ct.launch(torch.cuda.current_stream(),
                   (1,), mma_kernel,
@@ -280,9 +280,9 @@ unsupported_promotion = [(f16, bf16), (bf16, f16)]
 def test_matmul(tile_size, x_dtype, y_dtype):
     m, n, k = tile_size
     acc_dtype = torch.promote_types(x_dtype, y_dtype)
-    A = torch.randn((m, k), dtype=x_dtype, device="cuda")
-    B = torch.randn((k, n), dtype=y_dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=acc_dtype, device="cuda")
+    A = torch.randn((m, k), dtype=x_dtype, device="cuda:0")
+    B = torch.randn((k, n), dtype=y_dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=acc_dtype, device="cuda:0")
     if (x_dtype, y_dtype) in unsupported_promotion:
         with pytest.raises(TileTypeError, match="Implicit promotion of .* and .* is not supported"):
             ct.launch(torch.cuda.current_stream(), (1,), matmul_kernel,
@@ -300,10 +300,10 @@ def test_matmul(tile_size, x_dtype, y_dtype):
 @pytest.mark.parametrize("dtype", [f8e4m3fn, f8e5m2], ids=dtype_id)
 def test_matmul_fp8(tile_size, dtype):
     m, n, k = tile_size
-    A = torch.randn((m, k), device="cuda").to(dtype)
-    B = torch.randn((n, k), device="cuda").to(dtype)
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
-    scale = torch.tensor([1.0], dtype=torch.float32, device="cuda")
+    A = torch.randn((m, k), device="cuda:0").to(dtype)
+    B = torch.randn((n, k), device="cuda:0").to(dtype)
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
+    scale = torch.tensor([1.0], dtype=torch.float32, device="cuda:0")
     try:
         ref = torch._scaled_mm(A, B.T, scale, scale,
                                out_dtype=torch.float16)
@@ -321,10 +321,10 @@ def test_matmul_fp8(tile_size, dtype):
 @pytest.mark.parametrize("dtype", [u8, i8], ids=dtype_id)
 def test_matmul_int(tile_size, dtype):
     m, n, k = tile_size
-    A = torch.randint(32, (m, k), dtype=dtype, device="cuda")
-    B = torch.randint(32, (k, n), dtype=dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
-    ref = (A.cpu() @ B.cpu()).cuda()
+    A = torch.randint(32, (m, k), dtype=dtype, device="cuda:0")
+    B = torch.randint(32, (k, n), dtype=dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
+    ref = (A.cpu() @ B.cpu()).cuda(0)
     ct.launch(torch.cuda.current_stream(), (1,), matmul_kernel,
               (A, B, C, m, n, k))
     assert_equal(C, ref)
@@ -341,9 +341,9 @@ dtype_error_cases = [
 
 @pytest.mark.parametrize("case", dtype_error_cases, ids=str)
 def test_matmul_dtype_error(case):
-    A = torch.randn((2, 2), device='cuda').to(case.x_dtype)
-    B = torch.randn((2, 2), device='cuda').to(case.y_dtype)
-    C = torch.randn((2, 2), device='cuda').to(case.acc_dtype)
+    A = torch.randn((2, 2), device='cuda:0').to(case.x_dtype)
+    B = torch.randn((2, 2), device='cuda:0').to(case.y_dtype)
+    C = torch.randn((2, 2), device='cuda:0').to(case.acc_dtype)
     with pytest.raises(TileTypeError, match=case.message):
         ct.launch(torch.cuda.current_stream(),
                   (1,), matmul_kernel,
@@ -409,13 +409,13 @@ def test_matmul_nd(ranks):
     dtype = torch.float32
     a_shape = _get_shape(ranks[0], b, m, k, transpose=False)
     b_shape = _get_shape(ranks[1], b, n, k, transpose=True)
-    A = torch.randn(a_shape, device="cuda").to(dtype)
-    B = torch.randn(b_shape, device="cuda").to(dtype)
+    A = torch.randn(a_shape, device="cuda:0").to(dtype)
+    B = torch.randn(b_shape, device="cuda:0").to(dtype)
     ref = A @ B
     if len(ref.shape) == 0:
         # WAR: tileir doesn't support store in to 0d array
         ref.unsqueeze_(0)
-    C = torch.zeros(ref.shape, device="cuda").to(dtype)
+    C = torch.zeros(ref.shape, device="cuda:0").to(dtype)
     ct.launch(torch.cuda.current_stream(), (1,), matmul_nd_kernel,
               (A, B, C, b, m, n, k))
     atol, rtol = get_tolerance(A.dtype)
@@ -424,9 +424,9 @@ def test_matmul_nd(ranks):
 
 @pytest.mark.parametrize("dtype", [f8e4m3fn, f8e5m2], ids=dtype_id)
 def test_ampere_fp8_error(dtype):
-    A = torch.randn((16, 16), device="cuda").to(dtype)
-    B = torch.randn((16, 16), device="cuda").to(dtype)
-    C = torch.zeros((16, 16), dtype=torch.float16, device="cuda")
+    A = torch.randn((16, 16), device="cuda:0").to(dtype)
+    B = torch.randn((16, 16), device="cuda:0").to(dtype)
+    C = torch.zeros((16, 16), dtype=torch.float16, device="cuda:0")
     original_compile = ct.kernel._compile
 
     def compile_as_sm80(self, signature, context, compute_capability):

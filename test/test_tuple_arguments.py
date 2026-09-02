@@ -26,10 +26,10 @@ def kernel_scalar_tuple(a, out, addends):
 
 
 def test_tuple_scalar_arg():
-    a = torch.zeros(8, dtype=torch.int32, device="cuda")
-    out = torch.zeros(8, dtype=torch.int32, device="cuda")
+    a = torch.zeros(8, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_scalar_tuple, (a, out, (3, 7)))
-    assert_equal(out, torch.full((8,), 10, dtype=torch.int32, device="cuda"))
+    assert_equal(out, torch.full((8,), 10, dtype=torch.int32, device="cuda:0"))
 
 
 @ct.kernel
@@ -41,9 +41,9 @@ def kernel_array_tuple(pair, out):
 
 def test_tuple_array_arg():
     # Pass a tuple[Tensor, Tensor].
-    a = torch.ones(4, 4, dtype=torch.float32, device="cuda")
-    b = torch.full((4, 4), 2.0, dtype=torch.float32, device="cuda")
-    out = torch.zeros(4, 4, dtype=torch.float32, device="cuda")
+    a = torch.ones(4, 4, dtype=torch.float32, device="cuda:0")
+    b = torch.full((4, 4), 2.0, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(4, 4, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_array_tuple, ((a, b), out))
     assert_equal(out, a + b)
 
@@ -57,10 +57,10 @@ def kernel_mixed_tuple(pair, out):
 
 def test_tuple_mixed_arg():
     # Pass a tuple[Tensor, int].
-    data = torch.ones(8, dtype=torch.int32, device="cuda")
-    out = torch.zeros(8, dtype=torch.int32, device="cuda")
+    data = torch.ones(8, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_mixed_tuple, ((data, 5), out))
-    assert_equal(out, torch.full((8,), 6, dtype=torch.int32, device="cuda"))
+    assert_equal(out, torch.full((8,), 6, dtype=torch.int32, device="cuda:0"))
 
 
 def make_i64_index_tuple_kernel(annotation):
@@ -79,9 +79,9 @@ def make_i64_index_tuple_kernel(annotation):
 ])
 def test_tuple_i64_index_arg(annotation):
     # Pass a tuple with ct.IndexedWithInt64.
-    a = torch.ones(16, dtype=torch.float32, device="cuda")
-    b = torch.full((16,), 2.0, dtype=torch.float32, device="cuda")
-    out = torch.zeros(16, dtype=torch.float32, device="cuda")
+    a = torch.ones(16, dtype=torch.float32, device="cuda:0")
+    b = torch.full((16,), 2.0, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(16, dtype=torch.float32, device="cuda:0")
     k = make_i64_index_tuple_kernel(annotation)
     ct.launch(torch.cuda.current_stream(), (1,), k, ((a, b), out))
     assert_equal(out, a + b)
@@ -101,11 +101,11 @@ def make_mixed_scalar_kernel(annotation):
     pytest.param(tuple[int, ct.ScalarInt64], (5, 2**33 + 7), id="i32_first"),
 ])
 def test_mixed_scalar_tuple_arg(annotation, scalars):
-    a = torch.zeros(8, dtype=torch.int64, device="cuda")
-    out = torch.zeros(8, dtype=torch.int64, device="cuda")
+    a = torch.zeros(8, dtype=torch.int64, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int64, device="cuda:0")
     k = make_mixed_scalar_kernel(annotation)
     ct.launch(torch.cuda.current_stream(), (1,), k, (a, scalars, out))
-    assert_equal(out, torch.full((8,), scalars[0] - scalars[1], dtype=torch.int64, device="cuda"))
+    assert_equal(out, torch.full((8,), scalars[0] - scalars[1], dtype=torch.int64, device="cuda:0"))
 
 
 @ct.kernel
@@ -116,8 +116,8 @@ def kernel_constant_tuple(a, out, shape: ct.Constant[tuple]):
 
 def test_constant_tuple_arg():
     N = 8
-    a = torch.arange(N, dtype=torch.float32, device="cuda")
-    out = torch.zeros(N, dtype=torch.float32, device="cuda")
+    a = torch.arange(N, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_constant_tuple, (a, out, (N,)))
     assert_equal(out, a)
 
@@ -132,8 +132,8 @@ def kernel_constant_i64_scalar_tuple(a, out, addends: ct.Constant[tuple[ct.Scala
 def test_constant_i64_scalar_tuple_arg():
     i64_val = 2**33 + 7
     i32_val = 5
-    a = torch.zeros(8, dtype=torch.int64, device="cuda")
-    out = torch.zeros(8, dtype=torch.int64, device="cuda")
+    a = torch.zeros(8, dtype=torch.int64, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int64, device="cuda:0")
 
     expected_message = re.escape(
             "Constant annotation cannot be combined with ScalarAnnotation/ScalarInt64")
@@ -150,10 +150,10 @@ def kernel_partial_const_first(a, out, cfg: tuple[ct.Constant[int], int]):
 
 def test_partial_const_tuple_first():
     N, M = 8, 5
-    a = torch.arange(N, dtype=torch.int32, device="cuda")
-    out = torch.zeros(N, dtype=torch.int32, device="cuda")
+    a = torch.arange(N, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_partial_const_first, (a, out, (N, M)))
-    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda") + M)
+    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda:0") + M)
 
 
 @ct.kernel
@@ -164,10 +164,10 @@ def kernel_partial_const_second(a, out, cfg: tuple[int, ct.Constant[int]]):
 
 def test_partial_const_tuple_second():
     N, M = 8, 3
-    a = torch.arange(N, dtype=torch.int32, device="cuda")
-    out = torch.zeros(N, dtype=torch.int32, device="cuda")
+    a = torch.arange(N, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_partial_const_second, (a, out, (M, N)))
-    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda") + M)
+    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda:0") + M)
 
 
 def test_tuple_arg_empty():
@@ -175,7 +175,7 @@ def test_tuple_arg_empty():
     def k(out, empty):
         ct.scatter(out, (), len(empty) + 1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), k, (out, ()))
     assert out.item() == 1
 
@@ -192,12 +192,12 @@ def kernel_nested_scalar_tuple(a, out, cfg):
 
 
 def test_nested_scalar_tuple_arg():
-    a = torch.ones(8, dtype=torch.int32, device="cuda")
-    out = torch.zeros(8, dtype=torch.int32, device="cuda")
+    a = torch.ones(8, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     # 1 * 3 + 2 + 5 = 10
     ct.launch(torch.cuda.current_stream(), (1,), kernel_nested_scalar_tuple,
               (a, out, ((2, 3), 5)))
-    assert_equal(out, torch.full((8,), 10, dtype=torch.int32, device="cuda"))
+    assert_equal(out, torch.full((8,), 10, dtype=torch.int32, device="cuda:0"))
 
 
 @ct.kernel
@@ -208,11 +208,11 @@ def kernel_nested_mixed_tuple(pair, out):
 
 
 def test_nested_mixed_tuple_arg():
-    data = torch.ones(8, dtype=torch.int32, device="cuda")
-    out = torch.zeros(8, dtype=torch.int32, device="cuda")
+    data = torch.ones(8, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_nested_mixed_tuple,
               ((data, (3, 7)), out))
-    assert_equal(out, torch.full((8,), 11, dtype=torch.int32, device="cuda"))
+    assert_equal(out, torch.full((8,), 11, dtype=torch.int32, device="cuda:0"))
 
 
 def test_tuple_arg_contains_list():
@@ -224,11 +224,11 @@ def test_tuple_arg_contains_list():
             res = res + t
         ct.store(out, (0,), res + pair[1])
 
-    a = torch.ones(8, dtype=torch.float32, device="cuda")
-    b = torch.full((8,), 2.0, dtype=torch.float32, device="cuda")
-    out = torch.zeros(8, dtype=torch.float32, device="cuda")
+    a = torch.ones(8, dtype=torch.float32, device="cuda:0")
+    b = torch.full((8,), 2.0, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), k, (([a, b], 3), out))
-    assert_equal(out, torch.full((8,), 6.0, dtype=torch.float32, device="cuda"))
+    assert_equal(out, torch.full((8,), 6.0, dtype=torch.float32, device="cuda:0"))
 
 
 @ct.kernel
@@ -239,8 +239,8 @@ def kernel_array_const_tuple(pair: tuple[torch.Tensor, ct.Constant[int]], out):
 
 def test_tuple_annotation_array_and_const():
     N = 8
-    a = torch.arange(N, dtype=torch.float32, device="cuda")
-    out = torch.zeros(N, dtype=torch.float32, device="cuda")
+    a = torch.arange(N, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_array_const_tuple, ((a, N), out))
     assert_equal(out, a)
 
@@ -253,18 +253,18 @@ def kernel_nested_partial_const(a, out, cfg: tuple[tuple[ct.Constant[int], int],
 
 def test_nested_tuple_partial_const():
     N, M1, M2 = 8, 3, 5
-    a = torch.arange(N, dtype=torch.int32, device="cuda")
-    out = torch.zeros(N, dtype=torch.int32, device="cuda")
+    a = torch.arange(N, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel_nested_partial_const,
               (a, out, ((N, M1), M2)))
-    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda") + M1 + M2)
+    assert_equal(out, torch.arange(N, dtype=torch.int32, device="cuda:0") + M1 + M2)
 
 
 def test_nested_tuple_partial_const_recompilation():
     stream = torch.cuda.current_stream()
     N = 8
-    a = torch.arange(N, dtype=torch.int32, device="cuda")
-    out = torch.zeros(N, dtype=torch.int32, device="cuda")
+    a = torch.arange(N, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(N, dtype=torch.int32, device="cuda:0")
 
     kernel = cuda.tile.kernel(kernel_nested_partial_const._pyfunc)
 
@@ -290,7 +290,7 @@ def test_nested_tuple_different_structures():
         ct.scatter(out, (0,), cfg[0][0] + cfg[0][1])
 
     stream = torch.cuda.current_stream()
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
 
     ct.launch(stream, (1,), k, (((1, 2), 3, 4), out))
     assert out[0] == 3
@@ -305,7 +305,7 @@ def test_two_top_level_tuple_args():
         ct.scatter(out, (0,), t1[0] + t2[0])
         ct.scatter(out, (1,), t1[1] + t2[1])
 
-    out = torch.zeros(2, dtype=torch.int32, device="cuda")
+    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), k, (out, (1, 2), (10, 20)))
     assert out.tolist() == [11, 22]
 
@@ -316,7 +316,7 @@ def test_tuple_of_two_tuples_arg():
         ct.scatter(out, (0,), t[0][0] + t[1][0])
         ct.scatter(out, (1,), t[0][1] + t[1][1])
 
-    out = torch.zeros(2, dtype=torch.int32, device="cuda")
+    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), k, (out, ((1, 2), (10, 20))))
     assert out.tolist() == [11, 22]
 
@@ -327,7 +327,7 @@ def test_tuple_with_variable_length_annotation():
         ct.scatter(out, (0,), addends[0] + addends[1])
 
     stream = torch.cuda.current_stream()
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
 
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock:
@@ -354,7 +354,7 @@ def test_nested_tuple_bare_tuple_annotation():
         ct.scatter(out, (0,), addends[0][0] + addends[1])
 
     stream = torch.cuda.current_stream()
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
 
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock:
@@ -377,7 +377,7 @@ def test_nested_tuple_variable_length_tuple_annotation():
         ct.scatter(out, (0,), addends[0][0] + addends[1])
 
     stream = torch.cuda.current_stream()
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
 
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock:
@@ -400,7 +400,7 @@ def test_variable_length_tuple_structured_element():
         ct.scatter(out, (0,), addends[0][0] + addends[1][0])
 
     stream = torch.cuda.current_stream()
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
 
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock:
@@ -430,8 +430,8 @@ def test_constant_tuple_array_element_rejected():
         t = ct.load(a, (0,), (8,))
         ct.store(out, (0,), t)
 
-    a = torch.zeros(8, dtype=torch.float32, device="cuda")
-    out = torch.zeros(8, dtype=torch.float32, device="cuda")
+    a = torch.zeros(8, dtype=torch.float32, device="cuda:0")
+    out = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     expected_message = re.escape(
         "Invalid item #0 of kernel argument #2:"
         " Could not interpret object of type 'Tensor' as a constant."
@@ -445,7 +445,7 @@ def test_tuple_more_than_annotation_size():
     def k(out, addends: tuple[int, ct.Constant[int]]):
         ct.scatter(out, (0,), addends[0] + addends[1])
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeError, match=r"Received a tuple of length 3"
                                         r" for a parameter annotated as a tuple of length 2"):
         ct.launch(torch.cuda.current_stream(), (1,), k, (out, ((1, 2, 3))))
@@ -456,7 +456,7 @@ def test_tuple_fewer_than_annotation_size():
     def k(out, addends: tuple[int, ct.Constant[int]]):
         ct.scatter(out, (0,), addends[0] + addends[1])
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeError, match=r"Received a tuple of length 1"
                                         r" for a parameter annotated as a tuple of length 2"):
         ct.launch(torch.cuda.current_stream(), (1,), k, (out, ((1, ))))
@@ -467,7 +467,7 @@ def test_nested_tuple_wrong_annotation_size():
     def k(out, addends: tuple[tuple[int, ct.Constant[int]], ct.Constant[int]]):
         ct.scatter(out, (0,), addends[0][1] + addends[1])
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeError, match=r"Received a tuple of length 3"
                                         r" for a parameter annotated as a tuple of length 2"):
         ct.launch(torch.cuda.current_stream(), (1,), k, (out, ((1, 2, 3), 4)))
@@ -481,7 +481,7 @@ def test_namedtuple_rejected():
     def k(out, p):
         ct.scatter(out, (0,), p[0] + p[1])
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeError,
                        match=re.escape("Invalid kernel argument #1:"
                                        " 'Point' is a subclass of 'tuple'."
@@ -497,7 +497,7 @@ def test_namedtuple_nested_rejected():
     def k(out, pair):
         ct.scatter(out, (0,), pair[0] + pair[1][0])
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeError,
                        match=re.escape("Invalid item #1 of kernel argument #1:"
                                        " 'Point' is a subclass of 'tuple'."

@@ -67,7 +67,7 @@ def _kernel_runner_main():
             shape = tuple(int(d) for d in shape_str.split(","))
             dtype = getattr(torch, dtype_str)
             tile = int(tile_str)
-            x = torch.arange(math.prod(shape), device='cuda').reshape(shape).to(dtype)
+            x = torch.arange(math.prod(shape), device='cuda:0').reshape(shape).to(dtype)
             grid = (math.ceil(shape[0] / tile), 1, 1)
             ct.launch(torch.cuda.current_stream(), grid, kernel, (x, tile))
             torch.cuda.synchronize()
@@ -533,7 +533,7 @@ def test_ct_print_error_conversion():
         tx = ct.load(x, index=(0,), shape=(TILE,))
         ct.print(f"{tx!r}")
 
-    x = torch.zeros(8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileSyntaxError, match="!r, !s, !a"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), bad_kernel, (x, 8))
 
@@ -547,7 +547,7 @@ def test_ct_print_error_dynamic_format_spec():
         tx = ct.load(x, index=(0,), shape=(TILE,))
         ct.print(f"{tx:{width}}")
 
-    x = torch.zeros(8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileSyntaxError, match="format spec must be a literal string"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), bad_kernel, (x, 8))
 
@@ -646,7 +646,7 @@ def test_ct_print_tuple_format_spec_error():
     def bad_kernel(x, TILE: ct.Constant[int]):
         ct.print(f"{x.shape:10}")
 
-    x = torch.zeros(8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="cannot apply format spec to a value of type"):
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), bad_kernel, (x, 8))
 

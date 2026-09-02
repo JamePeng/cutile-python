@@ -288,7 +288,7 @@ def make_tcgen05_mma_kernel(
 
 
 def run_tcgen05_mma_kernel(kernel, expected):
-    output = torch.empty(M * OUTPUT_COLUMNS, dtype=torch.float32, device="cuda")
+    output = torch.empty(M * OUTPUT_COLUMNS, dtype=torch.float32, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),

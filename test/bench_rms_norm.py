@@ -47,8 +47,8 @@ def algo(request):
 def bench_rms_norm(shape, dtype, algo, backend, benchmark):
     x_shape = shape
     w_shape = (shape[1], )
-    x = torch.rand(x_shape, dtype=dtype, device="cuda")
-    weight = torch.randn(w_shape, dtype=dtype, device="cuda")
+    x = torch.rand(x_shape, dtype=dtype, device="cuda:0")
+    weight = torch.randn(w_shape, dtype=dtype, device="cuda:0")
 
     eps = 1e-5
 
@@ -88,7 +88,7 @@ def bench_rms_norm(shape, dtype, algo, backend, benchmark):
 def _static_persistent_autotune_grid(x, cfg):
     """Grid function for static persistent RMS Norm autotuning"""
     NUM_SMS = torch.cuda.get_device_properties(
-        "cuda"
+        "cuda:0"
     ).multi_processor_count
     M = x.shape[0]
     grid_size = min(NUM_SMS, ceil(M / cfg["tile_size_m"]))
@@ -135,8 +135,8 @@ def _rms_norm_regular_kernel(num_worker_warps):
 
 
 def tune_rms_norm(algo, shape, dtype):
-    x = torch.rand(shape, dtype=dtype, device="cuda")
-    weight = torch.randn((shape[1],), dtype=dtype, device="cuda")
+    x = torch.rand(shape, dtype=dtype, device="cuda:0")
+    weight = torch.randn((shape[1],), dtype=dtype, device="cuda:0")
     y = torch.empty_like(x)
     eps = 1e-5
 
@@ -158,7 +158,7 @@ def tune_rms_norm(algo, shape, dtype):
 
             kernel = rms_norm_kernel_static_persistent
         else:
-            rstd = torch.empty((shape[0],), dtype=torch.float32, device='cuda')
+            rstd = torch.empty((shape[0],), dtype=torch.float32, device='cuda:0')
             search_space = list(_standard_autotune_configs())
             kernel = rms_norm_kernel_gather if algo == 'gather' else rms_norm_kernel
 
@@ -239,7 +239,7 @@ def cutile_rms_norm(x, weight, eps, static_persistent, gather):
     if static_persistent:
         _rms_norm_static_persistent_base(torch.cuda.current_stream(), x, y, weight, eps)
     else:
-        rstd = torch.empty((M,), dtype=torch.float32, device='cuda')
+        rstd = torch.empty((M,), dtype=torch.float32, device='cuda:0')
         if gather:
             _rms_norm_standard_gather_base(torch.cuda.current_stream(),
                                            x, weight, y, rstd, N, eps)

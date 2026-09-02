@@ -16,7 +16,7 @@ from util import assert_equal
 
 
 def nd_tensor(nd: int, dtype=None):
-    return torch.rand((4,) * nd, dtype=dtype, device='cuda')
+    return torch.rand((4,) * nd, dtype=dtype, device='cuda:0')
 
 
 def compile(pyfunc, pyargs):
@@ -226,7 +226,7 @@ def test_fold_nested_if_both_early_terminators_in_loop():
                 a = 40
         ct.scatter(x, ct.bid(0), a)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kernel, (x,))
     assert x.tolist() == [13, 23]
 
@@ -291,7 +291,7 @@ def test_semi_constant_tuple_yielded_by_ifelse():
         tx = ct.arange(tup[1], dtype=x.dtype)
         ct.store(x, (0,), tx)
 
-    x = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [0, 1, 2, 3]
 
@@ -308,14 +308,14 @@ def test_strictly_typed_integer_constant_truncation():
             ct.scatter(y, i, ct.int64(ct.int8(i - 1000)))
             ct.scatter(z, i, ct.int64(ct.uint8(i - 1000)))
 
-    x = torch.zeros(4, dtype=torch.int64, device="cuda")
-    y = torch.zeros(2000, dtype=torch.int64, device="cuda")
-    z = torch.zeros(2000, dtype=torch.int64, device="cuda")
+    x = torch.zeros(4, dtype=torch.int64, device="cuda:0")
+    y = torch.zeros(2000, dtype=torch.int64, device="cuda:0")
+    z = torch.zeros(2000, dtype=torch.int64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, z))
     assert x.tolist() == [0xfffffffd, 0xabcdef23, 1294967296, -1294967296]
 
-    assert_equal(y, torch.arange(-1000, 1000, device="cuda").to(torch.int8).to(torch.int64))
-    assert_equal(z, torch.arange(-1000, 1000, device="cuda").to(torch.uint8).to(torch.int64))
+    assert_equal(y, torch.arange(-1000, 1000, device="cuda:0").to(torch.int8).to(torch.int64))
+    assert_equal(z, torch.arange(-1000, 1000, device="cuda:0").to(torch.uint8).to(torch.int64))
 
 
 def test_strictly_typed_integer_constant_truncation_unary():
@@ -324,7 +324,7 @@ def test_strictly_typed_integer_constant_truncation_unary():
         ct.scatter(x, 0, ct.int64(~ct.uint32(3)))
         ct.scatter(x, 1, ct.int64(-ct.uint32(3)))
 
-    x = torch.zeros(2, dtype=torch.int64, device="cuda")
+    x = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [0xfffffffc, 0xfffffffd]
 
@@ -335,7 +335,7 @@ def test_strictly_typed_boolean_constant_truncation():
         ct.scatter(x, 0, ct.int64(ct.bool_(5)))
         ct.scatter(x, 1, ct.int64(ct.bool_(-3)))
 
-    x = torch.zeros(2, dtype=torch.int64, device="cuda")
+    x = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [1, 1]
 
@@ -346,7 +346,7 @@ def test_strictly_typed_integer_constant_truncation_binary():
         t = ct.uint8(150) + ct.uint8(110)  # 260 = 4 (mod 256)
         ct.scatter(x, 0, ct.int64(t))
 
-    x = torch.zeros(1, dtype=torch.int64, device="cuda")
+    x = torch.zeros(1, dtype=torch.int64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [4]
 
@@ -357,7 +357,7 @@ def test_strictly_typed_float_constant_rounding():
         ct.scatter(x, 0, ct.float16(0.2))
         ct.scatter(x, 1, ct.float64(ct.float8_e8m0fnu(0.2)))
 
-    x = torch.zeros(2, dtype=torch.float64, device="cuda")
+    x = torch.zeros(2, dtype=torch.float64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [float(np.float16(0.2)), 0.25]
 
@@ -378,7 +378,7 @@ def test_ensure_constant_ok():
         c2 = ct.ensure_constant(c + 1)
         ct.scatter(x, (), c2)
 
-    x = torch.zeros((), dtype=torch.int64, device="cuda")
+    x = torch.zeros((), dtype=torch.int64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4))
     assert x.item() == 5
 

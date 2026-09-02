@@ -541,13 +541,13 @@ def prepare_tensors(
         return (
             torch.empty(rows, cols, dtype=torch.int32)
             .random_(-2, 2)
-            .to(device="cuda", dtype=torch.float16)
+            .to(device="cuda:0", dtype=torch.float16)
         )
 
     tensors = {"a": _make(m, k), "b": _make(n, k)}
-    tensors["c"] = torch.empty((m, n), device="cuda", dtype=torch.float16)
+    tensors["c"] = torch.empty((m, n), device="cuda:0", dtype=torch.float16)
     if has_bias:
-        tensors["bias"] = torch.randn(m, device="cuda", dtype=torch.float16)
+        tensors["bias"] = torch.randn(m, device="cuda:0", dtype=torch.float16)
     return tensors
 
 

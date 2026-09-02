@@ -19,7 +19,7 @@ def test_nested_function_with_annotation():
         val2 = foo(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 21
 
@@ -33,7 +33,7 @@ def test_pure_nested_function():
         val2 = foo(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 21
 
@@ -47,7 +47,7 @@ def test_pure_nested_function_shadowed_name():
         val2 = foo(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 21
 
@@ -64,7 +64,7 @@ def test_simple_closure():
         val3 = foo(val)
         ct.scatter(x, 1, val3)
 
-    x = torch.ones((2,), dtype=torch.int32, device="cuda")
+    x = torch.ones((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 15))
     assert x.tolist() == [16, 101]
 
@@ -82,7 +82,7 @@ def test_simple_frozen_capture():
         val2 = c(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 31
 
@@ -100,7 +100,7 @@ def test_frozen_capture_returned_via_tuple():
         val2 = c(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 31
 
@@ -123,7 +123,7 @@ def test_frozen_capture_type_compatibility():
         val2 = c(val)
         ct.scatter(x, i, val2)
 
-    x = torch.ones((2,), dtype=torch.int32, device="cuda")
+    x = torch.ones((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kernel, (x,))
     assert x.tolist() == [31, 41]
 
@@ -150,7 +150,7 @@ def test_frozen_captures_at_multiple_depths():
 
         f0(0)
 
-    x = torch.ones((5,), dtype=torch.int32, device="cuda")
+    x = torch.ones((5,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [0, 10, 20, 30, 40]
 
@@ -172,7 +172,7 @@ def test_frozen_capture_that_itself_needs_freezing():
         val2 = c(val)
         ct.scatter(x, (), val2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 132
 
@@ -191,8 +191,8 @@ def test_closure_simple_default_args():
         y2 = func(tx, 4)
         ct.scatter(y, 2, y2)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
-    y = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert y.tolist() == [10 + 3, 10 + 5, 4 + 3]
 
@@ -210,8 +210,8 @@ def test_frozen_capture_non_const_value():
         result = c(5)
         ct.scatter(y, (), result)
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert y.item() == 6
 
@@ -231,7 +231,7 @@ def test_closure_nonconst_default_arg():
             c = make_closure(4)
         c(x, ct.bid(0))
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kernel, (x,))
     assert x.tolist() == [3, 4]
 
@@ -248,7 +248,7 @@ def test_lambda():
         f2 = lambda t: t * 10 + n  # noqa: E731
         ct.scatter(y, 2, f2(tx))
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
-    y = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert y.tolist() == [2 + 5 + 100, 2 + 7 + 100, 10 + 7]

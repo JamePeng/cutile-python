@@ -232,8 +232,8 @@ def test_hoisting(kernel, op_finder, expected_x):
     assert len(expected_to_hoist) > 0, "Please suffix kernel name with _yes or _no"
     expected_to_hoist.reverse()
 
-    x = torch.zeros(3, dtype=torch.float32, device="cuda")
-    a = torch.tensor([5, 6, 7], dtype=torch.int32, device="cuda")
+    x = torch.zeros(3, dtype=torch.float32, device="cuda:0")
+    a = torch.tensor([5, 6, 7], dtype=torch.int32, device="cuda:0")
     sig = ct.compilation.KernelSignature.from_kernel_args(kernel, (x, a, 4.0),
                                                           CallingConvention.cutile_python_v1())
     [root_block] = compile_tile(kernel._pyfunc, [sig], return_final_ir=True).final_ir
@@ -247,5 +247,5 @@ def test_hoisting(kernel, op_finder, expected_x):
         assert _is_inside_loop(op, loop) == (not expected)
 
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, a, 4.0))
-    ref = torch.tensor(expected_x, dtype=torch.float32, device="cuda")
+    ref = torch.tensor(expected_x, dtype=torch.float32, device="cuda:0")
     assert_close(x, ref)

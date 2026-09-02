@@ -46,7 +46,7 @@ class MyReLU(torch.autograd.Function):
 
 
 def test_backward_relu():
-    x = torch.nn.Parameter(torch.randn(5, requires_grad=True, device='cuda'))
+    x = torch.nn.Parameter(torch.randn(5, requires_grad=True, device='cuda:0'))
     y = MyReLU.apply(x)
     y.sum().backward()
     ref_grad = torch.where(x < 0, 0, 1).to(x.dtype)

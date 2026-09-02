@@ -108,8 +108,8 @@ if __name__ == "__main__":
     # --- Test Case 1: 1D Vector Add (Direct Tiled) ---
     print("\n--- Test 1: 1D Vector Add (Direct Tiled) ---")
     # Create random input tensors on the CUDA device.
-    a_1d_direct = torch.randn(VECTOR_SIZE_1D, dtype=torch.float32, device='cuda')
-    b_1d_direct = torch.randn(VECTOR_SIZE_1D, dtype=torch.float32, device='cuda')
+    a_1d_direct = torch.randn(VECTOR_SIZE_1D, dtype=torch.float32, device='cuda:0')
+    b_1d_direct = torch.randn(VECTOR_SIZE_1D, dtype=torch.float32, device='cuda:0')
     print(f"Input 1D shape: {a_1d_direct.shape}, dtype: {a_1d_direct.dtype}")
 
     # Call the vec_add wrapper function, requesting the direct tiled kernel.
@@ -128,8 +128,8 @@ if __name__ == "__main__":
     # Use a size not perfectly divisible by typical TILE_SIZE to demonstrate
     # the gather/scatter kernel's robust boundary handling.
     VECTOR_SIZE_1D_GATHER = 1_000_001
-    a_1d_gather = torch.randn(VECTOR_SIZE_1D_GATHER, dtype=torch.float32, device='cuda')
-    b_1d_gather = torch.randn(VECTOR_SIZE_1D_GATHER, dtype=torch.float32, device='cuda')
+    a_1d_gather = torch.randn(VECTOR_SIZE_1D_GATHER, dtype=torch.float32, device='cuda:0')
+    b_1d_gather = torch.randn(VECTOR_SIZE_1D_GATHER, dtype=torch.float32, device='cuda:0')
     print(f"Input 1D (gather) shape: {a_1d_gather.shape}, dtype: {a_1d_gather.dtype}")
 
     # Call the vec_add wrapper function, requesting the gather/scatter kernel.
@@ -145,8 +145,8 @@ if __name__ == "__main__":
 
     # --- Test Case 3: 2D Matrix Add (Direct Tiled) ---
     print("\n--- Test 3: 2D Matrix Add (Direct Tiled) ---")
-    a_2d_direct = torch.randn(MATRIX_SHAPE_2D, dtype=torch.float32, device='cuda')
-    b_2d_direct = torch.randn(MATRIX_SHAPE_2D, dtype=torch.float32, device='cuda')
+    a_2d_direct = torch.randn(MATRIX_SHAPE_2D, dtype=torch.float32, device='cuda:0')
+    b_2d_direct = torch.randn(MATRIX_SHAPE_2D, dtype=torch.float32, device='cuda:0')
     print(f"Input 2D shape: {a_2d_direct.shape}, dtype: {a_2d_direct.dtype}")
 
     # Call the vec_add wrapper function for 2D, requesting the direct tiled kernel.
@@ -165,8 +165,8 @@ if __name__ == "__main__":
     # Use dimensions not perfectly divisible by typical tile sizes to demonstrate
     # the gather/scatter kernel's robust boundary handling in 2D.
     MATRIX_SHAPE_2D_GATHER = (2000, 1000)
-    a_2d_gather = torch.randn(MATRIX_SHAPE_2D_GATHER, dtype=torch.float32, device='cuda')
-    b_2d_gather = torch.randn(MATRIX_SHAPE_2D_GATHER, dtype=torch.float32, device='cuda')
+    a_2d_gather = torch.randn(MATRIX_SHAPE_2D_GATHER, dtype=torch.float32, device='cuda:0')
+    b_2d_gather = torch.randn(MATRIX_SHAPE_2D_GATHER, dtype=torch.float32, device='cuda:0')
     print(f"Input 2D (gather) shape: {a_2d_gather.shape}, dtype: {a_2d_gather.dtype}")
 
     # Call the vec_add wrapper function for 2D, requesting the gather/scatter kernel.

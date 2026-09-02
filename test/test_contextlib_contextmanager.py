@@ -35,7 +35,7 @@ def test_user_defined_context_manager():
             static_assert(val == 20)
         append(x, 50)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [5, 10, 20, 40, 30, 50, 0, 0, 0, 0]
 
@@ -53,7 +53,7 @@ def test_nested_with():
             append(x, 80)
         append(x, 90)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [9, 10, 20, 40, 50, 70, 60, 80, 30, 90]
 
@@ -69,7 +69,7 @@ def test_break_in_with():
                     break
             i += 1
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [9, 100, 0, 200, 101, 1, 201, 102, 2, 202]
 
@@ -93,7 +93,7 @@ def test_enter_context_inside_context_manager():
             static_assert(r == 31)
         append(x, 90)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [9, 10, 20, 30, 40, 50, 60, 70, 80, 90]
 
@@ -109,7 +109,7 @@ def test_break_in_with_nested_context():
                     break
             i += 1
 
-    x = torch.zeros(20, dtype=torch.int32, device="cuda")
+    x = torch.zeros(20, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [14,
                           10, 20, 30, 0, 40, 50, 60,   # i=0
@@ -139,7 +139,7 @@ def test_enter_context_in_cleanup():
             i += 1
         append(x, 80)
 
-    x = torch.zeros(16, dtype=torch.int32, device="cuda")
+    x = torch.zeros(16, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [14, 10,
                           20, 30, 40, 50, 60, 70,  # i=0
@@ -164,7 +164,7 @@ def test_yield_closure():
             func()
         func()
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [4, 20, 10, 30, 11, 0, 0, 0]
 
@@ -181,7 +181,7 @@ def test_yield_closure_break():
             func()
             i += 1
 
-    x = torch.zeros(15, dtype=torch.int32, device="cuda")
+    x = torch.zeros(15, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [11,
                           20, 10, 30, 11,  # i=0
@@ -202,7 +202,7 @@ def test_nested_break_cleanup_order():
                         break
             i += 1
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [5, 1, 3, 9, 4, 2, 0, 0]
 
@@ -218,7 +218,7 @@ def test_nested_continue_cleanup_order():
                     i += 1
                     continue
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [5, 1, 3, 9, 4, 2, 0, 0]
 
@@ -231,7 +231,7 @@ def test_nested_return_cleanup_order():
                 append(x, 9)
                 return
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [5, 1, 3, 9, 4, 2, 0, 0]
 
@@ -247,7 +247,7 @@ def test_break_with_outer_context_outside_loop():
                         break
             append(x, 7)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [8, 1, 3, 5, 9, 6, 4, 7, 2, 0]
 
@@ -266,7 +266,7 @@ def test_yield_closure_helper_function(return_early):
         func = helper(x, return_early)
         func()
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x, return_early))
     assert x.tolist() == [4, 20, 10, 30, 11, 0, 0, 0]
 
@@ -286,7 +286,7 @@ def test_multiple_yields_diagnostic():
         with two_yields(x):
             append(x, 99)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="must have one `yield` statement"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
@@ -302,7 +302,7 @@ def test_no_yield_diagnostic():
         with no_yield(x):
             append(x, 99)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="no reachable `yield` statement"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
@@ -321,7 +321,7 @@ def test_yield_in_control_flow_diagnostic():
         with yield_in_if(x, True):
             append(x, 99)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="outside of loops and conditional"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
@@ -342,7 +342,7 @@ def test_dead_yield_after_break():
         with dead_yield_after_break(x):
             append(x, 9)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [3, 1, 9, 3, 0, 0, 0, 0]
 
@@ -365,7 +365,7 @@ def test_dead_yield_after_continue():
         with dead_yield_after_continue(x):
             append(x, 9)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [4, 1, 9, 10, 11, 0, 0, 0]
 
@@ -385,7 +385,7 @@ def test_only_dead_yield():
         with only_dead_yield(x):
             append(x, 9)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="no reachable `yield` statement"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
@@ -428,7 +428,7 @@ def test_dataclass_method_context_manager():
             static_assert(val == 20)
         append(x, 50)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [5, 10, 20, 40, 30, 50, 0, 0, 0, 0]
 

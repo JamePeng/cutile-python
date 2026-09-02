@@ -36,9 +36,9 @@ def dtype(request):
 @pytest.mark.benchmark(group='layer_norm')
 @pytest.mark.parametrize("mode", ["forward", "backward"])
 def bench_layer_norm(shape, dtype, mode, backend, benchmark):
-    weight = torch.randn(shape[-1], dtype=dtype, device='cuda', requires_grad=True)
-    bias = torch.randn(shape[-1], dtype=dtype, device='cuda', requires_grad=True)
-    x = -2.3 + 0.5 * torch.randn(shape, dtype=dtype, device='cuda')
+    weight = torch.randn(shape[-1], dtype=dtype, device='cuda:0', requires_grad=True)
+    bias = torch.randn(shape[-1], dtype=dtype, device='cuda:0', requires_grad=True)
+    x = -2.3 + 0.5 * torch.randn(shape, dtype=dtype, device='cuda:0')
     dy = 0.1 * torch.randn_like(x)
     x.requires_grad_(True)
 

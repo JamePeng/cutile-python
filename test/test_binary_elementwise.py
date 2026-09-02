@@ -117,10 +117,10 @@ core_arithmetic_cases = [
 @pytest.mark.parametrize("y_dtype", int_dtypes + float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("op_symbol, op_func", core_arithmetic_cases)
 def test_array_core_arithmetic(shape, tile, x_dtype, y_dtype, tmp_path, op_symbol, op_func):
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = make_tensor(shape, dtype=y_dtype, device='cuda')
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=y_dtype, device='cuda:0')
     should_raise = {x_dtype, y_dtype} == {torch.float16, torch.bfloat16}
-    z = torch.zeros_like(x, device="cuda").to(torch.promote_types(x.dtype, y.dtype))
+    z = torch.zeros_like(x, device="cuda:0").to(torch.promote_types(x.dtype, y.dtype))
     for expr in [f"tz = tx {op_symbol} ty", f"tz = {op_func}(tx, ty)"]:
         kernel = array_kernel("core_arithmetic", expr, tmp_path)
         if should_raise:
@@ -134,7 +134,7 @@ def test_array_core_arithmetic(shape, tile, x_dtype, y_dtype, tmp_path, op_symbo
 
 @pytest.mark.parametrize("is_constant", [False, True])
 def test_scalar_add(shape, tile, is_constant, float_dtype, tmp_path):
-    z = torch.zeros(shape, dtype=float_dtype, device='cuda')
+    z = torch.zeros(shape, dtype=float_dtype, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel("add", "c = x + y", tmp_path)
     else:
@@ -145,7 +145,7 @@ def test_scalar_add(shape, tile, is_constant, float_dtype, tmp_path):
 
 @pytest.mark.parametrize("dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_scalar_add(shape, tile, dtype, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = 5.0
     res_dtype = torch.promote_types(x.dtype, torch.float32)
     z = torch.zeros_like(x, dtype=res_dtype)
@@ -177,8 +177,8 @@ def implicit_broadcast_add(x, y, z, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("fn", [explicit_broadcast_add,
                                 implicit_broadcast_add])
 def test_broadcast(shape, tile, float_dtype, fn):
-    x = torch.randn(shape, dtype=float_dtype, device='cuda')
-    y = torch.randn(shape, dtype=float_dtype, device='cuda')
+    x = torch.randn(shape, dtype=float_dtype, device='cuda:0')
+    y = torch.randn(shape, dtype=float_dtype, device='cuda:0')
     ref = x[:, None] + y[None, :]
     z = torch.zeros_like(ref)
     launch_binary(fn, x, y, z, tile)
@@ -196,9 +196,9 @@ def test_array_core_arithmetic_rounding_mode(
 ):
     should_raise_rounding_mode = rounding_mode in [RMd.FULL, RMd.APPROX, RMd.RZI]
     should_raise_dtype = dtype in int_dtypes
-    x = make_tensor((1,), dtype=dtype, device='cuda')
-    y = make_tensor((1,), dtype=dtype, device='cuda')
-    z = torch.zeros_like(x, device="cuda")
+    x = make_tensor((1,), dtype=dtype, device='cuda:0')
+    y = make_tensor((1,), dtype=dtype, device='cuda:0')
+    z = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel("core_arithmetic_rounding_mode",
                           f"tz = {op_func}(tx, ty, rounding_mode={rounding_mode})",
                           tmp_path,
@@ -232,9 +232,9 @@ def test_array_core_arithmetic_rounding_mode(
                          [("ct.add", "addf"), ("ct.sub", "subf"), ("ct.mul", "mulf")])
 def test_core_arithmetic_flush_to_zero(tile, dtype, flush_to_zero, op_func, tile_op, tmp_path):
     should_raise_dtype = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor((1,), dtype=dtype, device='cuda')
-    y = make_tensor((1,), dtype=dtype, device='cuda')
-    z = torch.zeros_like(x, device="cuda")
+    x = make_tensor((1,), dtype=dtype, device='cuda:0')
+    y = make_tensor((1,), dtype=dtype, device='cuda:0')
+    z = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel("core_arithmetic_flush_to_zero",
                           f"tz = {op_func}(tx, ty, flush_to_zero={flush_to_zero})",
                           tmp_path)
@@ -269,7 +269,7 @@ compare_cases = [
 @pytest.mark.parametrize("op_symbol, op_func", compare_cases)
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_compare(shape, tile, dtype, op_symbol, op_func, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     y[::2] = x[::2]
     z = torch.zeros_like(x).to(torch.bool)
@@ -320,17 +320,17 @@ def make_is_not_operator_kernel(cmp):
 @pytest.mark.parametrize("make_kernel", [make_is_operator_kernel, make_is_not_operator_kernel])
 @pytest.mark.parametrize("cmp", [None, 1])
 def test_is_or_not_operator(make_kernel, cmp):
-    x = torch.zeros((1,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((1,), dtype=torch.int32, device='cuda:0')
     kernel = make_kernel(cmp)
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), kernel, (x, ))
     ref = 1 if cmp is None else -1
-    assert_equal(x, torch.tensor([ref], dtype=torch.int32, device='cuda'))
+    assert_equal(x, torch.tensor([ref], dtype=torch.int32, device='cuda:0'))
 
 
 @pytest.mark.parametrize("max_func", ["max", "ct.maximum"])
 @pytest.mark.parametrize("dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_max(shape, tile, dtype, tmp_path, max_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     z = torch.zeros_like(x)
     ref = torch.maximum(x, y)
@@ -344,7 +344,7 @@ def test_array_max(shape, tile, dtype, tmp_path, max_func):
 def test_scalar_max(shape, tile, is_constant, tmp_path, max_func):
     x = 1
     y = 4.2
-    z = torch.zeros(shape, dtype=torch.float32, device='cuda')
+    z = torch.zeros(shape, dtype=torch.float32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel("max", f"c = {max_func}(x, y)", tmp_path)
     else:
@@ -356,10 +356,10 @@ def test_scalar_max(shape, tile, is_constant, tmp_path, max_func):
 @pytest.mark.parametrize("max_func", ["max", "ct.maximum"])
 @pytest.mark.parametrize("dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_scalar_max(shape, tile, dtype, tmp_path, max_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = 5.0
     res_dtype = torch.promote_types(dtype, torch.float32)
-    ref = torch.maximum(x.to(res_dtype), torch.tensor(y, device="cuda"))
+    ref = torch.maximum(x.to(res_dtype), torch.tensor(y, device="cuda:0"))
     z = torch.zeros_like(ref)
     kernel = array_scalar_kernel("max", f"tz = {max_func}(tx, y)", tmp_path)
     launch_binary(kernel, x, y, z, tile)
@@ -369,7 +369,7 @@ def test_array_scalar_max(shape, tile, dtype, tmp_path, max_func):
 @pytest.mark.parametrize("min_func", ["min", "ct.minimum"])
 @pytest.mark.parametrize("dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_min(shape, tile, dtype, tmp_path, min_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     z = torch.zeros_like(x)
     ref = torch.minimum(x, y)
@@ -384,7 +384,7 @@ def test_array_min(shape, tile, dtype, tmp_path, min_func):
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_array_maxmin_flush_to_zero(shape, tile, dtype, op_func, tile_op, flush_to_zero, tmp_path):
     should_raise = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     z = torch.zeros_like(x)
     kernel = array_kernel('min', f'tz = {op_func}(tx, ty, flush_to_zero={flush_to_zero})', tmp_path)
@@ -413,8 +413,8 @@ def test_array_maxmin_flush_to_zero(shape, tile, dtype, op_func, tile_op, flush_
 ])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_array_maxmin_nan(shape, tile, dtype, op_func, torch_op, propagate_nan, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=dtype, device='cuda:0')
     x[1::3] = float("nan")
     y[0::3] = float("nan")
     z = torch.zeros_like(x)
@@ -432,7 +432,7 @@ def test_array_maxmin_nan(shape, tile, dtype, op_func, torch_op, propagate_nan, 
 @pytest.mark.parametrize("x", [100, 100.0])
 @pytest.mark.parametrize("y", [23, 2.3])
 def test_scalar_mod(x, y, shape, tile, is_constant, tmp_path):
-    z = torch.zeros(shape, dtype=torch.int32, device='cuda')
+    z = torch.zeros(shape, dtype=torch.int32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('mod', 'c = x % y', tmp_path)
     else:
@@ -446,7 +446,7 @@ def test_scalar_mod(x, y, shape, tile, is_constant, tmp_path):
 
 @pytest.mark.parametrize("y", [23, 2.3, -23, -2.3, -1, 1])
 def test_array_scalar_mod(y, shape, tile, tmp_path):
-    x = torch.randint(-100, 100, shape).to('cuda')
+    x = torch.randint(-100, 100, shape).to('cuda:0')
     ref = x % y
     z = torch.zeros_like(x).to(ref.dtype)
     kernel = array_scalar_kernel('mod', 'tz = tx % y', tmp_path)
@@ -458,14 +458,14 @@ def test_array_scalar_mod(y, shape, tile, tmp_path):
 @pytest.mark.parametrize("x_dtype", int_dtypes + float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("y_dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_mod(shape, tile, x_dtype, y_dtype, tmp_path, mod_func):
-    x = (torch.rand(*shape, device="cuda") * 100).to(x_dtype)
-    y = (torch.rand(*shape, device="cuda") * 100 + 1).to(y_dtype)
+    x = (torch.rand(*shape, device="cuda:0") * 100).to(x_dtype)
+    y = (torch.rand(*shape, device="cuda:0") * 100 + 1).to(y_dtype)
     should_raise = (
         (x_dtype == torch.float16 and y_dtype == torch.bfloat16) or
         (x_dtype == torch.bfloat16 and y_dtype == torch.float16)
     )
     result_type = torch.promote_types(x_dtype, y_dtype)
-    z = torch.zeros_like(x, device="cuda").to(result_type)
+    z = torch.zeros_like(x, device="cuda:0").to(result_type)
     ref = x % y
     kernel = array_kernel('mod',
                           f"tz = tx {mod_func} ty" if mod_func == "%" else
@@ -484,11 +484,11 @@ def test_array_mod(shape, tile, x_dtype, y_dtype, tmp_path, mod_func):
 @pytest.mark.parametrize("x_dtype", int_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("y_dtype", int_dtypes, ids=dtype_id)
 def test_divmod(shape, tile, x_dtype, y_dtype, divmod_func):
-    x = (torch.rand(*shape, device="cuda") * 100).to(x_dtype)
-    y = (torch.rand(*shape, device="cuda") * 100 + 1).to(y_dtype)
+    x = (torch.rand(*shape, device="cuda:0") * 100).to(x_dtype)
+    y = (torch.rand(*shape, device="cuda:0") * 100 + 1).to(y_dtype)
     result_type = torch.promote_types(x_dtype, y_dtype)
-    q = torch.zeros_like(x, device="cuda").to(result_type)
-    r = torch.zeros_like(x, device="cuda").to(result_type)
+    q = torch.zeros_like(x, device="cuda:0").to(result_type)
+    r = torch.zeros_like(x, device="cuda:0").to(result_type)
     ref_q, ref_r = x // y, x % y
 
     @ct.kernel
@@ -514,8 +514,8 @@ def test_divmod_unsupported_for_floats(divmod_func):
         ty = ct.load(y, index=(0,), shape=(16,))
         divmod_func(tx, ty)
 
-    x = (torch.ones(16, device="cuda") * 100).to(torch.float32)
-    y = (torch.ones(16, device="cuda") * 100 + 1).to(torch.float32)
+    x = (torch.ones(16, device="cuda:0") * 100).to(torch.float32)
+    y = (torch.ones(16, device="cuda:0") * 100 + 1).to(torch.float32)
     with pytest.raises(TypeCheckingError,
                        match=re.escape("divmod() is not implemented for floating point values")):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x, y))
@@ -525,7 +525,7 @@ def test_divmod_unsupported_for_floats(divmod_func):
 @pytest.mark.parametrize("x", [100, -30])
 @pytest.mark.parametrize("y", [23, -13])
 def test_scalar_cdiv(shape, tile, x, y, is_constant, tmp_path):
-    z = torch.zeros(shape, dtype=torch.int32, device='cuda')
+    z = torch.zeros(shape, dtype=torch.int32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('cdiv', 'c = ct.cdiv(x, y)', tmp_path)
     else:
@@ -542,7 +542,7 @@ def test_scalar_cdiv(shape, tile, x, y, is_constant, tmp_path):
     ("ct.floordiv", lambda x, y: x // y, False),
     ])
 def test_array_scalar_div(shape, tile, int_dtype, tmp_path, op_symbol, ref_impl, force_float):
-    x = torch.randint(0, 100, shape, dtype=int_dtype, device='cuda')
+    x = torch.randint(0, 100, shape, dtype=int_dtype, device='cuda:0')
     y = 23
     result_type = torch.float32 if force_float else torch.promote_types(x.dtype, torch.int32)
     z = torch.zeros_like(x, dtype=result_type)
@@ -566,7 +566,7 @@ def test_array_scalar_div(shape, tile, int_dtype, tmp_path, op_symbol, ref_impl,
     ("ct.floordiv", lambda x, y: x // y),
     ])
 def test_array_scalar_div_float(shape, tile, float_dtype, tmp_path, op_symbol, ref_impl):
-    x = make_tensor(shape, dtype=float_dtype, device='cuda')
+    x = make_tensor(shape, dtype=float_dtype, device='cuda:0')
     y = 23.0
     res_dtype = torch.promote_types(x.dtype, torch.float32)
     ref = ref_impl(x.to(res_dtype), y)
@@ -589,8 +589,8 @@ def test_array_scalar_div_float(shape, tile, float_dtype, tmp_path, op_symbol, r
 @pytest.mark.parametrize("x_dtype", int_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("y_dtype", int_dtypes, ids=dtype_id)
 def test_array_div(shape, tile, x_dtype, y_dtype, tmp_path, op_symbol, ref_impl, force_float):
-    x = (torch.rand(*shape, device="cuda") * 100).to(dtype=x_dtype)
-    y = (torch.rand(*shape, device="cuda") * 100 + 1).to(dtype=y_dtype)
+    x = (torch.rand(*shape, device="cuda:0") * 100).to(dtype=x_dtype)
+    y = (torch.rand(*shape, device="cuda:0") * 100 + 1).to(dtype=y_dtype)
     result_type = torch.promote_types(x.dtype, y.dtype) if not force_float else torch.float32
     z = torch.zeros_like(x).to(result_type)
     # TODO: torch.ceil always return f32, should we align?
@@ -613,8 +613,8 @@ def test_array_div(shape, tile, x_dtype, y_dtype, tmp_path, op_symbol, ref_impl,
 @pytest.mark.parametrize("y_dtype", float_dtypes, ids=dtype_id)
 def test_array_div_float(shape, tile, x_dtype, y_dtype, tmp_path, op_symbol, ref_impl):
     should_raise = {x_dtype, y_dtype} == {torch.float16, torch.bfloat16}
-    x = (torch.rand(*shape, device="cuda") * 100).to(dtype=x_dtype)
-    y = (torch.rand(*shape, device="cuda") * 100 + 1).to(dtype=y_dtype)
+    x = (torch.rand(*shape, device="cuda:0") * 100).to(dtype=x_dtype)
+    y = (torch.rand(*shape, device="cuda:0") * 100 + 1).to(dtype=y_dtype)
     result_type = torch.promote_types(x.dtype, y.dtype)
     z = torch.zeros_like(x).to(result_type)
     ref = ref_impl(x, y).to(result_type)
@@ -638,7 +638,7 @@ def test_array_scalar_truediv_float_rounding_mode(
     shape, tile, float_dtype, tmp_path, rounding_mode
 ):
     should_raise_rounding_mode = rounding_mode in [RMd.RZI]
-    x = make_tensor(shape, dtype=float_dtype, device='cuda')
+    x = make_tensor(shape, dtype=float_dtype, device='cuda:0')
     y = 23.0
     result_type = torch.promote_types(x.dtype, torch.float32)
     should_raise_dtype = rounding_mode in [RMd.APPROX, RMd.FULL] and result_type != torch.float32
@@ -675,9 +675,9 @@ def test_array_scalar_truediv_float_rounding_mode(
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_truediv_float_flush_to_zero(tile, dtype, flush_to_zero, tmp_path):
     should_raise_dtype = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor((1,), dtype=dtype, device='cuda')
-    y = make_tensor((1,), dtype=dtype, device='cuda')
-    z = torch.zeros_like(x, device="cuda")
+    x = make_tensor((1,), dtype=dtype, device='cuda:0')
+    y = make_tensor((1,), dtype=dtype, device='cuda:0')
+    z = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel("truediv_flush_to_zero",
                           f"tz = ct.truediv(tx, ty, flush_to_zero={flush_to_zero})",
                           tmp_path)
@@ -702,8 +702,8 @@ def test_truediv_float_flush_to_zero(tile, dtype, flush_to_zero, tmp_path):
 @pytest.mark.parametrize("y_dtype", float_dtypes, ids=dtype_id)
 def test_array_pow(shape, tile, x_dtype, y_dtype, tmp_path, power_func):
     should_raise = {x_dtype, y_dtype} == {torch.float16, torch.bfloat16}
-    x = torch.rand(shape, dtype=x_dtype, device='cuda')
-    y = torch.rand(shape, dtype=y_dtype, device='cuda')
+    x = torch.rand(shape, dtype=x_dtype, device='cuda:0')
+    y = torch.rand(shape, dtype=y_dtype, device='cuda:0')
     z = torch.zeros_like(x).to(torch.promote_types(x_dtype, y_dtype))
     kernel = array_kernel('pow',
                           "tz = tx ** ty" if power_func == "**" else
@@ -722,8 +722,8 @@ def test_array_pow(shape, tile, x_dtype, y_dtype, tmp_path, power_func):
 def test_scalar_pow(shape, tile, is_constant, tmp_path):
     x = 5
     y = 2.0
-    ref = torch.full(shape, x ** y, device="cuda")
-    z = torch.zeros(shape, dtype=torch.float32, device='cuda')
+    ref = torch.full(shape, x ** y, device="cuda:0")
+    z = torch.zeros(shape, dtype=torch.float32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('pow', 'c = x ** y', tmp_path)
     else:
@@ -733,7 +733,7 @@ def test_scalar_pow(shape, tile, is_constant, tmp_path):
 
 
 def test_array_scalar_pow(shape, tile, float_dtype, tmp_path):
-    x = torch.rand(shape, dtype=float_dtype, device='cuda')
+    x = torch.rand(shape, dtype=float_dtype, device='cuda:0')
     y = 5.0
     res_dtype = torch.promote_types(x.dtype, torch.float32)
     z = torch.zeros_like(x, dtype=res_dtype)
@@ -751,8 +751,8 @@ def test_array_scalar_pow(shape, tile, float_dtype, tmp_path):
     (torch.float32, BytecodeVersion.V_13_3, "fpowf"),
 ], ids=["f16-v13.4", "bf16-v13.4", "f32-v13.4", "f64-v13.4", "f32-v13.3"])
 def test_pow_int_exponent_lowering(shape, tile, x_dtype, version, expect_op, tmp_path):
-    x = torch.rand(shape, dtype=x_dtype, device='cuda')
-    y = torch.randint(0, 5, shape, dtype=torch.int32, device='cuda')
+    x = torch.rand(shape, dtype=x_dtype, device='cuda:0')
+    y = torch.randint(0, 5, shape, dtype=torch.int32, device='cuda:0')
     z = torch.zeros_like(x)
     kernel = array_kernel('pow_int_exp', 'tz = tx ** ty', tmp_path)
     bytecode = get_bytecode(kernel, (x, y, z, tile), bytecode_version=version.as_string())
@@ -771,8 +771,8 @@ def test_pow_int_exponent_lowering(shape, tile, x_dtype, version, expect_op, tmp
     (torch.uint64, "// CHECK: fpowf "),
 ], ids=["i8", "i16", "i32", "u8", "u16", "i64", "u32", "u64"])
 def test_pow_int_exponent_dtype_restriction(shape, tile, y_dtype, check, tmp_path):
-    x = torch.rand(shape, dtype=torch.float32, device='cuda') + 0.5
-    y = torch.randint(0, 5, shape, device='cuda').to(y_dtype)
+    x = torch.rand(shape, dtype=torch.float32, device='cuda:0') + 0.5
+    y = torch.randint(0, 5, shape, device='cuda:0').to(y_dtype)
     z = torch.zeros_like(x)
     kernel = array_kernel('pow_int_exp', 'tz = tx ** ty', tmp_path)
     bytecode = get_bytecode(kernel, (x, y, z, tile), bytecode_version="13.4")
@@ -810,8 +810,8 @@ bitwise_logical_dtypes = [torch.uint32, torch.uint64, torch.int32, torch.int64,
 @pytest.mark.parametrize("y_dtype", bitwise_logical_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("op_symbol, op_func", bitwise_logcal_cases)
 def test_array_bitwise_logical(shape, tile, x_dtype, y_dtype, op_symbol, op_func, tmp_path):
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = make_tensor(shape, dtype=y_dtype, device='cuda')
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=y_dtype, device='cuda:0')
     z = torch.zeros_like(x)
     for expr in [f"tz = tx {op_symbol} ty", f"tz = {op_func}(tx, ty)"]:
         if x_dtype.is_floating_point or y_dtype.is_floating_point:
@@ -845,8 +845,8 @@ bitwise_shift_dtypes = [torch.int32, torch.int64, torch.int16, torch.int8,
 @pytest.mark.parametrize("y_dtype", bitwise_shift_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("op_symbol, op_func", bitwise_shift_cases)
 def test_array_bitwise_shift(shape, tile, x_dtype, y_dtype, op_symbol, op_func, tmp_path):
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = make_tensor(shape, dtype=y_dtype, device='cuda', low=0, high=8)
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=y_dtype, device='cuda:0', low=0, high=8)
     if x_dtype.is_floating_point or y_dtype.is_floating_point:
         res_type = torch.uint64  # Doesn't matter, we should error out anyway
     else:
@@ -872,7 +872,7 @@ def test_array_bitwise_shift(shape, tile, x_dtype, y_dtype, op_symbol, op_func, 
 def test_scalar_bitwise(shape, tile, is_constant, op, tmp_path):
     x = 5
     y = 2
-    z = torch.zeros(shape, dtype=torch.int32, device='cuda')
+    z = torch.zeros(shape, dtype=torch.int32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('bitwise', f'c = x {op} y', tmp_path)
     else:
@@ -885,7 +885,7 @@ def test_scalar_bitwise(shape, tile, is_constant, op, tmp_path):
 @pytest.mark.parametrize('op', ['&', '|', '^'],
                          ids=['bit_and', 'bit_or', 'bit_xor'])
 def test_array_scalar_bitwise(shape, dtype, tile, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = 5
     z = torch.zeros_like(x)
     kernel = array_scalar_kernel('bitwise', f'tz = tx {op} y', tmp_path)
@@ -900,7 +900,7 @@ def test_array_scalar_bitwise(shape, dtype, tile, op, tmp_path):
 @pytest.mark.parametrize('op', ['<<', '>>'],
                          ids=['bit_lshift', 'bit_rshift'])
 def test_array_scalar_shift(shape, dtype, tile, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = 5
     z = torch.zeros_like(x)
     kernel = array_scalar_kernel('bitwise', f'tz = tx {op} y', tmp_path)
@@ -912,16 +912,16 @@ def test_array_scalar_shift(shape, dtype, tile, op, tmp_path):
 
 
 def test_array_implicit_cast_happy(tmp_path):
-    x = make_tensor((2,), dtype=torch.int32, device='cuda')
-    y = make_tensor((2,), dtype=torch.float32, device='cuda')
+    x = make_tensor((2,), dtype=torch.int32, device='cuda:0')
+    y = make_tensor((2,), dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(y)
     kernel = array_kernel('inplace_bin', 'ty *= tx; tz = ty', tmp_path)
     launch_binary(kernel, x, y, z, 1)
 
 
 def test_array_implicit_cast_unhappy(tmp_path):
-    x = make_tensor((2,), dtype=torch.float32, device='cuda')
-    y = make_tensor((2,), dtype=torch.int32, device='cuda')
+    x = make_tensor((2,), dtype=torch.float32, device='cuda:0')
+    y = make_tensor((2,), dtype=torch.int32, device='cuda:0')
     z = torch.zeros_like(y)
     kernel = array_kernel('inplace_bin', 'ty *= tx; tz = ty', tmp_path)
     with pytest.raises(TileTypeError):
@@ -929,14 +929,14 @@ def test_array_implicit_cast_unhappy(tmp_path):
 
 
 def test_array_scalar_implicit_cast_happy(tmp_path):
-    x = make_tensor((2,), dtype=torch.int32, device='cuda')
+    x = make_tensor((2,), dtype=torch.int32, device='cuda:0')
     z = torch.zeros_like(x)
     kernel = array_scalar_kernel('inplace_bin', 'tx *= 3; tz = tx', tmp_path)
     launch_binary(kernel, x, x, z, 1)
 
 
 def test_array_scalar_implicit_cast_unhappy(tmp_path):
-    x = make_tensor((2,), dtype=torch.int32, device='cuda')
+    x = make_tensor((2,), dtype=torch.int32, device='cuda:0')
     z = torch.zeros_like(x)
     kernel = array_scalar_kernel('inplace_bin', 'tx *= 3.0; tz = tx', tmp_path)
     with pytest.raises(TileTypeError):
@@ -948,8 +948,8 @@ def test_array_scalar_implicit_cast_unhappy(tmp_path):
 @pytest.mark.parametrize("y_dtype", float_dtypes, ids=dtype_id)
 def test_array_atan2(shape, tile, x_dtype, y_dtype, tmp_path):
     should_raise = {x_dtype, y_dtype} == {torch.float16, torch.bfloat16}
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = make_tensor(shape, dtype=y_dtype, device='cuda')
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=y_dtype, device='cuda:0')
     z = torch.zeros_like(x).to(torch.promote_types(x_dtype, y_dtype))
     kernel = array_kernel('atan2', "tz = ct.atan2(tx, ty)", tmp_path)
     if should_raise:

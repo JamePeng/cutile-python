@@ -65,7 +65,7 @@ def cutile_matmul(A: torch.Tensor, B: torch.Tensor, persistent: bool = False) ->
     grid_size = grid_x * grid_y
     if persistent:
         NUM_SMS = torch.cuda.get_device_properties(
-            "cuda"
+            "cuda:0"
         ).multi_processor_count
         grid_size = min(NUM_SMS, grid_size)
     grid = (grid_size, 1, 1)
@@ -104,8 +104,8 @@ if __name__ == "__main__":
     # --- Test Case 1: float16 (Half-Precision) ---
     print("\n--- Test Case 1: Matrix Multiplication with float16 (Half-Precision) ---")
     # Create random input matrices with float16 data type on the CUDA device.
-    A_fp16 = torch.randn(M_dim, K_dim, dtype=torch.float16, device='cuda')
-    B_fp16 = torch.randn(K_dim, N_dim, dtype=torch.float16, device='cuda')
+    A_fp16 = torch.randn(M_dim, K_dim, dtype=torch.float16, device='cuda:0')
+    B_fp16 = torch.randn(K_dim, N_dim, dtype=torch.float16, device='cuda:0')
     print(f"Input A shape: {A_fp16.shape}, dtype: {A_fp16.dtype}")
     print(f"Input B shape: {B_fp16.shape}, dtype: {B_fp16.dtype}")
 
@@ -122,8 +122,8 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
     print("\n--- Test Case 2: Matrix Multiplication with float32 (Single-Precision) ---")
     # Create random input matrices with float32 data type on the CUDA device.
-    A_fp32 = torch.randn(M_dim, K_dim, dtype=torch.float32, device='cuda')
-    B_fp32 = torch.randn(K_dim, N_dim, dtype=torch.float32, device='cuda')
+    A_fp32 = torch.randn(M_dim, K_dim, dtype=torch.float32, device='cuda:0')
+    B_fp32 = torch.randn(K_dim, N_dim, dtype=torch.float32, device='cuda:0')
     print(f"Input A shape: {A_fp32.shape}, dtype: {A_fp32.dtype}")
     print(f"Input B shape: {B_fp32.shape}, dtype: {B_fp32.dtype}")
 
@@ -150,8 +150,8 @@ if __name__ == "__main__":
     M_dim_non_mult = 1000
     N_dim_non_mult = 500
     K_dim_non_mult = 700
-    A_non_mult = torch.randn(M_dim_non_mult, K_dim_non_mult, dtype=torch.float32, device='cuda')
-    B_non_mult = torch.randn(K_dim_non_mult, N_dim_non_mult, dtype=torch.float32, device='cuda')
+    A_non_mult = torch.randn(M_dim_non_mult, K_dim_non_mult, dtype=torch.float32, device='cuda:0')
+    B_non_mult = torch.randn(K_dim_non_mult, N_dim_non_mult, dtype=torch.float32, device='cuda:0')
     print(f"Input A shape: {A_non_mult.shape}, dtype: {A_non_mult.dtype}")
     print(f"Input B shape: {B_non_mult.shape}, dtype: {B_non_mult.dtype}")
 

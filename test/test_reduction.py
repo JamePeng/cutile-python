@@ -35,7 +35,7 @@ def _squeezed_zeros_like(x, axis: Optional[int | Tuple[int, ...]], keepdims: boo
                     squeezed_shape.append(1)
             else:
                 squeezed_shape.append(dim)
-    return torch.zeros(squeezed_shape, dtype=x.dtype, device="cuda")
+    return torch.zeros(squeezed_shape, dtype=x.dtype, device="cuda:0")
 
 
 def make_reduce_axis1_2d(reduce_op):
@@ -81,7 +81,7 @@ maxmin_cases = [
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", maxmin_cases)
 def test_reduce_maxminf(shape, tile, dtype, keepdims, reduce_op, torch_op):
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_axis1_2d(reduce_op)
@@ -98,7 +98,7 @@ def test_reduce_maxminf(shape, tile, dtype, keepdims, reduce_op, torch_op):
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", maxmin_cases)
 def test_reduce_maxmini(shape, tile, dtype, low, high, keepdims, reduce_op, torch_op):
-    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda")
+    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda:0")
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_axis1_2d(reduce_op)
@@ -129,14 +129,14 @@ def make_reduce_axisNone(reduce_op):
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", maxmin_cases)
 def test_reduce_maxminf_all_axes(shape, dtype, keepdims, reduce_op, torch_op):
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     grid = (1, 1, 1)
     kernel = make_reduce_axisNone(reduce_op)
     if keepdims:
         y = _squeezed_zeros_like(x, axis=None, keepdims=keepdims)
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
     else:
-        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda")
+        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda:0")
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
         y = y.squeeze()
     ref_result = torch_op(x, dim=None, keepdim=keepdims)
@@ -169,7 +169,7 @@ def make_reduce_max_two_axes(reduce_op):
 @pytest.mark.parametrize("reduce_op, torch_op", maxmin_cases)
 @pytest.mark.parametrize("axes", [(1, 2), (2, 1), (-1, -2), (-2, -1), (-2, 2), (2, -2)])
 def test_reduce_maxminf_two_axes(shape, tile, dtype, keepdims, reduce_op, torch_op, axes):
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = _squeezed_zeros_like(x, axis=(1, 2), keepdims=keepdims)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_max_two_axes(reduce_op)
@@ -185,7 +185,7 @@ def test_reduce_repeated_axis_error():
         tx = ct.load(x, (0, 0), (16, 16))
         ct.sum(tx, axis=(1, 1))
 
-    x = torch.rand((16, 16), dtype=torch.float32, device="cuda")
+    x = torch.rand((16, 16), dtype=torch.float32, device="cuda:0")
     with pytest.raises(TileTypeError, match="Repeated reduction axis 1"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -196,7 +196,7 @@ def test_reduce_sum_restricted_dtype_error():
         tx = ct.load(x, (0,), (16,))
         ct.sum(tx, axis=0)
 
-    x = torch.rand((16,), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
+    x = torch.rand((16,), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
     with pytest.raises(TileTypeError,
                        match="Non-arithmetic dtype float8_e4m3fn is unsupported for reduction"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -217,7 +217,7 @@ def test_reduce_sumprodf(shape, tile, dtype, keepdims, reduce_op, torch_op):
     if reduce_op is ct.sum and (dtype is torch.bfloat16 or dtype is torch.float16):
         pytest.xfail("Bf16/Fp16 reduce sum introduce a difference from torch.")
 
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_axis1_2d(reduce_op)
@@ -232,7 +232,7 @@ def test_reduce_sumprodf(shape, tile, dtype, keepdims, reduce_op, torch_op):
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", sumprod_cases)
 def test_reduce_sumprodi(shape, tile, dtype, keepdims, reduce_op, torch_op):
-    x = torch.randint(-100, 100, shape, dtype=dtype, device="cuda")
+    x = torch.randint(-100, 100, shape, dtype=dtype, device="cuda:0")
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_axis1_2d(reduce_op)
@@ -246,7 +246,7 @@ def test_reduce_sumprodi(shape, tile, dtype, keepdims, reduce_op, torch_op):
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", sumprod_cases)
 def test_reduce_sumprodb(shape, tile, keepdims, reduce_op, torch_op):
-    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda")
+    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda:0")
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims).to(torch.int32)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_axis1_2d(reduce_op)
@@ -260,14 +260,14 @@ def test_reduce_sumprodb(shape, tile, keepdims, reduce_op, torch_op):
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", sumprod_cases)
 def test_reduce_sumprodf_all_axes(shape, dtype, keepdims, reduce_op, torch_op):
-    x = torch.rand(shape, dtype=dtype, device="cuda")
+    x = torch.rand(shape, dtype=dtype, device="cuda:0")
     grid = (1, 1, 1)
     kernel = make_reduce_axisNone(reduce_op)
     if keepdims:
         y = _squeezed_zeros_like(x, axis=None, keepdims=True)
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
     else:
-        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda")
+        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda:0")
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
         y = y.squeeze()
     if torch_op is torch.sum:
@@ -303,7 +303,7 @@ def test_reduce_sumprodf_rounding_mode(
     shape, tile, dtype, op_func, tile_op, rounding_mode
 ):
     should_raise_rounding_mode = rounding_mode in [RMd.RZI, RMd.APPROX, RMd.FULL]
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = _squeezed_zeros_like(x, axis=1, keepdims=True)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_sumprod_rounding_mode(op_func, rounding_mode)
@@ -343,7 +343,7 @@ def make_reduce_flush_to_zero(reduce_op, flush_to_zero):
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_reduce_flush_to_zero(shape, tile, dtype, reduce_op, tile_op, flush_to_zero):
     should_raise = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = _squeezed_zeros_like(x, axis=1, keepdims=True)
     grid = (ceil(shape[0] / tile), 1, 1)
     kernel = make_reduce_flush_to_zero(reduce_op, flush_to_zero)
@@ -373,7 +373,7 @@ argmaxmin_cases = [
 @pytest.mark.parametrize("keepdims", [True, False])
 @pytest.mark.parametrize("reduce_op, torch_op", argmaxmin_cases)
 def test_reduce_argmaxmin(shape, tile, dtype, keepdims, reduce_op, torch_op):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = _squeezed_zeros_like(x, axis=1, keepdims=keepdims).to(torch.int32)
     grid = (ceil(shape[0] / tile), 1, 1)
     if len(shape) == 2:
@@ -392,14 +392,14 @@ def test_reduce_argmaxmin(shape, tile, dtype, keepdims, reduce_op, torch_op):
 @pytest.mark.parametrize("reduce_op, torch_op", argmaxmin_cases)
 @pytest.mark.parametrize("keepdims", [True, False])
 def test_reduce_argmaxmin_all_axes(shape, dtype, reduce_op, torch_op, keepdims):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     grid = (1, 1, 1)
     kernel = make_reduce_axisNone(reduce_op)
     if keepdims:
         y = _squeezed_zeros_like(x, axis=None, keepdims=keepdims).to(torch.int32)
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
     else:
-        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda").to(torch.int32)
+        y = torch.zeros((1,) * len(shape), dtype=dtype, device="cuda:0").to(torch.int32)
         ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, shape[0], shape[1], keepdims))
         y = y.squeeze()
     ref_result = torch_op(x, dim=None, keepdim=keepdims).to(torch.int32)
@@ -428,12 +428,12 @@ def test_reduce_maxmin_nan(reduce_op, torch_op, ref_ignore_nan, ref_propagate_na
         [nan, nan, 7.0, 1.0, nan, 8.0, nan, 0.5],
         [5.0, -3.0, 2.0, nan, 4.0, 0.0, -inf, 1.0],
         [nan, nan, nan, nan, nan, nan, nan, nan],
-    ], dtype=torch.float32, device="cuda")
-    out = torch.zeros((M,), dtype=torch.float32, device="cuda")
+    ], dtype=torch.float32, device="cuda:0")
+    out = torch.zeros((M,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), kernel, (x, out, TM, N))
 
     ref = ref_propagate_nan if propagate_nan else ref_ignore_nan
-    torch.testing.assert_close(out, torch.tensor(ref, dtype=torch.float32, device="cuda"),
+    torch.testing.assert_close(out, torch.tensor(ref, dtype=torch.float32, device="cuda:0"),
                                equal_nan=True)
     if propagate_nan:
         torch.testing.assert_close(out, torch_op(x, dim=1), equal_nan=True)
@@ -460,12 +460,12 @@ def test_reduce_argmaxmin_nan(reduce_op, torch_op,
         [nan, nan, 7.0, 1.0, nan, 8.0, nan, 0.5],
         [5.0, -3.0, 2.0, nan, 4.0, 0.0, -inf, 1.0],
         [nan, nan, nan, nan, nan, nan, nan, nan],
-    ], dtype=torch.float32, device="cuda")
-    out = torch.zeros((M,), dtype=torch.int32, device="cuda")
+    ], dtype=torch.float32, device="cuda:0")
+    out = torch.zeros((M,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), kernel, (x, out, TM, N))
 
     ref = ref_propagate_nan if propagate_nan else ref_ignore_nan
-    assert_equal(out, torch.tensor(ref, dtype=torch.int32, device="cuda"))
+    assert_equal(out, torch.tensor(ref, dtype=torch.int32, device="cuda:0"))
     if propagate_nan:
         assert_equal(out, torch_op(x, dim=1).to(torch.int32))
 
@@ -495,9 +495,9 @@ def test_custom_reduction_simple(flavor: str):
 
     kernel = locals()[f"kernel_{flavor}"]
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
     ref = torch.sum(x, 0, dtype=torch.int32)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -509,9 +509,9 @@ def test_custom_reduction_keepdims():
         yt = ct.reduce(xt, 0, lambda a, b: a + b, 0, keepdims=True)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
     ref = torch.sum(x, 0, dtype=torch.int32, keepdim=True)
-    y = torch.zeros((1, 16), dtype=torch.int32, device="cuda")
+    y = torch.zeros((1, 16), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -523,9 +523,9 @@ def test_custom_reduction_last_axis():
         yt = ct.reduce(xt, -1, lambda a, b: a + b, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
     ref = torch.sum(x, -1, dtype=torch.int32)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -552,12 +552,12 @@ def test_custom_reduction_minimum_with_index():
             [17, 16, 15, 14, 13, 12, 11, 10],
             [13, 13, 12, 12, 9, 9, 11, 11],
         ],
-        dtype=torch.int32, device="cuda"
+        dtype=torch.int32, device="cuda:0"
     )
-    y_ref = torch.tensor([-4, 2, 10, 9], dtype=torch.int32, device="cuda")
-    yi_ref = torch.tensor([6, 0, 7, 4], dtype=torch.int32, device="cuda")
-    y = torch.zeros((4,), dtype=torch.int32, device="cuda")
-    yi = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    y_ref = torch.tensor([-4, 2, 10, 9], dtype=torch.int32, device="cuda:0")
+    yi_ref = torch.tensor([6, 0, 7, 4], dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
+    yi = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, yi))
     assert_equal(y, y_ref)
     assert_equal(yi, yi_ref)
@@ -571,10 +571,10 @@ def test_custom_reduction_with_capture():
         yt = ct.reduce(xt, -1, lambda a, b: (a + b) % modulo, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    p = torch.tensor(5, dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    p = torch.tensor(5, dtype=torch.int32, device="cuda:0")
     ref = torch.sum(x, -1, dtype=torch.int32) % 5
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, p, y))
     assert_equal(y, ref)
 
@@ -597,13 +597,13 @@ def test_custom_reduction_welford():
         ct.scatter(y, 0, mean)
         ct.scatter(y, 1, m2)
 
-    x = torch.randn((1024,), dtype=torch.float32, device="cuda") * 3.0 + 1.5
-    w = torch.randint(0, 100, (1024,), device="cuda")
+    x = torch.randn((1024,), dtype=torch.float32, device="cuda:0") * 3.0 + 1.5
+    w = torch.randint(0, 100, (1024,), device="cuda:0")
     w_sum = torch.sum(w).item()
     ref_mean = torch.sum(x * w / w_sum).item()
     ref_var = torch.cov(x, fweights=w).item()
 
-    y = torch.zeros((2,), dtype=torch.float32, device="cuda")
+    y = torch.zeros((2,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, w.to(torch.float32), y))
     mean, m2 = y.tolist()
     var = m2 / w_sum
@@ -624,8 +624,8 @@ def test_custom_reduction_ifelse_not_supported():
         yt = ct.reduce(xt, -1, f, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Branching inside reduction body is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -643,8 +643,8 @@ def test_custom_reduction_loop_not_supported():
         yt = ct.reduce(xt, -1, f, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Loops inside reduction body are not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -660,8 +660,8 @@ def test_custom_reduction_printf_not_supported():
         yt = ct.reduce(xt, -1, f, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Operations with memory effects"
                                               " are not supported inside reduction body"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
@@ -677,8 +677,8 @@ def test_custom_reduction_tile_load_not_supported():
         yt = ct.reduce(xt, -1, f, 0)
         ct.store(y, (0,), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Operations with memory effects"
                                               " are not supported inside reduction body"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))

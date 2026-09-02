@@ -81,16 +81,16 @@ def test_nbody_forces(tile_size):
     n_bodies = 512
     eps_2 = 1.0e-6
 
-    generator = torch.Generator(device="cuda").manual_seed(0)
+    generator = torch.Generator(device="cuda:0").manual_seed(0)
     positions = (
         2.0
         * torch.rand(
-            (n_bodies, 2), dtype=torch.float32, device="cuda", generator=generator
+            (n_bodies, 2), dtype=torch.float32, device="cuda:0", generator=generator
         )
         - 1.0
     )
     weights = 1.0 + torch.rand(
-        (n_bodies,), dtype=torch.float32, device="cuda", generator=generator
+        (n_bodies,), dtype=torch.float32, device="cuda:0", generator=generator
     )
     accelerations = torch.zeros_like(positions)
 

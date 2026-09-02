@@ -844,7 +844,7 @@ def _make_scale_tensors(
         blocked.view(torch.uint16)
         .reshape(batch, rows // 128, sf_k // 4, 256)
         .permute(3, 2, 1, 0)
-        .cuda()
+        .cuda(0)
     )
     return reference, tma
 
@@ -867,10 +867,10 @@ def prepare_tensors(
 
     torch.manual_seed(1111)
     a_storage = torch.randint(
-        0, 2, (batch, m, k // 2), dtype=torch.uint8, device="cuda"
+        0, 2, (batch, m, k // 2), dtype=torch.uint8, device="cuda:0"
     )
     b_storage = torch.randint(
-        0, 2, (batch, n, k // 2), dtype=torch.uint8, device="cuda"
+        0, 2, (batch, n, k // 2), dtype=torch.uint8, device="cuda:0"
     )
     a = a_storage.permute(2, 1, 0)
     b = b_storage.permute(2, 1, 0)
@@ -880,20 +880,20 @@ def prepare_tensors(
     sf_k = cl.cdiv(k, SF_VECTOR_SIZE)
     sfa_ref, sfa = _make_scale_tensors(batch, m, sf_k)
     sfb_ref, sfb = _make_scale_tensors(batch, n, sf_k)
-    alpha = torch.randn((batch,), dtype=torch.float32, device="cuda")
+    alpha = torch.randn((batch,), dtype=torch.float32, device="cuda:0")
 
     if out_dtype == "fp4":
-        c_storage = torch.empty((batch, m, n // 2), dtype=torch.uint8, device="cuda")
+        c_storage = torch.empty((batch, m, n // 2), dtype=torch.uint8, device="cuda:0")
         c = c_storage.permute(2, 1, 0)
         c_scale = torch.empty(
             batch * (m // CTA_M) * (n // OUTPUT_SCALE_UNIT_N) * OUTPUT_SCALE_UNIT_BYTES,
             dtype=torch.uint8,
-            device="cuda",
+            device="cuda:0",
         )
     else:
-        c_storage = torch.empty((batch, m, n), dtype=torch.float16, device="cuda")
+        c_storage = torch.empty((batch, m, n), dtype=torch.float16, device="cuda:0")
         c = c_storage.permute(1, 2, 0)
-        c_scale = torch.empty((1,), dtype=torch.uint8, device="cuda")
+        c_scale = torch.empty((1,), dtype=torch.uint8, device="cuda:0")
 
     return {
         "a": a,
@@ -952,7 +952,7 @@ def _reference_accumulator(tensors: dict[str, torch.Tensor]) -> torch.Tensor:
     sfa_ref, sfb_ref = tensors["sfa_ref"], tensors["sfb_ref"]
     m, _, batch = a_ref.shape
     n = b_ref.shape[0]
-    reference = torch.empty((batch, m, n), dtype=torch.float32, device="cuda")
+    reference = torch.empty((batch, m, n), dtype=torch.float32, device="cuda:0")
     for batch_idx in range(batch):
         a_values = _unpack_e2m1_bytes_to_float(
             a_ref[:, :, batch_idx].view(torch.uint8)

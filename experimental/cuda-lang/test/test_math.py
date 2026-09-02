@@ -146,8 +146,8 @@ def test_math_fpclass(dtype, device_op, host_op, input, vector):
         else:
             out[0] = device_op(inp[0])
 
-    out = torch.zeros(1, dtype=torch.bool).cuda()
-    inp = torch.tensor([input, input], dtype=datatype.to_torch_dtype(dtype)).cuda()
+    out = torch.zeros(1, dtype=torch.bool).cuda(0)
+    inp = torch.tensor([input, input], dtype=datatype.to_torch_dtype(dtype)).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out, inp))
     if host_op == isnormal:
         expect = host_op(input, dtype.bitwidth)
@@ -179,8 +179,8 @@ def test_math_unary_float(dtype, device_op, host_op):
     torch_dt = datatype.to_torch_dtype(dtype)
     host_inp = torch.rand((), generator=rng).item() + 0.5
     expected = host_op(host_inp)
-    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda")
-    out = torch.tensor([0.0], dtype=torch_dt, device="cuda")
+    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda:0")
+    out = torch.tensor([0.0], dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out[0].item() == approx_float(expected, dtype)
 
@@ -314,10 +314,10 @@ def test_pow(lhs_dt, rhs_dt, result_dt, vector):
     rhs_torch_dt = datatype.to_torch_dtype(rhs_dt)
     result_torch_dt = datatype.to_torch_dtype(result_dt)
     count = 4 if vector else 1
-    lhs = torch.tensor(_pow_test_values(lhs_dt)[:count], dtype=lhs_torch_dt).cuda()
-    rhs = torch.tensor(_pow_test_values(rhs_dt)[:count], dtype=rhs_torch_dt).cuda()
-    out = torch.zeros(count, dtype=result_torch_dt).cuda()
-    operator_out = torch.zeros(count, dtype=result_torch_dt).cuda()
+    lhs = torch.tensor(_pow_test_values(lhs_dt)[:count], dtype=lhs_torch_dt).cuda(0)
+    rhs = torch.tensor(_pow_test_values(rhs_dt)[:count], dtype=rhs_torch_dt).cuda(0)
+    out = torch.zeros(count, dtype=result_torch_dt).cuda(0)
+    operator_out = torch.zeros(count, dtype=result_torch_dt).cuda(0)
 
     cl.launch(
         torch.cuda.current_stream(),
@@ -367,10 +367,10 @@ def test_pow_scalar_vector_broadcast(lhs_dt, rhs_dt, result_dt, vector_side):
     lhs_torch_dt = datatype.to_torch_dtype(lhs_dt)
     rhs_torch_dt = datatype.to_torch_dtype(rhs_dt)
     result_torch_dt = datatype.to_torch_dtype(result_dt)
-    lhs = torch.tensor(_pow_test_values(lhs_dt)[:lhs_count], dtype=lhs_torch_dt).cuda()
-    rhs = torch.tensor(_pow_test_values(rhs_dt)[:rhs_count], dtype=rhs_torch_dt).cuda()
-    out = torch.zeros(4, dtype=result_torch_dt).cuda()
-    operator_out = torch.zeros(4, dtype=result_torch_dt).cuda()
+    lhs = torch.tensor(_pow_test_values(lhs_dt)[:lhs_count], dtype=lhs_torch_dt).cuda(0)
+    rhs = torch.tensor(_pow_test_values(rhs_dt)[:rhs_count], dtype=rhs_torch_dt).cuda(0)
+    out = torch.zeros(4, dtype=result_torch_dt).cuda(0)
+    operator_out = torch.zeros(4, dtype=result_torch_dt).cuda(0)
 
     cl.launch(
         torch.cuda.current_stream(),
@@ -452,8 +452,8 @@ def test_math_exp2(dtype):
     torch_dt = datatype.to_torch_dtype(dtype)
     host_inp = torch.rand((), generator=rng).item() + 0.5
     expected = exp2(host_inp)
-    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda")
-    out = torch.tensor([0.0], dtype=torch_dt, device="cuda")
+    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda:0")
+    out = torch.tensor([0.0], dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out[0].item() == approx_float(expected, dtype)
 
@@ -519,8 +519,8 @@ def test_math_vector_splat():
     scalar_torch_dt = datatype.to_torch_dtype(scalar_dtype)
     out_torch_dt = datatype.to_torch_dtype(scalar_dtype)
     host_inp = torch.rand((), generator=rng).item() + 0.5
-    inp = torch.tensor([host_inp], dtype=scalar_torch_dt, device="cuda")
-    out = torch.zeros(4, dtype=out_torch_dt, device="cuda")
+    inp = torch.tensor([host_inp], dtype=scalar_torch_dt, device="cuda:0")
+    out = torch.zeros(4, dtype=out_torch_dt, device="cuda:0")
     scalar = inp.cpu().item()
     expected = [host_math.atan2(x, scalar) for x in (0.5, 1.5, 2.5, 3.5)]
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
@@ -541,9 +541,9 @@ def test_math_binary_float(dtype, device_op, host_op):
     host_lhs = torch.rand((), generator=rng).item() + 0.5
     host_rhs = torch.rand((), generator=rng).item() + 0.5
     expected = host_op(host_lhs, host_rhs)
-    lhs = torch.tensor([host_lhs], dtype=torch_dt, device="cuda")
-    rhs = torch.tensor([host_rhs], dtype=torch_dt, device="cuda")
-    out = torch.tensor([0.0], dtype=torch_dt, device="cuda")
+    lhs = torch.tensor([host_lhs], dtype=torch_dt, device="cuda:0")
+    rhs = torch.tensor([host_rhs], dtype=torch_dt, device="cuda:0")
+    out = torch.tensor([0.0], dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
     assert out[0].item() == approx_float(expected, dtype)
 
@@ -559,9 +559,9 @@ def test_math_binary_float_promotion():
     tdt2 = datatype.to_torch_dtype(dt2)
     host_lhs = torch.rand((), generator=rng).item() + 0.5
     host_rhs = torch.rand((), generator=rng).item() + 0.5
-    lhs = torch.tensor([host_lhs], dtype=tdt1, device="cuda")
-    rhs = torch.tensor([host_rhs], dtype=tdt2, device="cuda")
-    out = torch.tensor([0.0], dtype=tdt2, device="cuda")
+    lhs = torch.tensor([host_lhs], dtype=tdt1, device="cuda:0")
+    rhs = torch.tensor([host_rhs], dtype=tdt2, device="cuda:0")
+    out = torch.tensor([0.0], dtype=tdt2, device="cuda:0")
     expected = host_math.atan2(lhs.cpu().item(), rhs.cpu().item())
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
     assert out[0].item() == approx_float(expected, dt2)
@@ -624,21 +624,21 @@ def test_math_fma(dtype, vector):
         (count,),
         scale + delta,
         dtype=torch_dtype,
-        device="cuda",
+        device="cuda:0",
     )
     y = torch.full(
         (count,),
         scale - delta,
         dtype=torch_dtype,
-        device="cuda",
+        device="cuda:0",
     )
     z = torch.full(
         (count,),
         -(scale**2),
         dtype=torch_dtype,
-        device="cuda",
+        device="cuda:0",
     )
-    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
     expected = torch.full(
         (count,),
         -(delta**2),
@@ -925,10 +925,10 @@ def test_operator_alias_binary_math(device_op, python_op, dtype, vector):
             operator_out[0] = python_op(lhs[0], rhs[0])
 
     torch_dtype = datatype.to_torch_dtype(dtype)
-    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda")
-    rhs = torch.tensor(rhs_values[:count], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
-    operator_out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda:0")
+    rhs = torch.tensor(rhs_values[:count], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
+    operator_out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
     expected = torch.tensor(
         [
             python_op(lhs_value, rhs_value)
@@ -1029,10 +1029,10 @@ def test_float_division_edge_cases(operation, lhs_values, rhs_values, expected):
             out.get_base_pointer().store(device_math.mod(lhs_value, rhs_value))
             operator_out.get_base_pointer().store(lhs_value % rhs_value)
 
-    lhs = torch.tensor(lhs_values, dtype=torch.float64, device="cuda")
-    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda")
-    out = torch.zeros(count, dtype=torch.float64, device="cuda")
-    operator_out = torch.zeros(count, dtype=torch.float64, device="cuda")
+    lhs = torch.tensor(lhs_values, dtype=torch.float64, device="cuda:0")
+    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda:0")
+    out = torch.zeros(count, dtype=torch.float64, device="cuda:0")
+    operator_out = torch.zeros(count, dtype=torch.float64, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),
@@ -1069,10 +1069,10 @@ def test_float_division_scalar_vector_broadcast(device_op, python_op, vector_sid
         out.get_base_pointer().store(device_op(lhs_value, rhs_value))
         operator_out.get_base_pointer().store(python_op(lhs_value, rhs_value))
 
-    lhs = torch.tensor(lhs_values, dtype=torch.float32, device="cuda")
-    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda")
-    out = torch.zeros(4, dtype=torch.float64, device="cuda")
-    operator_out = torch.zeros(4, dtype=torch.float64, device="cuda")
+    lhs = torch.tensor(lhs_values, dtype=torch.float32, device="cuda:0")
+    rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda:0")
+    out = torch.zeros(4, dtype=torch.float64, device="cuda:0")
+    operator_out = torch.zeros(4, dtype=torch.float64, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),
@@ -1121,10 +1121,10 @@ def test_cdiv(dtype, lhs_values, rhs_values, mode):
             out.get_base_pointer().store(cl.cdiv(lhs_value, rhs_value))
 
     torch_dtype = datatype.to_torch_dtype(dtype)
-    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda")
+    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda:0")
     rhs_count = count if mode != "vector_scalar" else 1
-    rhs = torch.tensor(rhs_values[:rhs_count], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+    rhs = torch.tensor(rhs_values[:rhs_count], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
 
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
 
@@ -1169,9 +1169,9 @@ def test_integer_remainder(dtype, lhs_values, rhs_values, expected, vector):
             out[0] = cl.integer_remainder(lhs[0], rhs[0])
 
     torch_dtype = datatype.to_torch_dtype(dtype)
-    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda")
-    rhs = torch.tensor(rhs_values[:count], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+    lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda:0")
+    rhs = torch.tensor(rhs_values[:count], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
 
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
 
@@ -1193,9 +1193,9 @@ def test_integer_remainder_broadcast(vector_side):
         result = cl.integer_remainder(lhs_value, rhs_value)
         out.get_base_pointer().store(result)
 
-    lhs = torch.tensor(lhs_values, dtype=torch.int32, device="cuda")
-    rhs = torch.tensor(rhs_values, dtype=torch.int32, device="cuda")
-    out = torch.zeros(4, dtype=torch.int32, device="cuda")
+    lhs = torch.tensor(lhs_values, dtype=torch.int32, device="cuda:0")
+    rhs = torch.tensor(rhs_values, dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(4, dtype=torch.int32, device="cuda:0")
 
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
 
@@ -1210,7 +1210,7 @@ def test_integer_remainder_constants():
         out[2] = cl.integer_remainder(-5, -3)
         out[3] = cl.integer_remainder(6, 3)
 
-    out = torch.zeros(4, dtype=torch.int32, device="cuda")
+    out = torch.zeros(4, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
 
     assert out.cpu().tolist() == [-2, 2, -2, 0]
@@ -1275,9 +1275,9 @@ def test_operator_alias_negative(dtype, vector):
             operator_out[0] = -inp[0]
 
     torch_dtype = datatype.to_torch_dtype(dtype)
-    inp = torch.tensor(input_values[:count], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(count, dtype=torch_dtype, device="cuda")
-    operator_out = torch.zeros(count, dtype=torch_dtype, device="cuda")
+    inp = torch.tensor(input_values[:count], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
+    operator_out = torch.zeros(count, dtype=torch_dtype, device="cuda:0")
     expected = -torch.tensor(input_values[:count], dtype=torch_dtype)
 
     cl.launch(
@@ -1300,8 +1300,8 @@ def test_math_abs_signed_int(dtype, host_inp):
 
     torch_dt = datatype.to_torch_dtype(dtype)
     expected = builtins.abs(host_inp)
-    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda")
-    out = torch.tensor([0], dtype=torch_dt, device="cuda")
+    inp = torch.tensor([host_inp], dtype=torch_dt, device="cuda:0")
+    out = torch.tensor([0], dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out[0].item() == expected
 
@@ -1328,7 +1328,7 @@ def test_vector():
             v = device_math.floor(v)
             out.get_base_pointer().store(v)
 
-    out = torch.zeros(4, dtype=torch.float32).cuda()
+    out = torch.zeros(4, dtype=torch.float32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     print(out.cpu().tolist())
     torch.testing.assert_close(out.cpu().tolist(), [0.0, 1.0, 2.0, 3.0])
@@ -1372,9 +1372,9 @@ def test_minmax_basic(dtype, device_op, host_op, vector):
             out[0] = device_op(lhs[0], rhs[0])
 
     torch_dt = datatype.to_torch_dtype(dtype)
-    lhs = torch.tensor(lhs_vals, dtype=torch_dt, device="cuda")
-    rhs = torch.tensor(rhs_vals, dtype=torch_dt, device="cuda")
-    out = torch.zeros(count, dtype=torch_dt, device="cuda")
+    lhs = torch.tensor(lhs_vals, dtype=torch_dt, device="cuda:0")
+    rhs = torch.tensor(rhs_vals, dtype=torch_dt, device="cuda:0")
+    out = torch.zeros(count, dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
     expected = [host_op(a, b) for a, b in zip(lhs_vals, rhs_vals, strict=True)]
     assert out.cpu().tolist() == expected
@@ -1389,9 +1389,9 @@ def test_minmax_nan(dtype, device_op, propagate_nan):
         out[0] = device_op(lhs[0], rhs[0], propagate_nan=propagate_nan)
 
     torch_dt = datatype.to_torch_dtype(dtype)
-    lhs = torch.tensor([float("nan")], dtype=torch_dt, device="cuda")
-    rhs = torch.tensor([3.0], dtype=torch_dt, device="cuda")
-    out = torch.zeros(1, dtype=torch_dt, device="cuda")
+    lhs = torch.tensor([float("nan")], dtype=torch_dt, device="cuda:0")
+    rhs = torch.tensor([3.0], dtype=torch_dt, device="cuda:0")
+    out = torch.zeros(1, dtype=torch_dt, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (lhs, rhs, out))
     got = out.cpu().item()
     if propagate_nan:
@@ -1406,7 +1406,7 @@ def test_bitwise_not():
         tid = cl.thread_index(0)
         out[tid] = cl.bitwise_not(inp[tid])
 
-    input = torch.tensor([0, 1, 0xffff, 13, -1], dtype=torch.int32, device="cuda")
+    input = torch.tensor([0, 1, 0xffff, 13, -1], dtype=torch.int32, device="cuda:0")
     expected = torch.bitwise_not(input)
     output = torch.zeros_like(input)
     cl.launch(torch.cuda.current_stream(), (1,), (len(input),), kernel, (input, output))
@@ -1421,8 +1421,8 @@ def test_divmod(divmod_func):
         j = cl.thread_index(0)
         out_q[i, j], out_r[i, j] = divmod_func(lhs[i], rhs[j])
 
-    lhs = torch.arange(-64, 64, dtype=torch.int32, device="cuda")
-    rhs = torch.arange(-8, 8, dtype=torch.int32, device="cuda")
+    lhs = torch.arange(-64, 64, dtype=torch.int32, device="cuda:0")
+    rhs = torch.arange(-8, 8, dtype=torch.int32, device="cuda:0")
     rhs = torch.where(rhs == 0, 1, rhs)  # avoid division by zero
 
     expected_q, expected_r = lhs[:, None] // rhs, lhs[:, None] % rhs

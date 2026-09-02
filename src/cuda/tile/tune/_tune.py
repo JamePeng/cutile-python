@@ -211,9 +211,9 @@ def exhaustive_search(
             return tuning_result
 
         M, N, K = 1024, 256, 512
-        x = torch.rand((M, K), dtype=torch.float16, device='cuda')
-        y = torch.rand((K, N), dtype=torch.float16, device='cuda')
-        out = torch.zeros((M, N), dtype=torch.float16, device='cuda')
+        x = torch.rand((M, K), dtype=torch.float16, device='cuda:0')
+        y = torch.rand((K, N), dtype=torch.float16, device='cuda:0')
+        out = torch.zeros((M, N), dtype=torch.float16, device='cuda:0')
 
         result = tune(x, y, out)
         print(f"Best config: {result.best.config} ({result.best.mean_us:.1f}us)")

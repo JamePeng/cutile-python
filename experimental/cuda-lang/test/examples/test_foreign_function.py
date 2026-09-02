@@ -34,7 +34,7 @@ def kernel(out):
 
 @pytest.mark.parametrize("dtype", (torch.float32, torch.float64))
 def test_ffi_libdevice(dtype):
-    out = torch.tensor([4.0], dtype=dtype).cuda()
+    out = torch.tensor([4.0], dtype=dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu().item(), 2.0)
 
@@ -49,6 +49,6 @@ def test_ffi_malloc():
         out[0] = ptr.load()
         ffi("free", None, (ptr,))
 
-    out = torch.zeros(1, dtype=torch.int32).cuda()
+    out = torch.zeros(1, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().item() == 75

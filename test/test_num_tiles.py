@@ -29,7 +29,7 @@ def check_dim_2d(x, M: ct.Constant[int]):
 @pytest.mark.parametrize("shape", [(5,), (10, 10)])
 @pytest.mark.parametrize("tile_size", [1, 2])
 def test_num_tiles(shape, tile_size):
-    x = torch.zeros(shape, dtype=torch.int32, device='cuda')
+    x = torch.zeros(shape, dtype=torch.int32, device='cuda:0')
     stream = torch.cuda.current_stream()
     if len(shape) == 1:
         if tile_size == 1:

@@ -39,8 +39,8 @@ def main_kernel_calling_helper(x, y, output, B: ct.Constant[int], N: ct.Constant
 
 
 def test_helper_function_multiple_calls(shape, tile):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     kernel = ct.kernel(main_kernel_calling_helper)
     grid = (ceil(shape[0] / tile), 1, 1)
@@ -70,8 +70,8 @@ def main_kernel_multiple_returns(x, y, output, B: ct.Constant[int], N: ct.Consta
 
 
 def test_helper_function_multiple_returns(shape, tile):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, main_kernel_multiple_returns,
@@ -108,8 +108,8 @@ def main_kernel_keyword_args_default(x, y, output, B: ct.Constant[int], N: ct.Co
 @pytest.mark.parametrize("func", [main_kernel_keyword_args,
                                   main_kernel_keyword_args_default])
 def test_helper_function_keyword_args(shape, tile, func):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     if func is main_kernel_keyword_args:
@@ -138,7 +138,7 @@ def main_kernel_recursive_calls(x, output, N: ct.Constant[int]):
 
 
 def test_reject_runaway_recursion():
-    x = torch.tensor(100.0, dtype=torch.float32, device="cuda")
+    x = torch.tensor(100.0, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     with pytest.raises(TileRecursionError):
         ct.launch(torch.cuda.current_stream(), (1,), main_kernel_recursive_calls,
@@ -146,7 +146,7 @@ def test_reject_runaway_recursion():
 
 
 def test_accept_reasonable_recursion():
-    x = torch.tensor(100.0, dtype=torch.float32, device="cuda")
+    x = torch.tensor(100.0, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), main_kernel_recursive_calls,
               (x, y, 109))
@@ -167,8 +167,8 @@ def main_kernel_array_arguments_in_helper(x, y, output, B: ct.Constant[int], N: 
 
 
 def test_helper_function_array_arguments(shape, tile):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, main_kernel_array_arguments_in_helper,
@@ -199,8 +199,8 @@ def helper_function_early_return_kernel(x, y, output,
 def test_helper_function_early_return(early_return):
     shape = (512, 128)
     tile = 16
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, helper_function_early_return_kernel,
@@ -235,7 +235,7 @@ def early_return_inside_loop(helper_func):
 
 
 def test_early_return_inside_while_loop():
-    n = torch.tensor([15], dtype=torch.int32, device="cuda")
+    n = torch.tensor([15], dtype=torch.int32, device="cuda:0")
     out = torch.zeros_like(n)
     kernel = early_return_inside_loop(early_return_inside_while_loop)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (n, out))
@@ -243,7 +243,7 @@ def test_early_return_inside_while_loop():
 
 
 def test_early_return_inside_for_loop():
-    n = torch.tensor([15], dtype=torch.int32, device="cuda")
+    n = torch.tensor([15], dtype=torch.int32, device="cuda:0")
     out = torch.zeros_like(n)
     kernel = early_return_inside_loop(early_return_inside_for_loop)
     with pytest.raises(TileSyntaxError, match="Returning from a for loop is not supported"):
@@ -272,7 +272,7 @@ def return_after_while_loop(n):
 
 
 def test_return_after_while_loop():
-    n = torch.tensor([3], dtype=torch.int32, device="cuda")
+    n = torch.tensor([3], dtype=torch.int32, device="cuda:0")
     out = torch.zeros_like(n)
     kernel = early_return_inside_loop(return_after_while_loop)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (n, out))
@@ -296,7 +296,7 @@ def loops_kernel(n, y):
 
 
 def test_loops_in_helper_function():
-    n = torch.tensor([5], dtype=torch.int32, device="cuda")
+    n = torch.tensor([5], dtype=torch.int32, device="cuda:0")
     out = torch.zeros_like(n)
     ct.launch(torch.cuda.current_stream(), (1,), loops_kernel, (n, out))
     assert out.cpu().item() == 30
@@ -315,7 +315,7 @@ def call_helper_reassign_param(x):
 
 
 def test_helper_function_reassign_param():
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), call_helper_reassign_param, (x,))
     assert x.cpu().item() == 15
 
@@ -328,7 +328,7 @@ def helper_function_using_ct_api(x, output, B: ct.Constant[int], N: ct.Constant[
 
 
 def test_calling_function_from_host(shape, tile):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     with pytest.raises(RuntimeError, match="Device functions can only be called from device code."):
         helper_function_using_ct_api(x, y, tile, shape[1])
@@ -340,7 +340,7 @@ def kernel_calling_function_using_ct_api(x, output, B: ct.Constant[int], N: ct.C
 
 
 def test_helper_function_using_ct_api(shape, tile):
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(
@@ -364,7 +364,7 @@ def test_error_message_stack_trace():
     def kernel(x):  # Line +8
         foo(x)
 
-    x = torch.zeros((), device="cuda")
+    x = torch.zeros((), device="cuda:0")
     _, first_line = inspect.getsourcelines(test_error_message_stack_trace)
     msg_regex = (
         "Module 'cuda.tile' has no attribute 'abracadabra'.*\n"
@@ -399,7 +399,7 @@ def test_decorated_helper_function():
     def kernel(y):
         t = decorated_helper(5)
         ct.scatter(y, (), t)
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.item() == 80
 
@@ -421,6 +421,6 @@ def test_decorated_helper_function_forward():
     def kernel(y):
         t = forward_helper(5)
         ct.scatter(y, (), t)
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.item() == 50

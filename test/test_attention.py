@@ -27,9 +27,9 @@ def test_flash_attention(batch_size, q_heads, k_heads,
     query_group_size = q_heads // k_heads
     TILE_M, TILE_N = tile_size
     qk_scale = 1 / math.sqrt(hidden_size)
-    q = torch.randn((batch_size, q_heads, q_len, hidden_size), dtype=float_dtype, device='cuda')
-    k = torch.randn((batch_size, k_heads, k_len, hidden_size), dtype=float_dtype, device='cuda')
-    v = torch.randn((batch_size, k_heads, k_len, hidden_size), dtype=float_dtype, device='cuda')
+    q = torch.randn((batch_size, q_heads, q_len, hidden_size), dtype=float_dtype, device='cuda:0')
+    k = torch.randn((batch_size, k_heads, k_len, hidden_size), dtype=float_dtype, device='cuda:0')
+    v = torch.randn((batch_size, k_heads, k_len, hidden_size), dtype=float_dtype, device='cuda:0')
     o = torch.zeros_like(q)
     grid = (math.ceil(q_len / TILE_M), batch_size * q_heads, 1)
     if use_input_pos:
@@ -48,7 +48,7 @@ def test_flash_attention(batch_size, q_heads, k_heads,
                query_group_size, is_causal, EVEN_K))
     if is_causal:
         mask = (input_pos + torch.arange(q_len)[:, None]) >= torch.arange(k_len)[None, :]
-        mask = torch.where(mask, 0.0, -math.inf).to(float_dtype).to('cuda')
+        mask = torch.where(mask, 0.0, -math.inf).to(float_dtype).to('cuda:0')
     else:
         mask = None
     ref_result = torch.nn.functional.scaled_dot_product_attention(q, k, v,

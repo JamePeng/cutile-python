@@ -46,7 +46,7 @@ def test_single_1d_array():
         smem[i] = x[i]
         x[i] = smem[i] + 12
 
-    x = torch.ones((32,), dtype=torch.int32, device="cuda")
+    x = torch.ones((32,), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x, 33,))
 
@@ -63,7 +63,7 @@ def test_single_1d_array_with_constant_shape():
         smem[i] = x[i]
         x[i] = smem[i] + 12
 
-    x = torch.ones((32,), dtype=torch.int32, device="cuda")
+    x = torch.ones((32,), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x,))
 
@@ -178,7 +178,7 @@ def test_dynamic_shared_alignment_runtime_round_up_launch():
         values[0] = 42
         x[0] = values[0] + cl.int32(smem[0])
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x, 33,))
 
@@ -222,7 +222,7 @@ def test_max_shared_memory_with_static_allocation():
                 + dynamic_smem[dynamic_smem_bytes - 1]
             )
 
-    output = torch.zeros(1, dtype=torch.int8, device="cuda")
+    output = torch.zeros(1, dtype=torch.int8, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (output,))
 
     assert output.item() == 7
@@ -239,7 +239,7 @@ def test_dynamic_1d_array_and_static_1d_array():
         smem_static[i] = smem[i] + 1
         x[i] = smem_static[i] + 12
 
-    x = torch.ones((32,), dtype=torch.int32, device="cuda")
+    x = torch.ones((32,), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x, 33,))
 
@@ -261,8 +261,8 @@ def test_two_1d_arrays_in_order():
         smem2[i] = y[i]
         y[i] = smem2[i] + 27
 
-    x = torch.ones((32,), dtype=torch.int32, device="cuda")
-    y = torch.ones((32,), dtype=torch.int8, device="cuda")
+    x = torch.ones((32,), dtype=torch.int32, device="cuda:0")
+    y = torch.ones((32,), dtype=torch.int8, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x, y, 33, 37))
 
@@ -284,8 +284,8 @@ def test_two_1d_arrays_out_of_order():
         x[i] = smem1[i] + 12
         y[i] = smem2[i] + 27
 
-    x = torch.ones((32,), dtype=torch.int32, device="cuda")
-    y = torch.ones((32,), dtype=torch.int8, device="cuda")
+    x = torch.ones((32,), dtype=torch.int32, device="cuda:0")
+    y = torch.ones((32,), dtype=torch.int8, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x, y, 33, 37))
 
@@ -303,7 +303,7 @@ def test_single_2d_array():
         smem[i, j] = x[i, j]
         x[i, j] = smem[i, j] + 10 * i + 1000 * j
 
-    x = torch.ones((16, 8), dtype=torch.int32, device="cuda")
+    x = torch.ones((16, 8), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (16, 8), kern, (x, 17, 11))
 
@@ -329,8 +329,8 @@ def test_two_2d_arrays_out_of_order():
         smem2[j, i] = y[j, i]
         y[j, i] = cl.int16(smem2[j, i] + 10 * i + 1000 * j)
 
-    x = torch.ones((16, 8), dtype=torch.int32, device="cuda")
-    y = torch.ones((8, 16), dtype=torch.int16, device="cuda")
+    x = torch.ones((16, 8), dtype=torch.int32, device="cuda:0")
+    y = torch.ones((8, 16), dtype=torch.int16, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1, 1), (16, 8), kern, (x, y, 17, 11))
 
@@ -356,7 +356,7 @@ def test_single_2d_array_static_second_dim():
         smem[i, j] = x[i, j]
         x[i, j] = smem[i, j] + 10 * i + 1000 * j
 
-    x = torch.ones((16, 8), dtype=torch.int32, device="cuda")
+    x = torch.ones((16, 8), dtype=torch.int32, device="cuda:0")
     with spy_on_kernel_launch() as spy:
         cl.launch(torch.cuda.current_stream(), (1,), (16, 8), kern, (x, 17))
 

@@ -330,7 +330,7 @@ def local_array(
                     tmp[1] = tx + 10
                     out[tx] = tmp[0] + tmp[1]
 
-            out = torch.empty(2, dtype=torch.int32, device="cuda")
+            out = torch.empty(2, dtype=torch.int32, device="cuda:0")
             cl.launch(stream, (1,), (2,), kernel, (out,))
             torch.cuda.synchronize()
             print(out.cpu().tolist())

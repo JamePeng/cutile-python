@@ -33,8 +33,8 @@ def array_attr_kernel(X, out):
 
 
 def test_array_attr():
-    x = torch.zeros((2, 3, 4), device='cuda')
-    out = torch.zeros(6, device='cuda', dtype=torch.int64)
+    x = torch.zeros((2, 3, 4), device='cuda:0')
+    out = torch.zeros(6, device='cuda:0', dtype=torch.int64)
     ct.launch(torch.cuda.current_stream(),
               (1,),
               array_attr_kernel, (x, out))
@@ -47,7 +47,7 @@ def test_array_getitem():
     def kernel(x):
         x[0]
 
-    x = torch.zeros((10,), device='cuda')
+    x = torch.zeros((10,), device='cuda:0')
     with pytest.raises(TileTypeError, match="Arrays are not directly subscriptable"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -57,7 +57,7 @@ def test_array_setitem():
     def kernel(x):
         x[0] = 3.0
 
-    x = torch.zeros((10,), device='cuda')
+    x = torch.zeros((10,), device='cuda:0')
     with pytest.raises(TileTypeError, match="Arrays do not support item assignment. Use store()"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -67,7 +67,7 @@ def test_array_aug_setitem():
     def kernel(x):
         x[0] += 3
 
-    x = torch.zeros((10,), device='cuda')
+    x = torch.zeros((10,), device='cuda:0')
     with pytest.raises(TileTypeError, match="Arrays are not directly subscriptable"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -88,8 +88,8 @@ def test_int64_index_inc1():
     """
     n = (1 << 32) + 5
 
-    x = torch.randint(-128, 127, (n, 1), device='cuda', dtype=torch.int8)
-    y = torch.zeros(n, 1, device='cuda', dtype=torch.int8)
+    x = torch.randint(-128, 127, (n, 1), device='cuda:0', dtype=torch.int8)
+    y = torch.zeros(n, 1, device='cuda:0', dtype=torch.int8)
 
     TILE = 2048
     grid = (math.ceil(n / TILE), 1, 1)
@@ -100,7 +100,7 @@ def test_int64_index_inc1():
 def test_int64_index_overflow_without_annotation():
     # Stride > INT32_MAX triggers OverflowError without allocating 6 GiB.
     # dim-0 stride 2**32 exceeds INT32_MAX; dim-1 stride 0 keeps storage at 128 elements.
-    base = torch.zeros(128, device='cuda', dtype=torch.bfloat16)
+    base = torch.zeros(128, device='cuda:0', dtype=torch.bfloat16)
     x = torch.as_strided(base, (1, 25165824, 1, 128), (2**32, 0, 0, 1))
     out = torch.as_strided(base, (1, 25165824, 1, 128), (2**32, 0, 0, 1))
 
@@ -127,16 +127,16 @@ def test_static_shape_standalone_recompile():
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock_compile:
         for shape in shapes:
-            x = torch.randint(0, 100, shape, dtype=torch.int32, device='cuda')
-            out = torch.zeros((16, 16), dtype=torch.int32, device='cuda')
+            x = torch.randint(0, 100, shape, dtype=torch.int32, device='cuda:0')
+            out = torch.zeros((16, 16), dtype=torch.int32, device='cuda:0')
             ct.launch(torch.cuda.current_stream(), (1,), k, (x, out))
             assert_equal(out, x[:16, :16])
     assert mock_compile.call_count == 2
 
 
 def test_static_shape_constraint_values():
-    x = torch.zeros((48, 32), dtype=torch.float16, device='cuda')
-    out = torch.zeros((16, 16), dtype=torch.float16, device='cuda')
+    x = torch.zeros((48, 32), dtype=torch.float16, device='cuda:0')
+    out = torch.zeros((16, 16), dtype=torch.float16, device='cuda:0')
     sig = ct.compilation.KernelSignature.from_kernel_args(
         load_static_shaped, (x, out),
         ct.compilation.CallingConvention.cutile_python_v2())
@@ -154,7 +154,7 @@ def test_singleton_shape_inference_respects_calling_convention():
     def k(x):
         pass
 
-    x = torch.zeros((8, 1), device='cuda')
+    x = torch.zeros((8, 1), device='cuda:0')
     v1_sig = ct.compilation.KernelSignature.from_kernel_args(
         k, (x,), ct.compilation.CallingConvention.cutile_python_v1())
     v2_sig = ct.compilation.KernelSignature.from_kernel_args(
@@ -169,7 +169,7 @@ def test_static_shape_annotation_disables_singleton_inference():
     def k(x: Annotated[ct.Array, ct.ArrayAnnotation(static_shape_dims=(0,))]):
         pass
 
-    x = torch.zeros((8, 1), device='cuda')
+    x = torch.zeros((8, 1), device='cuda:0')
     sig = ct.compilation.KernelSignature.from_kernel_args(
         k, (x,), ct.compilation.CallingConvention.cutile_python_v2())
 
@@ -186,8 +186,8 @@ def test_static_shape_out_of_range_axis():
     def bad(x: Annotated[ct.Array, ct.ArrayAnnotation(static_shape_dims=(5,))], out):
         pass
 
-    x = torch.zeros((4, 8), device='cuda')
-    out = torch.zeros((4, 8), device='cuda')
+    x = torch.zeros((4, 8), device='cuda:0')
+    out = torch.zeros((4, 8), device='cuda:0')
     with pytest.raises(ValueError, match="static_shape_dims contains axis 5"):
         ct.launch(torch.cuda.current_stream(), (1,), bad, (x, out))
 
@@ -199,9 +199,9 @@ def test_static_shape_and_stride_annotation_together():
               static_shape_dims=(0,), static_stride_dims=(0,))], out):
         pass
 
-    x = torch.zeros((4, 10), device='cuda')[:, :8]   # shape (4, 8), strides (10, 1)
+    x = torch.zeros((4, 10), device='cuda:0')[:, :8]   # shape (4, 8), strides (10, 1)
     assert x.shape == (4, 8) and x.stride() == (10, 1)
-    out = torch.zeros((4, 4), device='cuda')
+    out = torch.zeros((4, 4), device='cuda:0')
     sig = ct.compilation.KernelSignature.from_kernel_args(
         k, (x, out), ct.compilation.CallingConvention.cutile_python_v2())
     constraint = sig.parameters[0]
@@ -219,9 +219,9 @@ def copy_static_strided(
 
 
 def test_stride_is_static():
-    buf = torch.arange(40, dtype=torch.float16, device='cuda').reshape(4, 10)
+    buf = torch.arange(40, dtype=torch.float16, device='cuda:0').reshape(4, 10)
     x = buf[:, :8]
-    out = torch.zeros((4, 8), dtype=torch.float16, device='cuda')
+    out = torch.zeros((4, 8), dtype=torch.float16, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), copy_static_strided, (x, out))
     assert_equal(out, x)
 
@@ -234,10 +234,10 @@ def assert_annotated_inner_stride_one(
 
 
 def test_static_stride_annotated_stride_one_is_observable():
-    x = torch.zeros((4, 8), dtype=torch.int64, device='cuda')  # contiguous, strides (8, 1)
-    out = torch.zeros(1, dtype=torch.int64, device='cuda')
+    x = torch.zeros((4, 8), dtype=torch.int64, device='cuda:0')  # contiguous, strides (8, 1)
+    out = torch.zeros(1, dtype=torch.int64, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), assert_annotated_inner_stride_one, (x, out))
-    assert_equal(out, torch.ones(1, dtype=torch.int64, device='cuda'))
+    assert_equal(out, torch.ones(1, dtype=torch.int64, device='cuda:0'))
 
 
 @ct.kernel
@@ -247,8 +247,8 @@ def stride_dim0_only(
 
 
 def test_static_stride_annotation_drops_inferred_stride_one():
-    x = torch.zeros((4, 8), dtype=torch.float16, device='cuda')  # contiguous, strides (8, 1)
-    out = torch.zeros((4, 8), dtype=torch.float16, device='cuda')
+    x = torch.zeros((4, 8), dtype=torch.float16, device='cuda:0')  # contiguous, strides (8, 1)
+    out = torch.zeros((4, 8), dtype=torch.float16, device='cuda:0')
     sig = ct.compilation.KernelSignature.from_kernel_args(
         stride_dim0_only, (x, out),
         ct.compilation.CallingConvention.cutile_python_v2())
@@ -268,14 +268,14 @@ def test_static_stride_annotation_ignores_nonannotated_contiguity():
     # contiguity share one compiled kernel. (Inner strides 1/2/3 are all non-16-byte-divisible,
     # so only the stride==1 bit differs -- alignment, which is orthogonal, is left specialized.)
     k = cuda.tile.kernel(load_stride_dim0._pyfunc)
-    a = torch.zeros((4, 20), dtype=torch.float32, device='cuda')[:, :4]      # strides (20, 1)
-    b = torch.zeros((4, 20), dtype=torch.float32, device='cuda')[:, 0:8:2]   # strides (20, 2)
-    c = torch.zeros((4, 20), dtype=torch.float32, device='cuda')[:, 0:12:3]  # strides (20, 3)
+    a = torch.zeros((4, 20), dtype=torch.float32, device='cuda:0')[:, :4]      # strides (20, 1)
+    b = torch.zeros((4, 20), dtype=torch.float32, device='cuda:0')[:, 0:8:2]   # strides (20, 2)
+    c = torch.zeros((4, 20), dtype=torch.float32, device='cuda:0')[:, 0:12:3]  # strides (20, 3)
     assert (a.stride(), b.stride(), c.stride()) == ((20, 1), (20, 2), (20, 3))
     with patch('cuda.tile._compile.compile_tile',
                side_effect=cuda.tile._compile.compile_tile) as mock_compile:
         for arr in (a, b, c):
-            out = torch.zeros((4, 4), dtype=torch.float32, device='cuda')
+            out = torch.zeros((4, 4), dtype=torch.float32, device='cuda:0')
             ct.launch(torch.cuda.current_stream(), (1,), k, (arr, out))
     assert mock_compile.call_count == 1
 
@@ -290,8 +290,8 @@ def test_static_stride_out_of_range_axis():
     def bad(x: Annotated[ct.Array, ct.ArrayAnnotation(static_stride_dims=(5,))], out):
         pass
 
-    x = torch.zeros((4, 8), device='cuda')
-    out = torch.zeros((4, 8), device='cuda')
+    x = torch.zeros((4, 8), device='cuda:0')
+    out = torch.zeros((4, 8), device='cuda:0')
     # A single (non-list) array must raise cleanly, not abort the interpreter.
     with pytest.raises(ValueError, match="static_stride_dims contains axis 5"):
         ct.launch(torch.cuda.current_stream(), (1,), bad, (x, out))
@@ -302,8 +302,8 @@ def test_static_stride_duplicate_axis():
     def bad(x: Annotated[ct.Array, ct.ArrayAnnotation(static_stride_dims=(0, 0))], out):
         pass
 
-    x = torch.zeros((4, 8), device='cuda')
-    out = torch.zeros((4, 8), device='cuda')
+    x = torch.zeros((4, 8), device='cuda:0')
+    out = torch.zeros((4, 8), device='cuda:0')
     with pytest.raises(ValueError, match="duplicate axis"):
         ct.compilation.KernelSignature.from_kernel_args(
             bad, (x, out), ct.compilation.CallingConvention.cutile_python_v2())
@@ -319,10 +319,10 @@ def copy_transposed(
 
 
 def test_static_stride_transposed_column_major():
-    base = torch.arange(32, dtype=torch.float32, device='cuda').reshape(8, 4)  # (4, 1)
+    base = torch.arange(32, dtype=torch.float32, device='cuda:0').reshape(8, 4)  # (4, 1)
     x = base.T  # (4, 8) column-major view, strides (1, 4)
     assert x.stride() == (1, 4)
-    out = torch.zeros((4, 8), dtype=torch.float32, device='cuda')
+    out = torch.zeros((4, 8), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), copy_transposed, (x, out))
     assert_equal(out, x)
 
@@ -337,10 +337,10 @@ def copy_3d_permuted(
 
 
 def test_static_stride_3d_permuted():
-    base = torch.arange(2 * 4 * 8, dtype=torch.float32, device='cuda').reshape(4, 2, 8)
+    base = torch.arange(2 * 4 * 8, dtype=torch.float32, device='cuda:0').reshape(4, 2, 8)
     x = base.permute(1, 0, 2)  # (2, 4, 8), strides (8, 16, 1)
     assert x.stride() == (8, 16, 1)
-    out = torch.zeros((2, 4, 8), dtype=torch.float32, device='cuda')
+    out = torch.zeros((2, 4, 8), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), copy_3d_permuted, (x, out))
     assert_equal(out, x)
 
@@ -356,9 +356,9 @@ def copy_singleton_axis(
 def test_static_stride_singleton_axis():
     # Pinning a singleton axis stride to its exact value must remain consistent with
     # the independently known shape_constant=1 fact.
-    x = torch.arange(8, dtype=torch.float32, device='cuda').unsqueeze(1)
+    x = torch.arange(8, dtype=torch.float32, device='cuda:0').unsqueeze(1)
     assert x.shape == (8, 1) and x.stride() == (1, 1)
-    out = torch.zeros((8, 1), dtype=torch.float32, device='cuda')
+    out = torch.zeros((8, 1), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), copy_singleton_axis, (x, out))
     assert_equal(out, x)
 
@@ -376,10 +376,10 @@ def copy_broadcast_axis(
 
 
 def test_static_stride_broadcast_axis():
-    base = torch.arange(4, dtype=torch.float32, device='cuda').reshape(4, 1)
+    base = torch.arange(4, dtype=torch.float32, device='cuda:0').reshape(4, 1)
     x = base.expand(4, 8)  # strides (1, 0)
     assert x.stride() == (1, 0)
-    out = torch.zeros((4, 8), dtype=torch.float32, device='cuda')
+    out = torch.zeros((4, 8), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), copy_broadcast_axis, (x, out))
     assert_equal(out, x)
 

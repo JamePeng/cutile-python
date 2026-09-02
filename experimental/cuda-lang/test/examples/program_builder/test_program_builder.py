@@ -134,7 +134,7 @@ if __name__ == "__main__":
     def kernel(tensor):
         schedule(Context(tensor))
 
-    out = torch.ones(8, dtype=torch.int8).cuda()
+    out = torch.ones(8, dtype=torch.int8).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     out = out.cpu().tolist()
     assert out == [0, 1, 2, 1, 4, 1, 6, 1]

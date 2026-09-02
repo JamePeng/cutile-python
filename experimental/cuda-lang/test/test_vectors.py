@@ -66,7 +66,7 @@ def test_pointer_vector_ldst(element_count, dtype):
             alignment=alignment,
         )
 
-    A = torch.zeros(element_count, dtype=to_torch_dtype(dtype)).cuda()
+    A = torch.zeros(element_count, dtype=to_torch_dtype(dtype)).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A,))
     got = A.cpu().tolist()
     expect = torch.tensor(values, dtype=to_torch_dtype(dtype)).tolist()
@@ -84,7 +84,7 @@ def test_vector_apis():
             out[2] = cl.int32(p.pointee_dtype == larr.dtype)
             out[3] = vec.element_count
 
-    out = torch.zeros(4, dtype=torch.int32).cuda()
+    out = torch.zeros(4, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [1, 1, 1, 4]
 
@@ -97,8 +97,8 @@ def test_astype_on_vector():
         out.get_base_pointer().store(halved, alignment=8)
 
     values = [1.0, 2.0, 3.0, 4.0]
-    inp = torch.tensor(values, dtype=torch.float32).cuda()
-    out = torch.zeros(4, dtype=torch.float16).cuda()
+    inp = torch.tensor(values, dtype=torch.float32).cuda(0)
+    out = torch.zeros(4, dtype=torch.float16).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out.cpu().tolist() == values
 
@@ -113,8 +113,8 @@ def test_vector_tuple(length):
         elements = tuple(vector)
         output[0] = elements == expect
 
-    input = torch.arange(4, dtype=torch.int32, device="cuda")
-    output = torch.tensor([False], dtype=torch.bool, device="cuda")
+    input = torch.arange(4, dtype=torch.int32, device="cuda:0")
+    output = torch.tensor([False], dtype=torch.bool, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (input, output))
     assert output.cpu().item()
 
@@ -126,8 +126,8 @@ def test_vector_tuple_len(length):
         vector = input.get_base_pointer().load(count=length, alignment=16)
         output[0] = len(vector)
 
-    input = torch.arange(4, dtype=torch.int32, device="cuda")
-    output = torch.zeros(1, dtype=torch.int32, device="cuda")
+    input = torch.arange(4, dtype=torch.int32, device="cuda:0")
+    output = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (input, output))
     assert output.cpu().item() == length
 
@@ -140,8 +140,8 @@ def test_vector_len_in_static_iter(length):
         for index in cl.static_iter(range(len(vector))):
             output[index] = vector[index]
 
-    input = torch.arange(4, dtype=torch.int32, device="cuda")
-    output = torch.zeros(length, dtype=torch.int32, device="cuda")
+    input = torch.arange(4, dtype=torch.int32, device="cuda:0")
+    output = torch.zeros(length, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (input, output))
     assert output.cpu().tolist() == list(range(length))
 
@@ -165,7 +165,7 @@ def test_vector_constructor():
         vec = cl.Vector(1, 2, 3, 4)
         out.get_base_pointer().store(vec, alignment=16)
 
-    out = torch.zeros(4, dtype=torch.int32).cuda()
+    out = torch.zeros(4, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [1, 2, 3, 4]
 
@@ -176,7 +176,7 @@ def test_vector_constructor_unsigned():
         vec = cl.Vector(cl.uint32(1), 2, 3, 4)
         out.get_base_pointer().store(vec, alignment=16)
 
-    out = torch.zeros(4, dtype=torch.uint32).cuda()
+    out = torch.zeros(4, dtype=torch.uint32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [1, 2, 3, 4]
 
@@ -187,7 +187,7 @@ def test_vector_constructor_uses_explicit_dtype():
         vec = cl.Vector(1, 2, 3, 4, dtype=cl.int8)
         out.get_base_pointer().store(vec, alignment=4)
 
-    out = torch.zeros(4, dtype=torch.int8).cuda()
+    out = torch.zeros(4, dtype=torch.int8).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [1, 2, 3, 4]
 
@@ -274,7 +274,7 @@ def test_pointer_vector_arithmetic(operation, dtype, lhs_values, rhs_values):
             new = operation(lhs_vec, rhs_vec)
             out.get_base_pointer().store(new, alignment=out_alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -306,7 +306,7 @@ def test_pointer_vector_arithmetic_floordiv(dtype, lhs_values, rhs_values):
             new = operator.floordiv(lhs_vec, rhs_vec)
             out.get_base_pointer().store(new, alignment=alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -354,7 +354,7 @@ def test_pointer_vector_arithmetic_bitwise(operation, dtype, lhs_values, rhs_val
             new = operation(lhs_vec, rhs_vec)
             out.get_base_pointer().store(new, alignment=alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -394,7 +394,7 @@ def test_pointer_vector_arithmetic_comparison(operation, dtype, lhs_values, rhs_
             new = operation(lhs_vec, rhs_vec)
             out.get_base_pointer().store(new, alignment=out_alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -430,7 +430,7 @@ def test_pointer_vector_arithmetic_shift(operation, dtype, lhs_values, rhs_value
             new = operation(lhs_vec, rhs_vec)
             out.get_base_pointer().store(new, alignment=alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -457,7 +457,7 @@ def test_pointer_vector_arithmetic_unary(operation, dtype, values):
             new = operation(vec)
             out.get_base_pointer().store(new, alignment=alignment)
 
-    out = torch.zeros(4, dtype=expected.dtype).cuda()
+    out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     torch.testing.assert_close(out.cpu(), expected)
 
@@ -467,7 +467,7 @@ def test_pointer_vector_count_can_be_non_power_of_two():
     def kernel(out):
         out.get_base_pointer().load(count=3, alignment=4)
 
-    out = torch.zeros(3, dtype=torch.int32).cuda()
+    out = torch.zeros(3, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
 
 
@@ -480,7 +480,7 @@ def test_vector_getitem():
         tensor[2] = v4[1]
         tensor[3] = v4[0]
 
-    tensor = torch.tensor(list(range(4)), dtype=torch.int32).cuda()
+    tensor = torch.tensor(list(range(4)), dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor,))
     assert tensor.cpu().tolist() == [3, 2, 1, 0]
 
@@ -503,8 +503,8 @@ def test_vector_with_item():
         updated_vector = original_vector.with_item(2, 42)
         updated.get_base_pointer().store(updated_vector, alignment=16)
 
-    a = torch.arange(4, dtype=torch.int32, device="cuda")
-    b = torch.arange(4, dtype=torch.int32, device="cuda")
+    a = torch.arange(4, dtype=torch.int32, device="cuda:0")
+    b = torch.arange(4, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b))
     assert a.cpu().tolist() == [0, 1, 2, 3]
     assert b.cpu().tolist() == [0, 1, 42, 3]
@@ -516,7 +516,7 @@ def test_vector_from_tuple():
         v4 = cl.Vector(*tuple(i for i in cl.static_iter(range(4))))
         tensor.get_base_pointer().store(v4, alignment=16)
 
-    tensor = torch.zeros(4, dtype=torch.int32, device='cuda')
+    tensor = torch.zeros(4, dtype=torch.int32, device='cuda:0')
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor,))
     assert tensor.cpu().tolist() == [0, 1, 2, 3]
 
@@ -608,7 +608,7 @@ def test_vector_reduce(dtype, op, values, expected):
         )
         output[0] = vector.reduce(op)
 
-    output = torch.zeros(1, dtype=to_torch_dtype(dtype), device="cuda")
+    output = torch.zeros(1, dtype=to_torch_dtype(dtype), device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (output,))
     assert output.cpu().item() == expected
 
@@ -621,7 +621,7 @@ def test_vector_reduce_propagate_nan(op):
         output[0] = vector.reduce(op)
         output[1] = vector.reduce(op, propagate_nan=True)
 
-    output = torch.zeros(2, dtype=torch.float32, device="cuda")
+    output = torch.zeros(2, dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (output,))
     got = output.cpu()
     assert got[0].item() == (3.0 if op is cl.VectorReduction.max else 2.0)
@@ -635,7 +635,7 @@ def test_vector_reduce_signed_zero():
         output[0] = vector.reduce(cl.VectorReduction.max, propagate_nan=True)
         output[1] = vector.reduce(cl.VectorReduction.min, propagate_nan=True)
 
-    output = torch.zeros(2, dtype=torch.float32, device="cuda")
+    output = torch.zeros(2, dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (output,))
     got = output.cpu()
     assert not torch.signbit(got[0])
@@ -650,7 +650,7 @@ def test_vector_reduce_float_order():
         output[0] = add_values.reduce(cl.VectorReduction.add)
         output[1] = mul_values.reduce(cl.VectorReduction.mul)
 
-    output = torch.zeros(2, dtype=torch.float32, device="cuda")
+    output = torch.zeros(2, dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (output,))
     got = output.cpu()
     assert got[0].item() == 1.0
@@ -663,7 +663,7 @@ def test_vector_reduce_integer_overflow():
         vector = cl.Vector(cl.int8(120), cl.int8(120))
         output[0] = vector.reduce(cl.VectorReduction.add)
 
-    output = torch.zeros(1, dtype=torch.int8, device="cuda")
+    output = torch.zeros(1, dtype=torch.int8, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (output,))
     assert output.cpu().item() == -16
 
@@ -787,8 +787,8 @@ class TestVectorSlice:
             v2 = function(v)
             out.get_element_pointer(0).store(v2)
 
-        inp = torch.arange(8, dtype=torch.int8).cuda()
-        out = torch.zeros(8, dtype=torch.int8).cuda()
+        inp = torch.arange(8, dtype=torch.int8).cuda(0)
+        out = torch.zeros(8, dtype=torch.int8).cuda(0)
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
         expect = function(list(range(8)))
         out = out.cpu().tolist()
@@ -927,8 +927,8 @@ def test_reinterpret_as_scalar():
         v = inp.get_base_pointer().load(count=2)
         out[0] = v.reinterpret_as_scalar(cl.int64)
 
-    inp = torch.tensor([1, 2], dtype=torch.int32).cuda()
-    out = torch.zeros(1, dtype=torch.int64).cuda()
+    inp = torch.tensor([1, 2], dtype=torch.int32).cuda(0)
+    out = torch.zeros(1, dtype=torch.int64).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     got = out.cpu().item()
     assert got == ((2 << 32) | 1), f"{got:x}"
@@ -959,8 +959,8 @@ def test_reinterpret_as_vector_reshape():
         out.get_base_pointer().store(v.reinterpret_as_vector(cl.int8, 16))
 
     values = torch.tensor([1.5, -2.25, 3.75, 0.5], dtype=torch.float32)
-    inp = values.cuda()
-    out = torch.zeros(16, dtype=torch.int8).cuda()
+    inp = values.cuda(0)
+    out = torch.zeros(16, dtype=torch.int8).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out.cpu().tolist() == values.view(torch.int8).tolist()
 

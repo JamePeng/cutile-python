@@ -87,8 +87,8 @@ if __name__ == "__main__":
 
     # --- Test Case 1: Standard BMM (float16) ---
     print("\n--- Test 1: Standard BMM (float16) ---")
-    A_fp16 = torch.randn(BATCH_DIM, M_DIM, K_DIM, dtype=torch.float16, device='cuda')
-    B_fp16 = torch.randn(BATCH_DIM, K_DIM, N_DIM, dtype=torch.float16, device='cuda')
+    A_fp16 = torch.randn(BATCH_DIM, M_DIM, K_DIM, dtype=torch.float16, device='cuda:0')
+    B_fp16 = torch.randn(BATCH_DIM, K_DIM, N_DIM, dtype=torch.float16, device='cuda:0')
     print(f"Input A shape: {A_fp16.shape}, dtype: {A_fp16.dtype}")
     print(f"Input B shape: {B_fp16.shape}, dtype: {B_fp16.dtype}")
 
@@ -108,10 +108,10 @@ if __name__ == "__main__":
         print("skip: Ampere does not support float8")
     else:
         A_fp8 = torch.randn(
-            BATCH_DIM, M_DIM, K_DIM, dtype=torch.float32, device='cuda'
+            BATCH_DIM, M_DIM, K_DIM, dtype=torch.float32, device='cuda:0'
         ).to(torch.float8_e4m3fn)
         B_fp8 = torch.randn(
-            BATCH_DIM, K_DIM, N_DIM, dtype=torch.float32, device='cuda'
+            BATCH_DIM, K_DIM, N_DIM, dtype=torch.float32, device='cuda:0'
         ).to(torch.float8_e4m3fn)
         print(f"Input A shape: {A_fp8.shape}, dtype: {A_fp8.dtype}")
         print(f"Input B shape: {B_fp8.shape}, dtype: {B_fp8.dtype}")

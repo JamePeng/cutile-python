@@ -35,7 +35,7 @@ def array_inc_1d(x, TILE: ct.Constant[int]):
 
 
 def launch_array_inc_1d(kernel, shape, tile):
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     ref = x + 1
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, kernel, (x, tile))
@@ -43,7 +43,7 @@ def launch_array_inc_1d(kernel, shape, tile):
 
 
 def launch_array_inc_1d_stream(kernel, shape, tile):
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     ref = x + 1
     torch.cuda.synchronize()
     stream = torch.cuda.Stream()
@@ -71,7 +71,7 @@ def array_add_n_kernel(name: str, annotation: str, tmp_path):
 
 
 def launch_array_add_n(kernel, shape, tile, n):
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     ref = x + n
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, kernel, (x, tile, n))
@@ -135,7 +135,7 @@ def test_launch_grid_padding(shape, tile):
     if num_tiles == 1:
         # 0D grid to test grid (1, 1, 1)
         grids.append(())
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     ref = x.clone()
     for grid in grids:
         ct.launch(torch.cuda.current_stream(), grid, array_inc_1d, (x, tile))
@@ -153,7 +153,7 @@ def test_stride_static_one_launch_check():
     ) as mock_compile_tile:
         with clear_kernel_cache(array_inc_1d) as kernel:
             # First compilation: stride is (1,)
-            A0 = torch.zeros(tile, dtype=dtype, device='cuda')
+            A0 = torch.zeros(tile, dtype=dtype, device='cuda:0')
             assert A0.stride() == (1,)
             ref0 = A0 + 1
             grid = (1, 1, 1)
@@ -189,7 +189,7 @@ def test_stride_divisibility_launch_check():
         side_effect=cuda.tile._compile.compile_tile
     ) as mock_compile_tile:
         with clear_kernel_cache(array_inc_1d) as kernel:
-            A0 = torch.zeros(tile, dtype=dtype, device='cuda')
+            A0 = torch.zeros(tile, dtype=dtype, device='cuda:0')
 
             # First compilation: stride is (8,), divisible by 16 bytes
             A1 = A0[::8]
@@ -239,7 +239,7 @@ def test_base_ptr_divisibility_launch_check():
         side_effect=cuda.tile._compile.compile_tile
     ) as mock_compile_tile:
         with clear_kernel_cache(array_inc_1d) as kernel:
-            A0 = torch.zeros(tile, dtype=dtype, device='cuda')
+            A0 = torch.zeros(tile, dtype=dtype, device='cuda:0')
 
             # First compilation: base ptr is divisible by 16
             A1 = get_ptr_16_byte_divisible_view(A0)
@@ -269,7 +269,7 @@ def test_max_grid_size():
     pytest.skip("Skipping test_max_grid_size as it has been hidden with the 24-bit limit")
     max_grid_size = cuda.tile._cext._get_max_grid_size(0)
     tile = 128
-    x = make_tensor(tile, dtype=torch.float32, device="cuda")
+    x = make_tensor(tile, dtype=torch.float32, device="cuda:0")
     grid = (max_grid_size[0] + 1, 1, 1)
 
     expected_msg = f"Grid[0] is too big: max={max_grid_size[0]}, got={grid[0]}"
@@ -280,7 +280,7 @@ def test_max_grid_size():
 def test_max_grid_size_24bit():
     max_grid_size = 2**24 - 1
     tile = 128
-    x = make_tensor(tile, dtype=torch.float32, device="cuda")
+    x = make_tensor(tile, dtype=torch.float32, device="cuda:0")
     grid = (max_grid_size + 1, 1, 1)
 
     expected_msg = (

@@ -25,7 +25,7 @@ def test_static_def():
         y[1] = s[1]
         y[2] = s[2]
 
-    x = torch.zeros((2, 5, 7), device="cuda")
-    y = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, 5, 7), device="cuda:0")
+    y = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x, y,))
     assert y.tolist() == [1, 2, 10]

@@ -484,5 +484,5 @@ def test_use_assumed_var_after_block():
             ct.scatter(x, 0, c)
         ct.scatter(x, 0, c)
 
-    x = torch.zeros(8, dtype=torch.int32, device="cuda")
+    x = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))

@@ -85,7 +85,7 @@ def test_opt_level_for_target_default():
 
 
 def _tensor():
-    return torch.zeros(64, dtype=torch.float32, device='cuda')
+    return torch.zeros(64, dtype=torch.float32, device='cuda:0')
 
 
 def _kernel_body(x, y):

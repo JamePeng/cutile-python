@@ -30,7 +30,7 @@ def extract_1d(x, y, TILE: ct.Constant[int], use_method: ct.Constant[bool]):
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("use_method", [True, False])
 def test_extract_1d(shape, dtype, tile, use_method):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, extract_1d, (x, y, tile, use_method))
@@ -55,7 +55,7 @@ def extract_2d(x, y,
 @pytest.mark.parametrize("tile", [(128, 128)])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_extract_2d(shape, dtype, tile):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (*(ceil(i / j) for i, j in zip(shape, tile)), 1)
     ct.launch(torch.cuda.current_stream(), grid, extract_2d, (x, y, tile[0], tile[1]))
@@ -77,7 +77,7 @@ def extract_1d_non_scalar_item(x, y, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [128])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_extract_1d_non_scalar_item(shape, dtype, tile):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     with pytest.raises(TileTypeError, match=re.escape("Cannot reshape (2,) to ()")):
@@ -93,7 +93,7 @@ def extract_oob_2d(x, y, TILE_X: ct.Constant[int], TILE_Y: ct.Constant[int]):
 
 
 def test_extract_oob_2d():
-    x = make_tensor((128, 128), dtype=torch.float16, device='cuda')
+    x = make_tensor((128, 128), dtype=torch.float16, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     with pytest.raises(TileTypeError, match="out of bounds"):

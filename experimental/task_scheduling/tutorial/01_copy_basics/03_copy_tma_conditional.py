@@ -493,9 +493,9 @@ def run_tma_copy_conditional_kernel_prim(
     tma_copy_conditional_kernel = make_tma_copy_conditional_kernel(
         program.device_manager
     )
-    input_ = torch.randn(rows_cols, device="cuda", dtype=torch.float16)
+    input_ = torch.randn(rows_cols, device="cuda:0", dtype=torch.float16)
     output = torch.zeros_like(input_)
-    trace = torch.zeros((rows, TRACE_COLUMNS), device="cuda", dtype=torch.float16)
+    trace = torch.zeros((rows, TRACE_COLUMNS), device="cuda:0", dtype=torch.float16)
     cl.launch(
         torch.cuda.current_stream(),
         (columns // TILE_SIZE,),

@@ -19,7 +19,7 @@ from conftest import get_tileiras_version
 
 
 def nd_tensor(nd: int, dtype=None):
-    return torch.rand((4,) * nd, dtype=dtype, device='cuda')
+    return torch.rand((4,) * nd, dtype=dtype, device='cuda:0')
 
 
 def compile(pyfunc, args):
@@ -372,7 +372,7 @@ def kernel_while_loop_result_type_mismatch(x):
 @pytest.mark.parametrize("kernel", [kernel_if_else, kernel_for_loop, kernel_while_loop,
                                     kernel_while_loop_result_type_mismatch])
 def test_control_flow_type_mismatch(kernel):
-    x = torch.zeros(1, dtype=torch.float32, device='cuda')
+    x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
     msg = re.escape('Type of `a` depends on path taken')
     with pytest.raises(TileTypeError, match=msg):
         compile(kernel, (x, ))
@@ -386,8 +386,8 @@ def test_array_inferred_strides_unify_in_control_flow():
             a = y
         ct.store(out, (0, 0), ct.load(a, (0, 0), shape=(4, 4)))
 
-    x = torch.rand((4, 4), device="cuda")
-    y = torch.rand((4, 4), device="cuda").T
+    x = torch.rand((4, 4), device="cuda:0")
+    y = torch.rand((4, 4), device="cuda:0").T
     out = torch.empty_like(x)
     assert x.stride() == (4, 1)
     assert y.stride() == (1, 4)
@@ -409,8 +409,8 @@ def test_unused_type_mismatch_inside_loop():
                 ct.scatter(y, i, t + 3.0)
         # There should be no type error because `t` is never used
 
-    x = torch.tensor([10, 20], dtype=torch.int32, device="cuda")
-    y = torch.tensor([10.0, 20.0], dtype=torch.float32, device="cuda")
+    x = torch.tensor([10, 20], dtype=torch.int32, device="cuda:0")
+    y = torch.tensor([10.0, 20.0], dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kernel, (x, y))
     assert x.tolist() == [11, 21]
     assert y.tolist() == [13.0, 23.0]
@@ -434,7 +434,7 @@ def test_typeof_constant_int_arg(val, int32_raises, int64_raises, uint64_raises)
         ct.scatter(x, (), t)
 
     def run(n, x_dtype, raises):
-        x = torch.zeros((), dtype=x_dtype, device="cuda")
+        x = torch.zeros((), dtype=x_dtype, device="cuda:0")
         with raises_if(raises, TileTypeError, match="cannot implicitly cast"):
             ct.launch(torch.cuda.current_stream(), (1,), kernel, (n, x))
             assert x.cpu().item() == n + 2
@@ -456,7 +456,7 @@ def test_typeof_constant_too_big():
             t += 1
         ct.scatter(x, (), t)
 
-    x = torch.zeros((), dtype=torch.uint64, device="cuda")
+    x = torch.zeros((), dtype=torch.uint64, device="cuda:0")
     with pytest.raises(TileValueError, match="is out of range of any supported integer type"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -477,7 +477,7 @@ def test_allow_type_hints_on_assignment():
         a: float
         ct.scatter(x, (), a + 3.0)
 
-    x = torch.ones((), dtype=torch.float32, device="cuda")
+    x = torch.ones((), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 4.0
 
@@ -488,8 +488,8 @@ def test_mixed_const_nonconst_params():
         ct.scatter(x, (), a * 10 + b)
         ct.scatter(y, (), c * 100 + d)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
-    y = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 3, 4, 7.5, 8.5, y))
     assert x.item() == 34
     assert y.item() == 758.5

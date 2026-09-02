@@ -135,7 +135,7 @@ def test_tcgen05_instruction_descriptor_encode_on_gpu(encode_descriptor, expecte
     def kernel(out):
         out[0] = encode_descriptor()
 
-    out = torch.zeros(1, dtype=torch.int64, device="cuda")
+    out = torch.zeros(1, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().item() == expected
 
@@ -163,7 +163,7 @@ def test_tcgen05_shared_memory_descriptor_swizzle_encoding(
         )
         out[0] = descriptor.encode() >> 61
 
-    out = torch.zeros(1, dtype=torch.int64, device="cuda")
+    out = torch.zeros(1, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().item() == expected_encoding
 
@@ -179,7 +179,7 @@ def test_tcgen05_shared_memory_descriptor_pointer_encoding():
         )
         out[0] = descriptor.encode()
 
-    out = torch.zeros(1, dtype=torch.int64).cuda()
+    out = torch.zeros(1, dtype=torch.int64).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
 
 
@@ -194,7 +194,7 @@ def test_tcgen05_shared_memory_descriptor_array_encoding():
         )
         out[0] = descriptor.encode()
 
-    out = torch.zeros(1, dtype=torch.int64).cuda()
+    out = torch.zeros(1, dtype=torch.int64).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
 
 
@@ -217,5 +217,5 @@ def test_tcgen05_shared_memory_descriptor_int_encoding(dtype):
         )
         out[0] = descriptor.encode()
 
-    out = torch.zeros(1, dtype=torch.int64).cuda()
+    out = torch.zeros(1, dtype=torch.int64).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))

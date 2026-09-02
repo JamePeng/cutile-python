@@ -299,7 +299,7 @@ def test_observe_atomic_load_store():
         first.atomic_store(cl.int32(42))
         second.atomic_store(first.atomic_load() + cl.int32(1))
 
-    result = torch.zeros(2, dtype=torch.int32, device="cuda")
+    result = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (result,))
     assert result.cpu().tolist() == [42, 43]
 
@@ -366,7 +366,7 @@ def test_pointer_gep():
         A.get_element_pointer((1, 1)).store(2)
         A.get_element_pointer((2, 2)).store(3)
 
-    A = torch.zeros(3, 3, dtype=torch.int32).cuda()
+    A = torch.zeros(3, 3, dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -388,7 +388,7 @@ def test_ptr_roundtrip():
         B2[0] = 2
         A[1] = B[0, 0]
 
-    A = torch.zeros(2, dtype=torch.int32, device="cuda")
+    A = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A,))
     assert A.cpu().tolist() == [1, 2]
 
@@ -400,7 +400,7 @@ def test_pointer_smem():
         B.get_element_pointer((0, 0)).store(1)
         A[0, 0] = B[0, 0]
 
-    A = torch.zeros(3, 3, dtype=torch.int32).cuda()
+    A = torch.zeros(3, 3, dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -418,7 +418,7 @@ def test_pointer_sub_ldst():
         for i in range(A.shape[0]):
             (p - i).store(i * i)
 
-    A = torch.zeros(4, dtype=torch.int32).cuda()
+    A = torch.zeros(4, dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -436,7 +436,7 @@ def test_pointer_add_ldst():
         for i in range(A.shape[0]):
             (p + i).store(i * i)
 
-    A = torch.zeros(4, dtype=torch.int32).cuda()
+    A = torch.zeros(4, dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -460,7 +460,7 @@ def test_pointer_add_narrow_unsigned_offset(offset_dtype, offset):
         p = A.get_base_pointer() + 1
         p[offset_dtype(offset)] = 7
 
-    A = torch.ones(offset + 2, device="cuda")
+    A = torch.ones(offset + 2, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -483,7 +483,7 @@ def test_shared_pointer_add_narrow_unsigned_offset():
         p[offset_dtype(offset)] = 7
         out[0] = storage[offset + 1]
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -513,7 +513,7 @@ def test_device_alloc_memspace():
                 memspace[4] = cl.int32(cl._nvvm.isspacep_global(p))
                 memspace[5] = cl.int32(cl._nvvm.isspacep_shared(p))
 
-    memspace = torch.zeros(6, dtype=torch.int32, device="cuda")
+    memspace = torch.zeros(6, dtype=torch.int32, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -548,7 +548,7 @@ def test_static_shared_array(torch_dtype, cl_dtype):
         out[2, 2] = A[2, 2]
         cl.barrier_sync_block()
 
-    A = torch.zeros(3, 3, dtype=torch_dtype).cuda()
+    A = torch.zeros(3, 3, dtype=torch_dtype).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -648,7 +648,7 @@ def test_pointer_getitem():
     def kernel(arr):
         arr[0] += arr.get_base_pointer()[0]
 
-    arr = torch.tensor([1], dtype=torch.int32).cuda()
+    arr = torch.tensor([1], dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))
     assert arr.cpu().item() == 2
 
@@ -659,7 +659,7 @@ def test_pointer_setitem():
         p = arr.get_base_pointer()
         p[0] = 5
 
-    arr = torch.tensor([1], dtype=torch.int32).cuda()
+    arr = torch.tensor([1], dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))
     assert arr.cpu().item() == 5
 
@@ -728,7 +728,7 @@ def test_opaque_pointer_getitem():
     with pytest.raises(
         TypeCheckingError, match="Expected concrete pointer type but got opaque_pointer"
     ):
-        arr = torch.tensor([1], dtype=torch.int32).cuda()
+        arr = torch.tensor([1], dtype=torch.int32).cuda(0)
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))
 
 
@@ -743,7 +743,7 @@ def test_opaque_pointer_setitem():
         TypeCheckingError,
         match="Expected concrete pointer type but got opaque_pointer",
     ):
-        arr = torch.tensor([1], dtype=torch.int32).cuda()
+        arr = torch.tensor([1], dtype=torch.int32).cuda(0)
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))
 
 
@@ -756,5 +756,5 @@ def test_pointer_access_2d_fails():
         TypeCheckingError,
         match="Expected a scalar, but given value has type Tuple",
     ):
-        arr = torch.tensor([1], dtype=torch.int32).cuda()
+        arr = torch.tensor([1], dtype=torch.int32).cuda(0)
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))

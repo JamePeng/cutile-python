@@ -469,7 +469,7 @@ def test_tma_copy_program_builder(rows, columns):
     input_tensor = torch.randn(
         (rows, columns),
         dtype=torch.float16,
-        device="cuda",
+        device="cuda:0",
     )
     output_tensor = torch.zeros_like(input_tensor)
 

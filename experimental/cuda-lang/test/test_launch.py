@@ -36,6 +36,6 @@ def test_dataclass_kernel_arg():
         i = cl.thread_index(0)
         a.out[i] = i * a.scale + a.bias
 
-    x = torch.zeros((4,), dtype=torch.float32, device="cuda")
+    x = torch.zeros((4,), dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (4,), kernel, (KernelArgs(x, 10, 0.5),))
     assert x.tolist() == [0.5, 10.5, 20.5, 30.5]

@@ -15,7 +15,7 @@ def add_one(x):
 
 
 def test_simple():
-    x = torch.zeros(1, device='cuda')
+    x = torch.zeros(1, device='cuda:0')
     graph = torch.cuda.CUDAGraph()
     with torch.cuda.graph(graph):
         stream = torch.cuda.current_stream()
@@ -38,8 +38,8 @@ def matmul_accumulate(x, y, z):
 
 
 def test_matmul():
-    x = torch.ones((16, 16), dtype=torch.float16, device='cuda')
-    y = torch.ones((16, 16), dtype=torch.float16, device='cuda')
+    x = torch.ones((16, 16), dtype=torch.float16, device='cuda:0')
+    y = torch.ones((16, 16), dtype=torch.float16, device='cuda:0')
     z = torch.zeros_like(x)
 
     graph = torch.cuda.CUDAGraph()
@@ -51,7 +51,7 @@ def test_matmul():
     for _ in range(N):
         graph.replay()
 
-    ref = torch.full((16, 16), 16 * N, dtype=torch.float16, device='cuda')
+    ref = torch.full((16, 16), 16 * N, dtype=torch.float16, device='cuda:0')
     assert torch.all(z == ref)
 
 
@@ -64,7 +64,7 @@ def list_copy(As, Bs, N: ct.Constant[int]):
 
 def test_list_of_array():
     N = 8
-    x = torch.rand((N, ), device='cuda')
+    x = torch.rand((N, ), device='cuda:0')
     y = torch.empty_like(x)
 
     graph = torch.cuda.CUDAGraph()

@@ -1895,7 +1895,7 @@ def _input_values(value: Any, shape: tuple[int, ...], name: str) -> Any:
 def prepare_tensors(
     config: FmhaConfig | Any,
     *,
-    device: str | Any = "cuda",
+    device: str | Any = "cuda:0",
     seed: int = 1111,
     q_input: Any | None = None,
     k_input: Any | None = None,

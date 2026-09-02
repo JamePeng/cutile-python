@@ -904,11 +904,11 @@ def test_bf16_b200_mha_causal(batch, sequence, heads, persistent):
         dtype=torch.bfloat16,
     )
     expected, expected_lse = reference_mha(q_cpu, k_cpu, v_cpu)
-    q = q_cpu.cuda()
-    k = k_cpu.cuda()
-    v = v_cpu.cuda()
-    expected = expected.cuda()
-    expected_lse = expected_lse.cuda()
+    q = q_cpu.cuda(0)
+    k = k_cpu.cuda(0)
+    v = v_cpu.cuda(0)
+    expected = expected.cuda(0)
+    expected_lse = expected_lse.cuda(0)
 
     actual, actual_lse = run_mha(q, k, v, persistent=persistent)
     torch.cuda.synchronize()

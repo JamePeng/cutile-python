@@ -99,7 +99,7 @@ def test_loop_unroller(unroll_factor, problem_size):
             unroll_factor=unroll_factor,
         )
 
-    out = torch.zeros(problem_size, dtype=torch.int32).cuda()
+    out = torch.zeros(problem_size, dtype=torch.int32).cuda(0)
     sig = KernelSignature.from_kernel_args(kernel, [out])
     compiled = compile_kernel(
         kernel,
@@ -220,7 +220,7 @@ def test_static_overload_selection():
         out[2] = overloaded_function(out[0])  # symbolic scalar
         out[3] = overloaded_function(vector)  # vector
 
-    out = torch.tensor(list(range(5)), dtype=torch.int32).cuda()
+    out = torch.tensor(list(range(5)), dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [1, 6, 2, 1, 4]
 
@@ -263,7 +263,7 @@ def bitonic_sort_kernel(inp, out, SORT_WIDTH: cl.Constant[int]):
 
 
 def test_static_bitonic_sorting_schedule():
-    inp = torch.tensor([7, -2, 5, 5, 0, 9, 1, -4], dtype=torch.int32, device="cuda")
+    inp = torch.tensor([7, -2, 5, 5, 0, 9, 1, -4], dtype=torch.int32, device="cuda:0")
     out = torch.empty_like(inp)
     cl.launch(
         torch.cuda.current_stream(),
@@ -307,7 +307,7 @@ def test_continuation_passing_style_control_flow():
         out[0] = build_and_call_dynamic_control_flow(out, 0)
         out[1] = build_and_call_dynamic_control_flow(out, 1)
 
-    out = torch.tensor([3, 7], dtype=torch.int32).cuda()
+    out = torch.tensor([3, 7], dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [3, 5]
 
@@ -351,7 +351,7 @@ def test_epilogue_operation_tuple():
         for operation in cl.static_iter(operations):
             operation.run(out)
 
-    out = torch.tensor(range(16), dtype=torch.int32).cuda()
+    out = torch.tensor(range(16), dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [
         3,
@@ -407,6 +407,6 @@ def test_dataclass_state_management():
             c = c.advance()
         out[0] = c.state
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (24, out))
     assert out.cpu().tolist() == [27]

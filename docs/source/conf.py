@@ -65,7 +65,10 @@ html_sidebars = {
 # Doc testing
 doctest_test_doctest_blocks = ""
 doctest_global_setup = """
+import torch
 from cuda.tile._cext import get_compute_capability
+
+torch.cuda.set_device(0)
 
 
 def is_blackwell_or_newer():

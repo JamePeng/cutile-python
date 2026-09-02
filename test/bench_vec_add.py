@@ -41,12 +41,12 @@ def dtype(request):
 def bench_vec_add(shape, dtype, use_gather, backend, benchmark):
     if len(shape) == 1:
         n = shape[0]
-        a = torch.randn((n,), dtype=dtype, device="cuda")
-        b = torch.randn((n,), dtype=dtype, device="cuda")
+        a = torch.randn((n,), dtype=dtype, device="cuda:0")
+        b = torch.randn((n,), dtype=dtype, device="cuda:0")
     else:
         m, n = shape
-        a = torch.randn((m, n), dtype=dtype, device="cuda")
-        b = torch.randn((m, n), dtype=dtype, device="cuda")
+        a = torch.randn((m, n), dtype=dtype, device="cuda:0")
+        b = torch.randn((m, n), dtype=dtype, device="cuda:0")
 
     c = backend(a, b, use_gather)
     ref = a + b

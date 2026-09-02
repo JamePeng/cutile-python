@@ -18,9 +18,9 @@ import cuda.tile as ct
 @pytest.mark.parametrize("tile", [(2, 2, 2), (16, 8, 8)])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_group_gemm(mnk, tile, dtype):
-    As = [torch.rand((m, k), dtype=dtype, device='cuda') for (m, _, k) in mnk]
-    Bs = [torch.rand((k, n), dtype=dtype, device='cuda') for (_, n, k) in mnk]
-    Cs = [torch.rand((m, n), dtype=dtype, device='cuda') for (m, n, _) in mnk]
+    As = [torch.rand((m, k), dtype=dtype, device='cuda:0') for (m, _, k) in mnk]
+    Bs = [torch.rand((k, n), dtype=dtype, device='cuda:0') for (_, n, k) in mnk]
+    Cs = [torch.rand((m, n), dtype=dtype, device='cuda:0') for (m, n, _) in mnk]
     tm, tn, tk = tile
     num_sms = 4
     ct.launch(torch.cuda.default_stream(),

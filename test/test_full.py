@@ -62,7 +62,7 @@ def test_full_np_value_call(dtype, value, use_cupy, tmp_path: Path):
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     dtype_str = torch_to_dtype_str[dtype].numpy
     if use_cupy:
         dtype_str = dtype_str.replace("np.", "cp.")
@@ -83,7 +83,7 @@ def test_full_cutile_value_call(dtype, value, tmp_path: Path):
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     cutile_dtype_str = torch_to_dtype_str[dtype].cutile
     value_str = str(value) if value is not None else ""
     kernel = value_call_full_kernel("create_full_value_call",
@@ -100,7 +100,7 @@ def test_full_value_invalid_call(invalid_value, tmp_path: Path):
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
     dtype = torch.float32
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     np_dtype_str = "np.float32"
     kernel = value_call_full_kernel("create_full_value_call",
                                     np_dtype_str, invalid_value, np_dtype_str,
@@ -114,7 +114,7 @@ def test_full_value_torch_call(tmp_path: Path):
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
     dtype = torch.float32
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     kernel = value_call_full_kernel("create_full_value_call",
                                     str(dtype), "1.0", str(dtype),
                                     tmp_path, globals={"torch": torch})
@@ -152,7 +152,7 @@ def test_full_np_dtype(value_dtype, use_cupy: bool, tmp_path: Path):
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     dtype_str = torch_to_dtype_str[dtype].numpy
     if use_cupy:
         dtype_str = dtype_str.replace("np.", "cp.")
@@ -186,7 +186,7 @@ def test_full_torch_dtype(value_dtype, tmp_path: Path):
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     kernel = create_full_kernel("create_full_torch_dtype", value_str, str(dtype),
                                 tmp_path, globals={"torch": torch})
     ct.launch(torch.cuda.current_stream(), grid, kernel, (x, tile[0]))
@@ -206,7 +206,7 @@ def test_full_cutile_dtype(value_dtype, tmp_path: Path):
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     cutile_dtype_str = torch_to_dtype_str[dtype].cutile
     kernel = create_full_kernel("create_full_cutile_dtype", value_str, cutile_dtype_str,
                                 tmp_path, globals={"ct": ct})
@@ -228,10 +228,10 @@ def test_full_f8e5m3fnu():
     shape = (256,)
     tile = (128,)
     grid = (ceil(shape[0] / tile[0]), 1, 1)
-    x = torch.zeros(shape, dtype=torch.float32, device="cuda")
+    x = torch.zeros(shape, dtype=torch.float32, device="cuda:0")
 
     ct.launch(torch.cuda.current_stream(), grid, full_f8e5m3fnu_kernel, (x, tile[0]),)
-    assert_equal(x, torch.full(shape, 1.5, dtype=torch.float32, device="cuda"))
+    assert_equal(x, torch.full(shape, 1.5, dtype=torch.float32, device="cuda:0"))
 
 
 create_ones_zeros_kernel_template = """
@@ -253,7 +253,7 @@ def create_ones_zeros_kernel(name: str, value: str, dtype: str, tmp_path: Path,
 def test_ones(dtype, tmp_path: Path):
     shape = (256,)
     tile = (128,)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     grid = (ceil(shape[0] / tile[0]), 1, 1)
     cutile_dtype_str = torch_to_dtype_str[dtype].cutile
     kernel = create_ones_zeros_kernel("create_ones_cutile_dtype", "ones", cutile_dtype_str,
@@ -266,7 +266,7 @@ def test_ones(dtype, tmp_path: Path):
 def test_zeros(dtype, tmp_path: Path):
     shape = (256,)
     tile = (128,)
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     grid = (ceil(shape[0] / tile[0]), 1, 1)
     cutile_dtype_str = torch_to_dtype_str[dtype].cutile
     kernel = create_ones_zeros_kernel("create_zeros_cutile_dtype", "zeros", cutile_dtype_str,
@@ -282,6 +282,6 @@ def full_scalar_shape(x):
 
 
 def test_scalar_shape():
-    x = torch.zeros((2,), dtype=torch.float16, device='cuda')
+    x = torch.zeros((2,), dtype=torch.float16, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,),
               full_scalar_shape, (x,))

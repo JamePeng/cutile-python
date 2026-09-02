@@ -83,7 +83,7 @@ temporary storage:
        if tx == 0:
            out[0] = smem[0] + smem[1]
 
-   out = torch.empty(1, dtype=torch.int32, device="cuda")
+   out = torch.empty(1, dtype=torch.int32, device="cuda:0")
    cl.launch(stream, (1,), (2,), kernel, (out,))
    torch.cuda.synchronize()
    print(out.cpu().item())
@@ -131,7 +131,7 @@ vectorized load:
            vec = ptr.load(count=4, alignment=16)
            out[0] = vec[0] + vec[1] + vec[2] + vec[3]
 
-   out = torch.empty(1, dtype=torch.int32, device="cuda")
+   out = torch.empty(1, dtype=torch.int32, device="cuda:0")
    cl.launch(stream, (1,), (4,), kernel, (out,))
    torch.cuda.synchronize()
    print(out.cpu().item())

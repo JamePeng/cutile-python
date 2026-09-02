@@ -150,7 +150,7 @@ def test_tensor_map_byte_types_l2_promotion_launch(cl_dtype):
         y[index] = smem[index]
 
     byte_values = (
-        torch.arange(37 * 48, dtype=torch.int32, device="cuda")
+        torch.arange(37 * 48, dtype=torch.int32, device="cuda:0")
         .remainder(256)
         .to(torch.uint8)
         .reshape((37, 48))
@@ -159,7 +159,7 @@ def test_tensor_map_byte_types_l2_promotion_launch(cl_dtype):
     x = byte_values if torch_dtype is torch.uint8 else byte_values.view(torch_dtype)
 
     for row, column in ((0, 0), (1, 16)):
-        y = torch.zeros(tile_height * tile_width, dtype=torch.uint8, device="cuda")
+        y = torch.zeros(tile_height * tile_width, dtype=torch.uint8, device="cuda:0")
         cl.launch(
             torch.cuda.current_stream(),
             (1,),
@@ -224,7 +224,7 @@ def test_transaction_bytes_with_oob_fill(row, column):
         index = cl.thread_index(0)
         y[index] = smem[index]
 
-    x = torch.arange(37 * 48, dtype=torch.int32, device="cuda").reshape(37, 48)
+    x = torch.arange(37 * 48, dtype=torch.int32, device="cuda:0").reshape(37, 48)
     tile_height, tile_width = 32, 8
     y = torch.empty(tile_height * tile_width, dtype=x.dtype, device=x.device)
     cl.launch(
@@ -296,7 +296,7 @@ def test_transaction_bytes_with_multicast():
 
     tile_height, tile_width = 32, 8
     x = torch.arange(
-        tile_height * tile_width, dtype=torch.int32, device="cuda"
+        tile_height * tile_width, dtype=torch.int32, device="cuda:0"
     ).reshape(tile_height, tile_width)
     y = torch.empty(
         (multicast_cta_count, tile_height * tile_width),
@@ -371,7 +371,7 @@ def test_transaction_bytes_with_128b_swizzle():
 
     tile_height, tile_width = 8, 32
     x = torch.arange(
-        tile_height * tile_width, dtype=torch.int32, device="cuda"
+        tile_height * tile_width, dtype=torch.int32, device="cuda:0"
     ).reshape(tile_height, tile_width)
     y = torch.empty_like(x)
     cl.launch(

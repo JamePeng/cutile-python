@@ -34,7 +34,7 @@ def dtype(request):
 @pytest.mark.benchmark(group='moe')
 def bench_moe(shape, dtype, backend, benchmark):
     num_tokens, hidden_size, num_experts, intermediate_size, topk = shape
-    device = "cuda"
+    device = "cuda:0"
 
     hidden_states = torch.empty(
         num_tokens, hidden_size, device=device, dtype=dtype

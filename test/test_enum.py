@@ -42,7 +42,7 @@ def test_comparison_eq():
         else:
             ct.scatter(out, (), -1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -56,7 +56,7 @@ def test_comparison_not_equal():
         else:
             ct.scatter(out, (), -1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -73,7 +73,7 @@ def test_construction_from_known_int():
         else:
             ct.scatter(out, (), 30)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 10
 
@@ -87,7 +87,7 @@ def test_construction_from_string_value():
         else:
             ct.scatter(out, (), 0)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -101,7 +101,7 @@ def test_construction_from_float_value():
         else:
             ct.scatter(out, (), 0)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -114,7 +114,7 @@ def test_intenum_ordering():
         else:
             ct.scatter(out, (), -1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -130,8 +130,8 @@ def test_construction_from_runtime_value_raises():
         _ = Color(bid)
         ct.scatter(out, (), 0)
 
-    x = torch.zeros(1, device="cuda")
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros(1, device="cuda:0")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, out))
 
@@ -143,7 +143,7 @@ def test_construction_from_invalid_type_or_value_raises(invalid_value):
         _ = Color(invalid_value)
         ct.scatter(out, (), 0)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileValueError):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
 
@@ -157,7 +157,7 @@ def test_name_attribute(enum_value):
         if enum_value.name == name:
             ct.scatter(out, (), 1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -171,7 +171,7 @@ def test_value_attribute(enum_value):
         if enum_value.value == value:
             ct.scatter(out, (), 1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))
     assert out.item() == 1
 
@@ -184,6 +184,6 @@ def test_enum_ordering_raises():
         else:
             ct.scatter(out, (), -1)
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (out,))

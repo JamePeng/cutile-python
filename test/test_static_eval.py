@@ -21,7 +21,7 @@ def test_tuple_sum():
         ct.scatter(y, 0, s1)
         ct.scatter(y, 1, s2)
 
-    y = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [6, 6]
 
@@ -35,7 +35,7 @@ def test_list_comprehension():
         ct.scatter(y, 0, s1)
         ct.scatter(y, 1, s2)
 
-    y = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [1*1 + 2*2 + 3*3, 1*1 + 2*2 + 3*3]
 
@@ -48,7 +48,7 @@ def test_mixed_tuple():
         s = ct.static_eval(tup[1])
         ct.scatter(y, (), s + 5)
 
-    y = torch.ones((), dtype=torch.int32, device="cuda")
+    y = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.item() == 6
 
@@ -61,7 +61,7 @@ def test_return_dynamic_tile():
         t = ct.static_eval(a if n == 0 else b)
         ct.scatter(x, (2,), t + 100)
 
-    x = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 0))
     assert x[2] == 110
 
@@ -81,7 +81,7 @@ def test_symbolic_tile():
         ct.scatter(x, (0, 0), shape[0])
         ct.scatter(x, (0, 1), shape[1].astype(dtype))
 
-    x = torch.zeros((10, 10), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10, 10), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x[0, 0] == 4
     assert x[0, 1] == 8
@@ -100,7 +100,7 @@ def test_symbolic_array():
         ct.scatter(x, (0, 0), shape[0])
         ct.scatter(x, (0, 1), shape[1].astype(dtype))
 
-    x = torch.zeros((10, 20), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10, 20), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x[0, 0] == 10
     assert x[0, 1] == 20
@@ -120,7 +120,7 @@ def test_global_func():
         v = ct.static_eval(f(t.shape[0]))
         ct.scatter(x, (0, 0), v)
 
-    x = torch.zeros((10, 20), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10, 20), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x[0, 0] == 5
 
@@ -146,7 +146,7 @@ def test_static_eval_inside_closure():
         v = f(20)
         ct.scatter(x, 0, v)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 21
 
@@ -158,7 +158,7 @@ def test_static_eval_error_when_called_indirectly():
         v = f(1 * 2)
         ct.scatter(y, (), v)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError, match=re.escape("static_eval() must be used directly")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel_indirect, (y,))
 
@@ -169,7 +169,7 @@ def test_static_eval_error_when_calling_tile_func():
         t = ct.ones((4,), dtype=ct.int32)
         ct.static_eval(ct.scatter(y, (), t))
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("scatter() cannot be called inside static_eval()")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
@@ -213,7 +213,7 @@ def test_static_eval_allow_pure_expressions_binary_op(func):
     else:
         expected = func(A, B)
 
-    y = torch.zeros((), dtype=torch.float64, device="cuda")
+    y = torch.zeros((), dtype=torch.float64, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.item() == expected
 
@@ -224,7 +224,7 @@ def test_nested_static_eval():
         v = ct.static_eval(ct.static_eval(20))
         ct.scatter(y, (), v)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("static_eval() cannot be used inside static_eval().")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
@@ -246,7 +246,7 @@ def test_prohibit_walrus():
     def kernel(x):
         ct.static_eval((y := x))  # noqa: F841
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match=re.escape("static_eval() expression attempted"
                                        " to modify a local variable 'y'")):
@@ -258,7 +258,7 @@ def test_too_many_args():
     def kernel(x):
         ct.static_eval(3, 5)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match=re.escape("static_eval() expects a single expression")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -271,7 +271,7 @@ def test_static_eval_returns_array_method():
         sub = f(0, 1, 2)
         ct.scatter(x, 0, ct.gather(sub, 0))
 
-    x = torch.tensor([10, 20, 30], dtype=torch.int32, device="cuda")
+    x = torch.tensor([10, 20, 30], dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x[0].item() == 20
 
@@ -284,7 +284,7 @@ def test_static_eval_stored_method():
         sub = f(0, 1, 2)
         ct.scatter(x, 0, ct.gather(sub, 0))
 
-    x = torch.tensor([10, 20, 30], dtype=torch.int32, device="cuda")
+    x = torch.tensor([10, 20, 30], dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x[0].item() == 20
 
@@ -299,7 +299,7 @@ def test_static_eval_returns_tile_method():
         t2 = f((2, 2))
         ct.static_eval(shape_after.append(t2.shape))
 
-    x = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert shape_after == [(2, 2)]
 
@@ -309,7 +309,7 @@ def test_static_eval_error_when_calling_bound_method():
     def kernel(x):
         ct.static_eval(x.slice(0, 1, 2))
 
-    x = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("slice() cannot be called inside static_eval()")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))

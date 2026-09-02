@@ -68,7 +68,7 @@ def test_cluster_dim_launch_updates_cluster_registers():
         out[slot, 10] = cl.block_in_cluster_count(1)
         out[slot, 11] = cl.block_in_cluster_count(2)
 
-    out = torch.zeros(8, 12, dtype=torch.int32, device="cuda")
+    out = torch.zeros(8, 12, dtype=torch.int32, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (4, 2),
@@ -211,7 +211,7 @@ def test_tid():
         tidx, tidy, tidz = cl.thread_index(0), cl.thread_index(1), cl.thread_index(2)
         A[tidx, tidy, tidz] = tidx + tidy + tidz
 
-    A = torch.zeros(3, 3, 3, dtype=torch.int32, device="cuda")
+    A = torch.zeros(3, 3, 3, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (3, 3, 3), kernel, (A,))
     expected = torch.tensor(
         [
@@ -231,7 +231,7 @@ def test_bid():
         bidx, bidy, bidz = cl.block_index(0), cl.block_index(1), cl.block_index(2)
         A[bidx, bidy, bidz] = bidx + bidy + bidz
 
-    A = torch.zeros(3, 3, 3, dtype=torch.int32, device="cuda")
+    A = torch.zeros(3, 3, 3, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (3, 3, 3), (1,), kernel, (A,))
     expected = torch.tensor(
         [
@@ -256,7 +256,7 @@ def test_thread_count():
                 cl.thread_count(2),
             )
 
-    out = torch.zeros(3, dtype=torch.int32, device="cuda")
+    out = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (4, 3, 2), kernel, (out,))
     assert (out.cpu() == torch.tensor([4, 3, 2], dtype=torch.int32)).all()
 
@@ -272,7 +272,7 @@ def test_grid_dim():
                 cl.block_count(2),
             )
 
-    out = torch.zeros(3, dtype=torch.int32, device="cuda")
+    out = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (5, 6, 7), (1,), kernel, (out,))
     assert (out.cpu() == torch.tensor([5, 6, 7], dtype=torch.int32)).all()
 
@@ -285,7 +285,7 @@ def test_elect_sync(capsys):
         if cl.elect_sync():
             out[tx, ty, tz] = 1
 
-    out = torch.zeros(3, 3, 3, dtype=torch.int32).cuda()
+    out = torch.zeros(3, 3, 3, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (3, 3, 3), kernel, (out,))
     assert sum(out.cpu().ravel().tolist()) == 1
 
@@ -308,7 +308,7 @@ def test_lane_count_full_mask_and_ptx_comment():
         assert_in_ptx=ptx_comment,
     )
 
-    out = torch.zeros(2, dtype=torch.int32, device="cuda")
+    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
     assert (out.cpu() == torch.tensor([32, 7], dtype=torch.int32)).all()
 
@@ -319,7 +319,7 @@ def test_full_mask_is_unsigned():
         out[0] = cl.uint64(cl.full_mask())
         out[1] = cl.uint64(cl.int32(0xFFFFFFFF))
 
-    out = torch.zeros(2, dtype=torch.uint64, device="cuda")
+    out = torch.zeros(2, dtype=torch.uint64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     expect = [
         0xFFFFFFFF,
@@ -333,7 +333,7 @@ def test_full_mask_i32_shift():
     def kernel(out):
         out[0] = cl.full_mask() >> cl.int64(32)
 
-    out = torch.zeros(1, dtype=torch.int64, device="cuda")
+    out = torch.zeros(1, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().item() == (cl.full_mask() >> 32)
 
@@ -344,7 +344,7 @@ def test_lane_index():
         tidx = cl.thread_index(0)
         out[tidx] = cl.lane_index()
 
-    out = torch.zeros(64, dtype=torch.int32, device="cuda")
+    out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
     expected = torch.tensor(list(range(32)) * 2, dtype=torch.int32)
     assert (out.cpu() == expected).all()
@@ -356,7 +356,7 @@ def test_warp_index():
         tidx = cl.thread_index(0)
         out[tidx] = cl.warp_index()
 
-    out = torch.zeros(64, dtype=torch.int32, device="cuda")
+    out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
     expected = torch.tensor([0] * 32 + [1] * 32, dtype=torch.int32)
     assert (out.cpu() == expected).all()
@@ -372,7 +372,7 @@ def test_warp_count(thread_count):
         if cl.thread_index(0) == 0 and cl.thread_index(1) == 0 and cl.thread_index(2) == 0:
             out[()] = cl.warp_count()
 
-    out = torch.zeros((), dtype=torch.int32, device="cuda")
+    out = torch.zeros((), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), thread_count, kernel, (out,))
     expected = (math.prod(thread_count) + 31) // 32
     assert out.item() == expected
@@ -401,8 +401,8 @@ def test_saxpy():
 
     N = 256
     alpha = 2.0
-    X = torch.ones(N, dtype=torch.float32, device="cuda")
-    Y = torch.ones(N, dtype=torch.float32, device="cuda")
+    X = torch.ones(N, dtype=torch.float32, device="cuda:0")
+    Y = torch.ones(N, dtype=torch.float32, device="cuda:0")
     expected = (alpha * X + Y).cpu()
     cl.launch(torch.cuda.current_stream(), (64,), (64,), kernel, (N, alpha, X, Y))
     assert torch.allclose(expected, Y.cpu())
@@ -429,7 +429,7 @@ class TestSyncwarp:
             cl.barrier_sync_warp()
             out[lane] = shmem[lane ^ 1]
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [lane ^ 1 for lane in range(32)],
@@ -470,7 +470,7 @@ class TestSyncwarp:
             if lane == 0:
                 out[0] = shmem[0]
 
-        out = torch.zeros(1, dtype=torch.int32, device="cuda")
+        out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         assert (out.cpu() == torch.tensor([32], dtype=torch.int32)).all()
 
@@ -493,7 +493,7 @@ class TestSyncwarp:
             else:
                 out[lane] = -1
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [
@@ -546,8 +546,8 @@ class TestShuffle:
 
             out[tid] = value
 
-        inp = torch.ones(32, dtype=torch.int32, device="cuda")
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        inp = torch.ones(32, dtype=torch.int32, device="cuda:0")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (inp, out))
         expected = torch.tensor(
             [1, 2, 3, 4, 5, 6, 7, 8] * 4,
@@ -561,7 +561,7 @@ class TestShuffle:
             lane = cl.thread_index(0)
             out[lane] = cl.shfl_sync(lane, 4)
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.full((32,), 4, dtype=torch.int32)
         assert (out.cpu() == expected).all()
@@ -572,7 +572,7 @@ class TestShuffle:
             lane = cl.thread_index(0)
             out[lane] = cl.shfl_down_sync(lane, 4)
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.arange(32, dtype=torch.int32)
         expected[:-4] += 4
@@ -584,7 +584,7 @@ class TestShuffle:
             lane = cl.thread_index(0)
             out[lane] = cl.shfl_xor_sync(lane, 16, mask=cl.int32(0xFFFFFFFF))
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor([lane ^ 16 for lane in range(32)], dtype=torch.int32)
         assert (out.cpu() == expected).all()
@@ -631,7 +631,7 @@ class TestBarrierSync:
             else:
                 out[lane] = shmem[lane - 16]
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [2 * (lane + 16) for lane in range(16)]
@@ -653,7 +653,7 @@ class TestBarrierSync:
             else:
                 out[lane] = -1
 
-        out = torch.zeros(64, dtype=torch.int32, device="cuda")
+        out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
         expected = torch.tensor(
             [
@@ -711,7 +711,7 @@ class TestSyncAliases:
             cl.syncwarp()
             out[lane] = shmem[lane ^ 1]
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [lane ^ 1 for lane in range(32)],
@@ -733,7 +733,7 @@ class TestSyncAliases:
             else:
                 out[lane] = shmem[lane - 16]
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [2 * (lane + 16) for lane in range(16)]
@@ -751,9 +751,9 @@ class TestSyncAliases:
             and_out[lane] = cl.syncthreads_and(lane != 0)
             or_out[lane] = cl.syncthreads_or(lane == 0)
 
-        count_out = torch.zeros(32, dtype=torch.int32, device="cuda")
-        and_out = torch.zeros(32, dtype=torch.bool, device="cuda")
-        or_out = torch.zeros(32, dtype=torch.bool, device="cuda")
+        count_out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
+        and_out = torch.zeros(32, dtype=torch.bool, device="cuda:0")
+        or_out = torch.zeros(32, dtype=torch.bool, device="cuda:0")
 
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (count_out, and_out, or_out))
 
@@ -829,7 +829,7 @@ class TestVoteSync:
             else:
                 out[tid] = 0
 
-        out = torch.zeros(64, dtype=torch.int32, device="cuda")
+        out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
         expected = torch.tensor([1] * 32 + [0] * 32, dtype=torch.int32)
         assert (out.cpu() == expected).all()
@@ -851,7 +851,7 @@ class TestVoteSync:
             else:
                 out[tid] = 0
 
-        out = torch.zeros(64, dtype=torch.int32, device="cuda")
+        out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
         expected = torch.tensor([0] * 32 + [1] * 32, dtype=torch.int32)
         assert (out.cpu() == expected).all()
@@ -875,7 +875,7 @@ class TestVoteSync:
             else:
                 out[tid] = 0
 
-        out = torch.zeros(96, dtype=torch.int32, device="cuda")
+        out = torch.zeros(96, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (96,), kernel, (out,))
         expected = torch.tensor([1] * 64 + [0] * 32, dtype=torch.int32)
         assert (out.cpu() == expected).all()
@@ -894,7 +894,7 @@ class TestVoteSync:
 
             out[tid] = cl.vote_ballot_sync(pred, mask=mask)
 
-        out = torch.zeros(64, dtype=torch.int32, device="cuda")
+        out = torch.zeros(64, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (64,), kernel, (out,))
         expected = torch.tensor(
             [0x000000FF] * 32 + [0x55555555] * 32,
@@ -911,7 +911,7 @@ class TestVoteSync:
                 mask = cl.uint32(0xFFFF0000)
             out[lane] = cl.vote_ballot_sync((lane % 2) == 0, mask=mask)
 
-        out = torch.zeros(32, dtype=torch.int32, device="cuda")
+        out = torch.zeros(32, dtype=torch.int32, device="cuda:0")
         cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (out,))
         expected = torch.tensor(
             [0x00005555] * 16 + [0x55550000] * 16,

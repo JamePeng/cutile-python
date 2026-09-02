@@ -209,8 +209,8 @@ def test_transpose(kernel):
     h_idata = torch.arange(size_x * size_y, dtype=torch.float32)
     h_odata = torch.zeros_like(h_idata)
     transposeGold = compute_transpose_gold(h_idata, size_x, size_y)
-    d_idata = h_idata.cuda()
-    d_odata = h_odata.cuda()
+    d_idata = h_idata.cuda(0)
+    d_odata = h_odata.cuda(0)
 
     if kernel == copy or kernel == copy_smem:
         gold = h_idata

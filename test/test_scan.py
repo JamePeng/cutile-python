@@ -28,7 +28,7 @@ def cumsum_axis1(input, output, reverse: ct.Constant[bool],
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("reverse", [False, True])
 def test_cumsumf(shape, dtype, reverse):
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumsum_axis1, (x, y, reverse, shape[0], shape[1]))
@@ -43,7 +43,7 @@ def test_cumsumf(shape, dtype, reverse):
 @pytest.mark.parametrize("low", [-100])
 @pytest.mark.parametrize("high", [-20, 100])
 def test_cumsumi(shape, dtype, reverse, low, high):
-    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda")
+    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumsum_axis1, (x, y, reverse, shape[0], shape[1]))
@@ -55,7 +55,7 @@ def test_cumsumi(shape, dtype, reverse, low, high):
 @pytest.mark.parametrize("shape", [(32, 32)])
 @pytest.mark.parametrize("reverse", [False, True])
 def test_cumsumb(shape, reverse):
-    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda")
+    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda:0")
     y = torch.zeros_like(x, dtype=torch.int32)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumsum_axis1, (x, y, reverse, shape[0], shape[1]))
@@ -70,7 +70,7 @@ def test_cumsum_restricted_dtype_error():
         tx = ct.load(x, (0,), (16,))
         ct.cumsum(tx, axis=0)
 
-    x = torch.rand((16,), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
+    x = torch.rand((16,), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
     with pytest.raises(TileTypeError, match="Non-arithmetic dtype float8_e4m3fn is unsupported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -88,7 +88,7 @@ def cumprod_axis0(input, output, reverse: ct.Constant[bool],
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("reverse", [False, True])
 def test_cumprodf(shape, dtype, reverse):
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumprod_axis0, (x, y, reverse, shape[0], shape[1]))
@@ -103,7 +103,7 @@ def test_cumprodf(shape, dtype, reverse):
 @pytest.mark.parametrize("low", [-100])
 @pytest.mark.parametrize("high", [-20, 100])
 def test_cumprodi(shape, dtype, reverse, low, high):
-    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda")
+    x = torch.randint(low, high + 1, shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumprod_axis0, (x, y, reverse, shape[0], shape[1]))
@@ -115,7 +115,7 @@ def test_cumprodi(shape, dtype, reverse, low, high):
 @pytest.mark.parametrize("shape", [(16, 32)])
 @pytest.mark.parametrize("reverse", [False, True])
 def test_cumprodb(shape, reverse):
-    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda")
+    x = torch.randint(0, 2, shape, dtype=torch.bool, device="cuda:0")
     y = torch.zeros_like(x).to(torch.int32)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, cumprod_axis0,
@@ -145,7 +145,7 @@ def test_scan_rounding_mode(
     shape, dtype, op_func, tile_op, rounding_mode
 ):
     should_raise_rounding_mode = rounding_mode in [RMd.RZI, RMd.APPROX, RMd.FULL]
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     kernel = make_scan_rounding_mode(op_func, rounding_mode)
@@ -183,7 +183,7 @@ def make_scan_flush_to_zero(scan_op, flush_to_zero):
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_scan_flush_to_zero(shape, dtype, op_func, tile_op, flush_to_zero):
     should_raise = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     kernel = make_scan_flush_to_zero(op_func, flush_to_zero)
@@ -233,17 +233,17 @@ def test_scan_custom_cumsum(shape, dtype, reverse, flavor):
 
     # Prepare input and reference depending on dtype
     if dtype in float_dtypes:
-        x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+        x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
         ref = torch.cumsum(x.flip(1), 1).flip(1) if reverse else torch.cumsum(x, 1)
         atol, rtol = (1e-5, 1e-6) if dtype is torch.float32 else (5e-1, 1e-1)
     else:
         numel = shape[0] * shape[1]
-        base = torch.arange(numel, dtype=torch.int32, device="cuda").reshape(shape)
+        base = torch.arange(numel, dtype=torch.int32, device="cuda:0").reshape(shape)
         x = base.to(dtype)
         ref = torch.cumsum(x.flip(1), 1).flip(1) if reverse else torch.cumsum(x, 1)
         ref = ref.to(x.dtype)
 
-    y = torch.zeros(shape, dtype=x.dtype, device="cuda")
+    y = torch.zeros(shape, dtype=x.dtype, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, reverse))
 
     if dtype in float_dtypes:
@@ -264,7 +264,7 @@ def test_scan_custom_cumprod(shape, dtype, reverse):
         out = ct.scan(tile, axis=0, func=lambda a, b: a * b, identity=1, reverse=reverse)
         ct.store(output, index=(px, 0), tile=out)
 
-    x = torch.rand(shape, dtype=dtype, device="cuda") * 2 - 1
+    x = torch.rand(shape, dtype=dtype, device="cuda:0") * 2 - 1
     y = torch.zeros_like(x)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, scan_cumprod_axis0,
@@ -281,9 +281,9 @@ def test_custom_scan_last_axis():
         yt = ct.scan(xt, axis=-1, func=lambda a, b: a + b, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
     ref = torch.cumsum(x, -1, dtype=torch.int32)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     torch.testing.assert_close(y, ref)
 
@@ -295,8 +295,8 @@ def test_custom_scan_none_axis():
         yt = ct.scan(xt, axis=None, func=lambda a, b: a + b, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(
         TileTypeError, match="Expected an integer constant, but given value has type None"
     ):
@@ -317,8 +317,8 @@ def test_custom_scan_ifelse_not_supported():
         yt = ct.scan(xt, axis=1, func=f, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Branching inside scan body is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -336,8 +336,8 @@ def test_custom_scan_loop_not_supported():
         yt = ct.scan(xt, axis=1, func=f, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Loops inside scan body are not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -353,8 +353,8 @@ def test_custom_scan_printf_not_supported():
         yt = ct.scan(xt, axis=1, func=f, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Operations with memory effects"
                                               " are not supported inside scan body"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
@@ -370,8 +370,8 @@ def test_custom_scan_load_not_supported():
         yt = ct.scan(xt, axis=1, func=f, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Operations with memory effects"
                                               " are not supported inside scan body"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
@@ -390,8 +390,8 @@ def test_custom_scan_nested_not_supported():
         yt = ct.scan(xt, axis=1, func=f, identity=0)
         ct.store(y, (0, 0), yt)
 
-    x = torch.arange(256, dtype=torch.int32, device="cuda").reshape(16, 16)
-    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda")
+    x = torch.arange(256, dtype=torch.int32, device="cuda:0").reshape(16, 16)
+    y = torch.zeros((16, 16), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileSyntaxError, match="Nested scan/reduction is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -416,10 +416,10 @@ def test_scan_two_element_tuple_broadcastable_shapes():
         ct.store(out_a, (0, 0), cumsum_a)
         ct.store(out_b, (0, 0), cumsum_b)
 
-    x = torch.randint(-10, 10, shape_a, dtype=torch.int32, device="cuda")
-    w = torch.randint(-10, 10, shape_b, dtype=torch.int32, device="cuda")
-    out_a = torch.zeros(shape_broadcasted, dtype=torch.int32, device="cuda")
-    out_b = torch.zeros(shape_broadcasted, dtype=torch.int32, device="cuda")
+    x = torch.randint(-10, 10, shape_a, dtype=torch.int32, device="cuda:0")
+    w = torch.randint(-10, 10, shape_b, dtype=torch.int32, device="cuda:0")
+    out_a = torch.zeros(shape_broadcasted, dtype=torch.int32, device="cuda:0")
+    out_b = torch.zeros(shape_broadcasted, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, w, out_a, out_b))
 
     ref_a = x.expand(shape_broadcasted).cumsum(dim=-1, dtype=torch.int32)
@@ -456,14 +456,14 @@ def test_scan_four_element_tuple():
         ct.store(out_max, (0, 0), cummax_out)
         ct.store(out_xor, (0, 0), cumxor_out)
 
-    x = torch.rand(shape, dtype=torch.float32, device="cuda") * 2 - 1
-    y = torch.rand(shape, dtype=torch.float32, device="cuda") * 0.5 + 0.75  # positive for cumprod
-    z = torch.rand(shape, dtype=torch.float32, device="cuda") * 2 - 1
-    w = torch.randint(0, 256, shape, dtype=torch.int32, device="cuda")
-    out_sum = torch.zeros(shape, dtype=torch.float32, device="cuda")
-    out_prod = torch.zeros(shape, dtype=torch.float32, device="cuda")
-    out_max = torch.zeros(shape, dtype=torch.float32, device="cuda")
-    out_xor = torch.zeros(shape, dtype=torch.int32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0") * 2 - 1
+    y = torch.rand(shape, dtype=torch.float32, device="cuda:0") * 0.5 + 0.75  # positive for cumprod
+    z = torch.rand(shape, dtype=torch.float32, device="cuda:0") * 2 - 1
+    w = torch.randint(0, 256, shape, dtype=torch.int32, device="cuda:0")
+    out_sum = torch.zeros(shape, dtype=torch.float32, device="cuda:0")
+    out_prod = torch.zeros(shape, dtype=torch.float32, device="cuda:0")
+    out_max = torch.zeros(shape, dtype=torch.float32, device="cuda:0")
+    out_xor = torch.zeros(shape, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel,
               (x, y, z, w, out_sum, out_prod, out_max, out_xor))
 

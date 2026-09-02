@@ -37,8 +37,8 @@ def test_static_iter(flavor):
 
     kernel = locals()[f"kernel_{flavor}"]
 
-    x = torch.randint(0, 100, (48,), dtype=torch.int32, device="cuda")
-    y = torch.zeros((16,), dtype=torch.int32, device="cuda")
+    x = torch.randint(0, 100, (48,), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((16,), dtype=torch.int32, device="cuda:0")
     ref = x[:16] + x[16:32] * 2 + x[32:] * 3
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
@@ -52,7 +52,7 @@ def test_static_iter_continue_not_allowed():
                 continue
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match="Continue in a for loop with static_iter\\(\\) is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -66,7 +66,7 @@ def test_static_iter_break_not_allowed():
                 break
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match="Break in a for loop with static_iter\\(\\) is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -80,7 +80,7 @@ def test_static_iter_return_not_allowed():
                 return
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match="Returning from a for loop is not supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -92,7 +92,7 @@ def test_static_iter_tile_ops_not_allowed_in_iterable():
         for i in ct.static_iter(ct.ones((4,), dtype=ct.int32)):
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("ones() cannot be called inside static_iter() iterable")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -104,7 +104,7 @@ def test_static_iter_too_many_iterations():
         for i in ct.static_iter(range(1000000)):
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("Maximum number of iterations (1000) has been reached"
                                        " while unpacking the static_iter() iterable")):
@@ -117,7 +117,7 @@ def test_static_iter_non_iterable():
         for i in ct.static_iter(42):
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileTypeError,
                        match=re.escape("Invalid static_iter() iterable:"
                                        " 'int' object is not iterable")):
@@ -130,7 +130,7 @@ def test_static_iter_unsupported_item():
         for i in ct.static_iter(([1, 2], [3, 4])):
             ct.scatter(x, 0, i)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("Invalid item #0 of static_iter() iterable:"
                                        " Cannot create constant from value of type list.")):
@@ -143,7 +143,7 @@ def test_static_iter_outside_for_loop():
         t = ct.static_iter(range(3))
         ct.scatter(x, 0, t[0])
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match=re.escape("static_iter() is only allowed as iterable"
                                        " in a `for` loop")):
@@ -157,7 +157,7 @@ def test_static_iter_called_indirectly():
         for i in f(range(3)):
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match=re.escape("static_iter() must be used directly by name")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
@@ -169,7 +169,7 @@ def test_static_iter_dynamic_bound():
         for i in ct.static_iter(range(n)):
             ct.scatter(x, i, 1)
 
-    x = torch.zeros((10,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((10,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("Symbolic tile has no concrete value"
                                        " and thus cannot be converted to an integer")):
@@ -185,8 +185,8 @@ def test_static_iter_with_inner_for_loop():
                 s += ct.load(x, (row, col), (1, 16)).reshape((16,))
             ct.store(y, (col,), s)
 
-    x = torch.arange(192, dtype=torch.int32, device="cuda").reshape(4, 3 * 16)
-    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(192, dtype=torch.int32, device="cuda:0").reshape(4, 3 * 16)
+    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, x.sum(dim=0).to(torch.int32))
 
@@ -200,8 +200,8 @@ def test_static_iter_with_outer_for_loop():
                 s += ct.load(x, (row, col), (1, 16)).reshape((16,))
             ct.store(y, (col,), s)
 
-    x = torch.arange(192, dtype=torch.int32, device="cuda").reshape(4, 3 * 16)
-    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(192, dtype=torch.int32, device="cuda:0").reshape(4, 3 * 16)
+    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, x.sum(dim=0).to(torch.int32))
 
@@ -220,8 +220,8 @@ def test_static_iter_with_inner_while_break():
                 row += 1
             ct.store(y, (col,), s)
 
-    x = torch.arange(192, dtype=torch.int32, device="cuda").reshape(4, 3 * 16)
-    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(192, dtype=torch.int32, device="cuda:0").reshape(4, 3 * 16)
+    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, x.sum(dim=0).to(torch.int32))
 
@@ -239,11 +239,11 @@ def test_static_iter_tuple_concatenation():
         for i, d in ct.static_iter(enumerate(doubled)):
             ct.store(y, (i,), d)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     a, b, c = x[:16], x[16:32], x[32:]
     ref = torch.cat([a, a * 2, b, b * 2, c, c * 2])
 
-    y = torch.zeros((6 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((6 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -256,6 +256,6 @@ def test_static_iter_mixed_types():
             t += val
             ct.scatter(x, i, t)
 
-    x = torch.zeros((3,), dtype=torch.float32, device="cuda")
+    x = torch.zeros((3,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [2.0, 5.0, 6.0]

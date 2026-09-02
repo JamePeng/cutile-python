@@ -30,11 +30,11 @@ def test_vector_saxpy(vector_length):
         axpy = a * x + y
         store_vector_aligned(out, offset, axpy)
 
-    A, X, Y = (torch.tensor(range(256), dtype=torch.float32).cuda() for _ in range(3))
+    A, X, Y = (torch.tensor(range(256), dtype=torch.float32).cuda(0) for _ in range(3))
     assert A.data_ptr() % (vector_length * 4) == 0, (
         "expected alignment of cuda memory to be greater than or eqaul to vector width"
     )
-    out = torch.zeros(A.shape[0], dtype=torch.float32).cuda()
+    out = torch.zeros(A.shape[0], dtype=torch.float32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (A.shape[0] // vector_length,),

@@ -32,8 +32,8 @@ def test_astile_shape(value):
         idx = ct.static_eval((0,) * len(shape))
         ct.store(X, idx, t)
 
-    x = torch.zeros(shape, dtype=torch.int32, device="cuda")
-    ref = torch.tensor(value, dtype=torch.int32, device="cuda")
+    x = torch.zeros(shape, dtype=torch.int32, device="cuda:0")
+    ref = torch.tensor(value, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -44,8 +44,8 @@ def test_astile_scalar_const():
         s = ct.astile(5, dtype=ct.int32)
         ct.store(X, 0, s)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
-    ref = torch.tensor([5], dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
+    ref = torch.tensor([5], dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -60,8 +60,8 @@ def test_float8_e5m3fnu_constructor():
         t = t.astype(ct.float32)
         ct.store(X, (0,), t)
 
-    x = torch.zeros((1,), dtype=torch.float32, device="cuda")
-    ref = torch.tensor([1.5], dtype=torch.float32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.float32, device="cuda:0")
+    ref = torch.tensor([1.5], dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -75,8 +75,8 @@ def test_astile_dtype_const(dtype):
         t = ct.astile(value, dtype=dtype)
         ct.store(X, (0,), t)
 
-    x = torch.zeros((4,), dtype=dtype, device="cuda")
-    ref = torch.tensor(value, dtype=dtype, device="cuda")
+    x = torch.zeros((4,), dtype=dtype, device="cuda:0")
+    ref = torch.tensor(value, dtype=dtype, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -92,8 +92,8 @@ def test_astile_bool_const(dtype):
         t = ct.astile(bool_tuple, dtype=dtype)
         ct.store(X, (0, 0), t)
 
-    x = torch.zeros((4, 2), dtype=dtype, device="cuda")
-    ref = torch.tensor(bool_tuple, dtype=dtype, device="cuda")
+    x = torch.zeros((4, 2), dtype=dtype, device="cuda:0")
+    ref = torch.tensor(bool_tuple, dtype=dtype, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -105,8 +105,8 @@ def test_astile_bool_from_numeric_const(value):
         t = ct.astile(value, dtype=ct.bool_)
         ct.store(X, (0,), t)
 
-    x = torch.zeros((1,), dtype=torch.bool, device="cuda")
-    ref = torch.tensor(value, dtype=torch.bool, device="cuda").reshape((1,))
+    x = torch.zeros((1,), dtype=torch.bool, device="cuda:0")
+    ref = torch.tensor(value, dtype=torch.bool, device="cuda:0").reshape((1,))
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -125,8 +125,8 @@ def test_astile_tf32_f4_const(dtype):
         t = ct.astile(value, dtype=dtype).astype(ct.float32)
         ct.store(X, (0,), t)
 
-    x = torch.zeros((4,), dtype=torch.float32, device="cuda")
-    ref = torch.tensor(value, dtype=torch.float32, device="cuda")
+    x = torch.zeros((4,), dtype=torch.float32, device="cuda:0")
+    ref = torch.tensor(value, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -139,8 +139,8 @@ def test_astile_nested_const():
         t = ct.astile(tp, dtype=ct.int32)
         ct.store(X, (0,), t)
 
-    x = torch.zeros((4,), dtype=torch.float32, device="cuda")
-    ref = torch.tensor((1, 2, 3, 4), dtype=torch.float32, device="cuda")
+    x = torch.zeros((4,), dtype=torch.float32, device="cuda:0")
+    ref = torch.tensor((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert_equal(x, ref)
 
@@ -151,7 +151,7 @@ def test_astile_scalar_runtime():
         t = ct.astile(a, dtype=ct.int32)
         ct.store(X, 0, t)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 42.0))
     assert x.item() == 42
 
@@ -162,8 +162,8 @@ def test_astile_1d_runtime():
         t = ct.astile((a,), dtype=ct.int32)
         ct.store(X, 0, t)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
-    ref = torch.tensor([1], dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
+    ref = torch.tensor([1], dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, True))
     assert_equal(x, ref)
 
@@ -174,8 +174,8 @@ def test_astile_2d_runtime():
         t = ct.astile(((a, b), (c, d)), dtype=ct.bool_)
         ct.store(X, (0, 0), t)
 
-    x = torch.zeros((2, 2), dtype=torch.bool, device="cuda")
-    ref = torch.tensor([[0, 1], [0.0, True]], dtype=torch.bool, device="cuda")
+    x = torch.zeros((2, 2), dtype=torch.bool, device="cuda:0")
+    ref = torch.tensor([[0, 1], [0.0, True]], dtype=torch.bool, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 0, 1, 0.0, True))
     assert_equal(x, ref)
 
@@ -186,10 +186,10 @@ def test_astile_3d_mixed():
         t = ct.astile((((1, a), (2, b)), ((3, c), (4, d))), dtype=ct.float32)
         ct.store(X, (0, 0, 0), t)
 
-    x = torch.zeros((2, 2, 2), dtype=torch.float32, device="cuda")
+    x = torch.zeros((2, 2, 2), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 10, 20, 3.14, False))
     assert_equal(x, torch.tensor([[[1, 10], [2, 20]], [[3, 3.14], [4, False]]],
-                                 dtype=torch.float32, device="cuda"))
+                                 dtype=torch.float32, device="cuda:0"))
 
 
 def test_astile_empty_tuple():
@@ -198,7 +198,7 @@ def test_astile_empty_tuple():
         t = ct.astile((), dtype=ct.int32)
         ct.store(X, 0, t)
 
-    x = torch.zeros((1,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((1,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="Tuple length 0 at value is not a power of 2"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -209,7 +209,7 @@ def test_astile_non_scalar_leaf():
         t = ct.astile((1, "a"), dtype=ct.int32)
         ct.store(X, (0, 0), t)
 
-    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match=r"Expected scalar elements at value\[1\]"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -221,7 +221,7 @@ def test_astile_2d_tile_leaf():
         t = ct.astile(((1,), (leaf,)), dtype=ct.int32)
         ct.store(X, (0, 0), t)
 
-    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match=r"Expected scalar elements at value\[1\]\[0\]"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -235,7 +235,7 @@ def test_astile_ragged_shape():
         t = ct.astile(ragged_tuple, dtype=ct.int32)
         ct.store(X, (0, 0), t)
 
-    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2, 2), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match=r"Tuple has non-uniform inner shapes at value"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 

@@ -28,8 +28,8 @@ def test_pdl():
         cl.grid_dependency_control_wait()
         a[tx] = val + a[tx]
 
-    a = torch.zeros(32, dtype=torch.float32).cuda()
-    b = torch.ones(32, dtype=torch.float32).cuda()
+    a = torch.zeros(32, dtype=torch.float32).cuda(0)
+    b = torch.ones(32, dtype=torch.float32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (32,), dependee, (a,))
     cl.launch(
         torch.cuda.current_stream(),

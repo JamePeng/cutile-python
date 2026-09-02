@@ -80,8 +80,8 @@ def mul_add_same_operand_kernel(x, output,
 
 def test_fma_skip_when_new_op_uses_deleted_var():
     shape = (128, 32)
-    x = make_tensor(shape, dtype=torch.float32, device='cuda')
-    output = make_tensor(shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    output = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     TILE = 32
     grid = (ceil(shape[0] / TILE), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, mul_add_same_operand_kernel,
@@ -102,10 +102,10 @@ def test_fma_skip_when_new_op_uses_deleted_var():
 )
 def test_fma(kernel, kernel_ref):
     shape = (128, 32)
-    x = make_tensor(shape, dtype=torch.float32, device='cuda')
-    y = make_tensor(shape, dtype=torch.float32, device='cuda')
-    z = make_tensor(shape, dtype=torch.float32, device='cuda')
-    output = make_tensor(shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    y = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    z = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    output = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     TILE = 32
     grid = (ceil(shape[0] / TILE), 1, 1)
     kernel = ct.kernel(kernel)

@@ -75,10 +75,10 @@ def prepare_tensors(q_shape, k_shape, dtype="fp16"):
     torch.manual_seed(1111)
     torch_dtype = torch.float16 if dtype == "fp16" else torch.bfloat16
     return {
-        "q": torch.randn(q_shape, device="cuda", dtype=torch_dtype),
-        "k": torch.randn(k_shape, device="cuda", dtype=torch_dtype),
-        "v": torch.randn(k_shape, device="cuda", dtype=torch_dtype),
-        "o": torch.empty(q_shape, device="cuda", dtype=torch_dtype),
+        "q": torch.randn(q_shape, device="cuda:0", dtype=torch_dtype),
+        "k": torch.randn(k_shape, device="cuda:0", dtype=torch_dtype),
+        "v": torch.randn(k_shape, device="cuda:0", dtype=torch_dtype),
+        "o": torch.empty(q_shape, device="cuda:0", dtype=torch_dtype),
     }
 
 

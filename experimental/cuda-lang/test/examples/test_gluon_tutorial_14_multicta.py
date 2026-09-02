@@ -159,7 +159,7 @@ def pick_multicta_softmax_config(n):
 def test_multicta_softmax(m, n):
     torch.manual_seed(0)
     num_warps, num_ctas = pick_multicta_softmax_config(n)
-    x = torch.randn((m, n), dtype=torch.float32, device="cuda")
+    x = torch.randn((m, n), dtype=torch.float32, device="cuda:0")
     out = torch.empty_like(x)
     cl.launch(
         torch.cuda.current_stream(),
@@ -230,7 +230,7 @@ def test_tma_multicast_copy():
     tile_m = tile_n = 128
     num_ctas = 2
     torch.manual_seed(0)
-    inp = torch.randn((tile_m, tile_n), dtype=torch.float16, device="cuda")
+    inp = torch.randn((tile_m, tile_n), dtype=torch.float16, device="cuda:0")
     out = torch.empty_like(inp)
     cl.launch(
         torch.cuda.current_stream(),
@@ -408,9 +408,9 @@ def two_cta_tcgen05_kernel(a, b, c):
 def test_two_cta_tcgen05():
     m, n, k = 256, 128, 64
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float16, device="cuda")
-    b = torch.randn((k, n), dtype=torch.float16, device="cuda")
-    c = torch.empty((m, n), dtype=torch.float16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float16, device="cuda:0")
+    b = torch.randn((k, n), dtype=torch.float16, device="cuda:0")
+    c = torch.empty((m, n), dtype=torch.float16, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (2,),
@@ -569,9 +569,9 @@ def tma_tcgen05_kernel(a, b, c):
 def test_tma_tcgen05():
     m, n, k = 512, 128, 128
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float16, device="cuda")
-    b = torch.randn((k, n), dtype=torch.float16, device="cuda")
-    c = torch.empty((m, n), dtype=torch.float16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float16, device="cuda:0")
+    b = torch.randn((k, n), dtype=torch.float16, device="cuda:0")
+    c = torch.empty((m, n), dtype=torch.float16, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (4,),
@@ -1037,9 +1037,9 @@ def matmul_multicta_kernel(
 def test_matmul_multicta():
     m, n, k = 1024, 1024, 512
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float16, device="cuda")
-    b = torch.randn((k, n), dtype=torch.float16, device="cuda")
-    c = torch.empty((m, n), dtype=torch.float16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float16, device="cuda:0")
+    b = torch.randn((k, n), dtype=torch.float16, device="cuda:0")
+    c = torch.empty((m, n), dtype=torch.float16, device="cuda:0")
     tiles = (m // 256) * (n // 256)
     cl.launch(
         torch.cuda.current_stream(),

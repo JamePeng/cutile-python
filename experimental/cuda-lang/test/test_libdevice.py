@@ -105,11 +105,11 @@ def test_libdevice_functions(function_name):
     dtypes = tuple(_dtype_from_annotation(p.annotation) for p in params.values())
     kernel = make_kernel(func, dtypes)
     kernel = cl.kernel(kernel)
-    f32 = torch.randn(1, dtype=torch.float32, device="cuda")
-    f64 = torch.randn(1, dtype=torch.float64, device="cuda")
-    i16 = torch.randint(0, 10, (1,), dtype=torch.int16, device="cuda")
-    i32 = torch.randint(0, 10, (1,), dtype=torch.int32, device="cuda")
-    i64 = torch.randint(0, 10, (1,), dtype=torch.int64, device="cuda")
+    f32 = torch.randn(1, dtype=torch.float32, device="cuda:0")
+    f64 = torch.randn(1, dtype=torch.float64, device="cuda:0")
+    i16 = torch.randint(0, 10, (1,), dtype=torch.int16, device="cuda:0")
+    i32 = torch.randint(0, 10, (1,), dtype=torch.int32, device="cuda:0")
+    i64 = torch.randint(0, 10, (1,), dtype=torch.int64, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (1,),

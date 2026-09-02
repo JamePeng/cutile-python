@@ -39,9 +39,9 @@ def test_matmul_sharedmem():
 
         C[row * wB + col] = p_value
 
-    A = torch.arange(m * k, dtype=torch.float32, device="cuda").reshape(m, k) / 8.0
-    B = torch.arange(k * n, dtype=torch.float32, device="cuda").reshape(k, n) / 16.0
-    C = torch.zeros(m * n, dtype=torch.float32, device="cuda")
+    A = torch.arange(m * k, dtype=torch.float32, device="cuda:0").reshape(m, k) / 8.0
+    B = torch.arange(k * n, dtype=torch.float32, device="cuda:0").reshape(k, n) / 16.0
+    C = torch.zeros(m * n, dtype=torch.float32, device="cuda:0")
 
     grid = (n // tile_width, m // tile_width)
     block = (tile_width, tile_width)

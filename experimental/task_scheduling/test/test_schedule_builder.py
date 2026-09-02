@@ -700,7 +700,7 @@ def test_functional_domain_loop_carried_route_executes_on_device():
     def kernel(output):
         device_task(device_task.make_context(output))
 
-    output = torch.zeros((1,), device="cuda", dtype=torch.int32)
+    output = torch.zeros((1,), device="cuda:0", dtype=torch.int32)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -736,7 +736,7 @@ def test_functional_domain_loop_injects_loop_offset_in_stage_info():
     def kernel(output):
         device_task(device_task.make_context(output))
 
-    output = torch.zeros((1,), device="cuda", dtype=torch.int32)
+    output = torch.zeros((1,), device="cuda:0", dtype=torch.int32)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),

@@ -37,6 +37,6 @@ def test_unpack_nested_tuple():
         ct.scatter(x, 3, d)
         ct.scatter(x, 4, e)
 
-    x = torch.zeros((5,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((5,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [1, 2, 3, 4, 5]

@@ -28,7 +28,7 @@ def slice_copy_1d(x, y, start: int, stop: int, TILE: ConstInt):
 @pytest.mark.parametrize("start,stop", [(2, 7), (4, 4), (4, 5)],
                          ids=["small_slice", "empty_slice", "single_element_slice"])
 def test_slice_1d(shape, dtype, start, stop):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), slice_copy_1d, (x, y, start, stop, 8))
     expected = torch.zeros_like(x)
@@ -46,7 +46,7 @@ def slice_copy_static_extent(x, y):
 
 @pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
 def test_slice_constant_bounds_static_extent(dtype):
-    x = make_tensor((32,), dtype=dtype, device='cuda')
+    x = make_tensor((32,), dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), slice_copy_static_extent, (x, y))
     expected = torch.zeros_like(x)
@@ -64,7 +64,7 @@ def slice_constant_bounds_static_assert(x):
 
 
 def test_slice_constant_bounds_are_static():
-    x = torch.empty(32, dtype=torch.int32, device='cuda')
+    x = torch.empty(32, dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), slice_constant_bounds_static_assert, (x,))
 
 
@@ -77,7 +77,7 @@ def slice_dynamic_bounds_static_assert(x, start: int, stop: int):
 def test_slice_dynamic_bounds_are_not_static():
     # Dynamic bounds keep the sliced axis dynamic, so its extent is not a
     # compile-time constant and cannot be used in a `static_assert` condition.
-    x = torch.empty(32, dtype=torch.int32, device='cuda')
+    x = torch.empty(32, dtype=torch.int32, device='cuda:0')
     with pytest.raises((ct.TileStaticEvalError, ct.TileTypeError), match="static_assert"):
         ct.launch(torch.cuda.current_stream(), (1,),
                   slice_dynamic_bounds_static_assert, (x, 2, 16))
@@ -98,7 +98,7 @@ def slice_copy_2d(x, y, start: int, stop: int, TILE_M: ConstInt, TILE_N: ConstIn
 @pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("noncontiguous", [False, True])
 def test_slice_2d(shape, dtype, noncontiguous):
-    x = make_tensor(shape, dtype=dtype, device='cuda', noncontiguous=noncontiguous)
+    x = make_tensor(shape, dtype=dtype, device='cuda:0', noncontiguous=noncontiguous)
     y = torch.zeros_like(x)
     start, stop = 4, 15
     tile_m, tile_n = 4, 8
@@ -126,7 +126,7 @@ def slice_copy_3d(x, y, start: int, stop: int,
 @pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("noncontiguous", [False, True])
 def test_slice_3d(shape, dtype, noncontiguous):
-    x = make_tensor(shape, dtype=dtype, device='cuda', noncontiguous=noncontiguous)
+    x = make_tensor(shape, dtype=dtype, device='cuda:0', noncontiguous=noncontiguous)
     y = torch.zeros_like(x)
     start, stop = 4, 14
     tile_m, tile_n, tile_k = 4, 4, 8
@@ -160,9 +160,9 @@ def test_ragged_copy_2d(dtype, noncontiguous):
     # 2D array with ragged segments along axis 0
     # Segments: [0,4), [4,7), [7,12)
     M, N = 12, 16
-    A = make_tensor((M, N), dtype=dtype, device='cuda', noncontiguous=noncontiguous)
+    A = make_tensor((M, N), dtype=dtype, device='cuda:0', noncontiguous=noncontiguous)
     B = torch.zeros_like(A)
-    indptr = torch.tensor([0, 4, 7, 12], dtype=torch.int32, device="cuda")
+    indptr = torch.tensor([0, 4, 7, 12], dtype=torch.int32, device="cuda:0")
 
     tile_m, tile_n = 4, 8
     num_segments = 3
@@ -184,7 +184,7 @@ def chained_slice_copy(x, y, TILE: ConstInt):
 @pytest.mark.parametrize("dtype", arithmetic_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("noncontiguous", [False, True])
 def test_chained_slice(dtype, noncontiguous):
-    x = make_tensor((20,), dtype=dtype, device='cuda', noncontiguous=noncontiguous)
+    x = make_tensor((20,), dtype=dtype, device='cuda:0', noncontiguous=noncontiguous)
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), chained_slice_copy, (x, y, 8))
     expected = torch.zeros_like(x)
@@ -208,7 +208,7 @@ def slice_float_index(A):
     (slice_float_index, lambda A: (A,)),
 ], ids=["unsigned_index", "float_index"])
 def test_invalid_index_type(kernel, args):
-    A = torch.zeros((10,), dtype=torch.float32, device="cuda")
+    A = torch.zeros((10,), dtype=torch.float32, device="cuda:0")
     match = "Expected a signed integer scalar"
     with pytest.raises(TileTypeError, match=match):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, args(A))
@@ -221,7 +221,7 @@ def slice_axis_oob(A, axis: ConstInt):
 
 @pytest.mark.parametrize("axis", [1, -2])
 def test_axis_out_of_bounds(axis):
-    A = torch.zeros((10,), dtype=torch.float32, device="cuda")
+    A = torch.zeros((10,), dtype=torch.float32, device="cuda:0")
     with pytest.raises(TileTypeError, match=f"Axis {axis} is out of range for rank 1'"):
         ct.launch(torch.cuda.current_stream(), (1,), slice_axis_oob, (A, axis))
 
@@ -247,6 +247,6 @@ def slice_stop_less_than_start(A):
     (slice_stop_less_than_start, "Slice stop must be greater than or equal to start"),
 ], ids=["negative_start", "negative_stop", "stop_less_than_start"])
 def test_invalid_literal_slice_bounds(kernel, match):
-    A = torch.zeros((10,), dtype=torch.float32, device="cuda")
+    A = torch.zeros((10,), dtype=torch.float32, device="cuda:0")
     with pytest.raises(TileTypeError, match=match):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (A,))

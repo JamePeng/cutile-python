@@ -184,7 +184,7 @@ def test_softmax_forward(driver):
         dtype=torch.float32,
     )
 
-    inp = inp_cpu.reshape(N * C).contiguous().cuda()
+    inp = inp_cpu.reshape(N * C).contiguous().cuda(0)
     out = torch.empty_like(inp)
 
     driver(out, inp, N, C)

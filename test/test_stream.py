@@ -16,7 +16,7 @@ def array_copy_1d(x, y, TILE: ct.Constant[int]):
 
 
 def _test_stream(stream, sync):
-    x = make_tensor(4096, dtype=torch.float32, device="cuda")
+    x = make_tensor(4096, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     torch.cuda.synchronize()
     ct.launch(stream, (1,), array_copy_1d, (x, y, 4096))

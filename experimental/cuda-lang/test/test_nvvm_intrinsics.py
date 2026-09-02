@@ -18,8 +18,8 @@ def test_float_intrinsic(src_dtype):
         cl.static_assert(cl.dtype_of(res) == cl.float32)
         y[()] = res
 
-    x = torch.tensor([3.0, 5.0], dtype=src_dtype, device="cuda")
-    y = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.tensor([3.0, 5.0], dtype=src_dtype, device="cuda:0")
+    y = torch.zeros((), dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x, y))
     assert y.item() == 8.0
 
@@ -31,8 +31,8 @@ def test_float_intrinsic_invalid_implicit_cast():
         cl.static_assert(res.dtype == cl.float32)
         y[()] = res
 
-    x = torch.tensor([3.0, 5.0], dtype=torch.float64, device="cuda")
-    y = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.tensor([3.0, 5.0], dtype=torch.float64, device="cuda:0")
+    y = torch.zeros((), dtype=torch.float32, device="cuda:0")
     with pytest.raises(TypeCheckingError, match="cannot implicitly cast float64 to float32"):
         cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x, y))
 
@@ -46,8 +46,8 @@ def test_integer_arg_intrinsic(src_dtype):
         res = cl._nvvm.i2f_rn(x[()])
         y[()] = res
 
-    x = torch.tensor(17, dtype=src_dtype, device="cuda")
-    y = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.tensor(17, dtype=src_dtype, device="cuda:0")
+    y = torch.zeros((), dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x, y))
     assert y.item() == 17.0
 
@@ -62,8 +62,8 @@ def test_any_pointer_arg_intrinsic():
             smem.get_element_pointer(cl.thread_index(0) * 8))
         y[cl.thread_index(0)] = r
 
-    x = torch.arange(64, dtype=torch.int16, device="cuda")
-    y = torch.zeros(32, dtype=torch.int32, device="cuda")
+    x = torch.arange(64, dtype=torch.int16, device="cuda:0")
+    y = torch.zeros(32, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kern, (x, y))
 
     for i, val in enumerate(y.tolist()):
@@ -80,7 +80,7 @@ def test_smem_pointer_arg_intrinsic():
         a[0] = 13
         y[0] = smem[0]
 
-    y = torch.zeros(1, dtype=torch.int32, device="cuda")
+    y = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (y,))
     assert y.tolist() == [13]
 
@@ -95,6 +95,6 @@ def test_generic_pointer_arg_intrinsic():
         a[0] = 13
         y[0] = smem[0]
 
-    y = torch.zeros(1, dtype=torch.int32, device="cuda")
+    y = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (y,))
     assert y.tolist() == [13]

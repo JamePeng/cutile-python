@@ -183,11 +183,11 @@ if __name__ == "__main__":
 
     DTYPE = torch.float16
 
-    Q_input = torch.randn(BATCH_SIZE, NUM_HEADS, SEQ_LEN_Q, D_K, dtype=DTYPE, device='cuda')
+    Q_input = torch.randn(BATCH_SIZE, NUM_HEADS, SEQ_LEN_Q, D_K, dtype=DTYPE, device='cuda:0')
     K_input = torch.randn(BATCH_SIZE, NUM_HEADS // QUERY_GROUP_SIZE, SEQ_LEN_KV, D_K,
-                          dtype=DTYPE, device='cuda')
+                          dtype=DTYPE, device='cuda:0')
     V_input = torch.randn(BATCH_SIZE, NUM_HEADS // QUERY_GROUP_SIZE, SEQ_LEN_KV, D_V,
-                          dtype=DTYPE, device='cuda')
+                          dtype=DTYPE, device='cuda:0')
 
     print("  Configuration:")
     print(f"  Batch Size: {BATCH_SIZE}")
@@ -248,13 +248,13 @@ if __name__ == "__main__":
     D_V = 64
     QUERY_GROUP_SIZE = 1
 
-    Q_input = torch.randn(BATCH_SIZE, NUM_HEADS, SEQ_LEN_Q, D_K, dtype=DTYPE, device='cuda')
+    Q_input = torch.randn(BATCH_SIZE, NUM_HEADS, SEQ_LEN_Q, D_K, dtype=DTYPE, device='cuda:0')
     K_input = torch.randn(BATCH_SIZE, NUM_HEADS // QUERY_GROUP_SIZE, SEQ_LEN_KV, D_K,
-                          dtype=DTYPE, device='cuda')
+                          dtype=DTYPE, device='cuda:0')
     V_input = torch.randn(BATCH_SIZE, NUM_HEADS // QUERY_GROUP_SIZE, SEQ_LEN_KV, D_V,
-                          dtype=DTYPE, device='cuda')
+                          dtype=DTYPE, device='cuda:0')
     Out = torch.empty((BATCH_SIZE, NUM_HEADS, SEQ_LEN_Q, Q_input.shape[3]),
-                      dtype=DTYPE, device='cuda')
+                      dtype=DTYPE, device='cuda:0')
 
     print("New Configuration:")
     print(f"Input Q shape: {Q_input.shape}")

@@ -93,7 +93,7 @@ if __name__ == "__main__":
     # --- Test Case 1: float16 (Half-Precision) ---
     print("\n--- Test Case 1: Matrix Transposition with float16 (Half-Precision) ---")
     # Create a random input matrix with float16 data type on the CUDA device.
-    x_fp16 = torch.randn(M_dim, N_dim, dtype=torch.float16, device='cuda')
+    x_fp16 = torch.randn(M_dim, N_dim, dtype=torch.float16, device='cuda:0')
     print(f"Input x shape: {x_fp16.shape}, dtype: {x_fp16.dtype}")
 
     # Perform transposition using the cuTile wrapper function.
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     # --- Test Case 2: float32 (Single-Precision) ---
     print("\n--- Test Case 2: Matrix Transposition with float32 (Single-Precision) ---")
     # Create a random input matrix with float32 data type on the CUDA device.
-    x_fp32 = torch.randn(M_dim, N_dim, dtype=torch.float32, device='cuda')
+    x_fp32 = torch.randn(M_dim, N_dim, dtype=torch.float32, device='cuda:0')
     print(f"Input x shape: {x_fp32.shape}, dtype: {x_fp32.dtype}")
 
     # Perform transposition using the cuTile wrapper function.
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     # Demonstration that the `ceil` function in grid calculation correctly handles partial tiles.
     M_dim_non_mult = 1000
     N_dim_non_mult = 500
-    x_non_mult = torch.randn(M_dim_non_mult, N_dim_non_mult, dtype=torch.float32, device='cuda')
+    x_non_mult = torch.randn(M_dim_non_mult, N_dim_non_mult, dtype=torch.float32, device='cuda:0')
     print(f"Input x shape: {x_non_mult.shape}, dtype: {x_non_mult.dtype}")
 
     y_non_mult_cutile = cutile_transpose(x_non_mult)

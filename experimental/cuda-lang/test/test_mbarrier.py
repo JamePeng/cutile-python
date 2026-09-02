@@ -51,7 +51,7 @@ def test_cluster_barriers():
                 pass
             out[0] = 1
 
-    out = torch.zeros(1, dtype=torch.int32).cuda()
+    out = torch.zeros(1, dtype=torch.int32).cuda(0)
     # Grid == cluster so there's exactly one cluster of 2 CTAs. 32 threads/CTA
     # gives 64 total arrives at rank 0's mbarrier.
     # Initialize cdx * bdx barrier participants.

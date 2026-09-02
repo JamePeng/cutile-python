@@ -25,9 +25,9 @@ from cuda.tile._bytecode.version import BytecodeVersion
 def _run_matmul_benchmark(shape, dtype, backend, benchmark,
                           extra_args=(), atol=1e-3, rtol=1e-3):
     m, n, k = shape
-    A = torch.rand((m, k), dtype=dtype, device="cuda")
-    B = torch.rand((k, n), dtype=dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
+    A = torch.rand((m, k), dtype=dtype, device="cuda:0")
+    B = torch.rand((k, n), dtype=dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
 
     args = (A, B, C) + extra_args
 
@@ -52,9 +52,9 @@ def _run_matmul_benchmark(shape, dtype, backend, benchmark,
 def _run_batch_matmul_benchmark(shape, dtype, backend, benchmark,
                                 extra_args=(), atol=1e-3, rtol=1e-3):
     b, m, n, k = shape
-    A = torch.rand((b, m, k), dtype=torch.float32, device="cuda").to(dtype)
-    B = torch.rand((b, k, n), dtype=torch.float32, device="cuda").to(dtype)
-    C = torch.zeros((b, m, n), dtype=torch.float32, device="cuda")
+    A = torch.rand((b, m, k), dtype=torch.float32, device="cuda:0").to(dtype)
+    B = torch.rand((b, k, n), dtype=torch.float32, device="cuda:0").to(dtype)
+    C = torch.zeros((b, m, n), dtype=torch.float32, device="cuda:0")
 
     args = (b, A, B, C) + extra_args
 
@@ -80,8 +80,8 @@ def _run_batch_matmul_benchmark(shape, dtype, backend, benchmark,
 def _make_scaled_matmul_inputs(shape, dtype, scaling_block_size):
     m, n, k = shape
 
-    A = torch.rand((m, k), device='cuda')
-    B = torch.rand((n, k), device='cuda')
+    A = torch.rand((m, k), device='cuda:0')
+    B = torch.rand((n, k), device='cuda:0')
 
     A, A_s = block_quantize(A, scaling_block_size, dtype)
     B, B_s = block_quantize(B, scaling_block_size, dtype)
@@ -91,7 +91,7 @@ def _make_scaled_matmul_inputs(shape, dtype, scaling_block_size):
 
     k = A.shape[-1]
 
-    C = torch.zeros((m, n), dtype=torch.float32, device="cuda")
+    C = torch.zeros((m, n), dtype=torch.float32, device="cuda:0")
     return A, B, A_s, B_s, C
 
 
@@ -167,9 +167,9 @@ def get_kernel(kernel, num_ctas):
 def tune_matmul():
     m, n, k = (4096, 4096, 4096)
     dtype = torch.float16
-    A = torch.rand((m, k), dtype=dtype, device="cuda")
-    B = torch.rand((k, n), dtype=dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
+    A = torch.rand((m, k), dtype=dtype, device="cuda:0")
+    B = torch.rand((k, n), dtype=dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
     return exhaustive_search(
         _matmul_search_space(),
         torch.cuda.current_stream(),
@@ -234,7 +234,7 @@ def _matmul_split_k_lock_count(m, n):
 @pytest.mark.benchmark(group='matmul_split_k')
 def bench_matmul_split_k(split_k_shape, split_k_dtype, backend, benchmark):
     m, n, _ = split_k_shape
-    LOCKS = torch.zeros(_matmul_split_k_lock_count(m, n), dtype=torch.int32, device="cuda")
+    LOCKS = torch.zeros(_matmul_split_k_lock_count(m, n), dtype=torch.int32, device="cuda:0")
     COUNTS = torch.zeros_like(LOCKS)
     extra_args = (LOCKS, COUNTS)
     _run_matmul_benchmark(
@@ -245,10 +245,10 @@ def bench_matmul_split_k(split_k_shape, split_k_dtype, backend, benchmark):
 def tune_matmul_split_k():
     m, n, k = (256, 256, 4096)
     dtype = torch.float16
-    A = torch.rand((m, k), dtype=dtype, device="cuda")
-    B = torch.rand((k, n), dtype=dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
-    LOCKS = torch.zeros(_matmul_split_k_lock_count(m, n), dtype=torch.int32, device="cuda")
+    A = torch.rand((m, k), dtype=dtype, device="cuda:0")
+    B = torch.rand((k, n), dtype=dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
+    LOCKS = torch.zeros(_matmul_split_k_lock_count(m, n), dtype=torch.int32, device="cuda:0")
     COUNTS = torch.zeros_like(LOCKS)
     return exhaustive_search(
         _matmul_split_k_search_space(),
@@ -307,9 +307,9 @@ def bench_batch_matmul(batch_matmul_shape, batch_matmul_dtype, backend, benchmar
 def tune_batch_matmul():
     b, m, n, k = (4, 8192, 8192, 2000)
     fp8_dtype = torch.float8_e4m3fn
-    A = torch.rand((b, m, k), dtype=torch.float32, device="cuda").to(fp8_dtype)
-    B = torch.rand((b, k, n), dtype=torch.float32, device="cuda").to(fp8_dtype)
-    C = torch.zeros((b, m, n), dtype=torch.float32, device="cuda")
+    A = torch.rand((b, m, k), dtype=torch.float32, device="cuda:0").to(fp8_dtype)
+    B = torch.rand((b, k, n), dtype=torch.float32, device="cuda:0").to(fp8_dtype)
+    C = torch.zeros((b, m, n), dtype=torch.float32, device="cuda:0")
     return exhaustive_search(
         _matmul_search_space(),
         torch.cuda.current_stream(),
@@ -346,7 +346,7 @@ def torch_batch_matmul(bs, A, B, C):
 
 
 def ref_batch_matmul(bs, A, B):
-    ref = torch.zeros((bs, A.shape[1], B.shape[2]), dtype=torch.float32, device="cuda")
+    ref = torch.zeros((bs, A.shape[1], B.shape[2]), dtype=torch.float32, device="cuda:0")
     torch_batch_matmul(bs, A, B, ref)
     return ref
 
@@ -377,10 +377,10 @@ def bench_persistent_matmul(persistent_shape, persistent_dtype, backend, benchma
 def tune_persistent_matmul():
     m, n, k = (4096, 4096, 4096)
     dtype = torch.float16
-    A = torch.rand((m, k), dtype=dtype, device="cuda")
-    B = torch.rand((k, n), dtype=dtype, device="cuda")
-    C = torch.zeros((m, n), dtype=dtype, device="cuda")
-    NUM_SMS = torch.cuda.get_device_properties("cuda").multi_processor_count
+    A = torch.rand((m, k), dtype=dtype, device="cuda:0")
+    B = torch.rand((k, n), dtype=dtype, device="cuda:0")
+    C = torch.zeros((m, n), dtype=dtype, device="cuda:0")
+    NUM_SMS = torch.cuda.get_device_properties("cuda:0").multi_processor_count
     return exhaustive_search(
         _matmul_search_space(),
         torch.cuda.current_stream(),
@@ -395,7 +395,7 @@ def tune_persistent_matmul():
 
 def cutile_persistent_matmul(A, B, C):
     NUM_SMS = torch.cuda.get_device_properties(
-            "cuda"
+            "cuda:0"
         ).multi_processor_count
     M, N = A.shape[0], B.shape[1]
     cfg = benchmark_tuning.get_tuned_config(tune_persistent_matmul)

@@ -90,7 +90,7 @@ class TestForLoop:
         func = getattr(self, func_name)
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         n = 5
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, func, (x, n, tile))
@@ -148,7 +148,7 @@ class TestForLoop:
         ref_func = getattr(self, f"{func_name}_ref")
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         n = 5
         grid = ((N // tile), 1, 1)
@@ -178,7 +178,7 @@ class TestForLoop:
     def test_break_in_for_loop_1(self, n):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.plus_n_until_2, (x, n, tile))
@@ -218,7 +218,7 @@ class TestForLoop:
     def test_nested_break_continue_in_for_loop(self, n):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.nested_cont_break_if, (x, n, tile))
@@ -235,7 +235,7 @@ class TestForLoop:
         ct.store(x, index=(2,), tile=t[1])
 
     def test_tuple_carried_variable(self):
-        x = torch.ones(3, dtype=torch.float32, device="cuda")
+        x = torch.ones(3, dtype=torch.float32, device="cuda:0")
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), self.tuple_fibonacci, (x,))
         assert x.cpu().numpy()[2] == 13.0
 
@@ -255,7 +255,7 @@ class TestWhileLoop:
     def test_basic_while_loop(self):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         n = 5
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.plus_n, (x, n, tile))
@@ -287,7 +287,7 @@ class TestWhileLoop:
     def test_break_in_while_loop(self):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         n = 5
@@ -320,7 +320,7 @@ class TestWhileLoop:
     def test_continue_in_while_loop(self):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = x.clone()
         grid = ((N // tile), 1, 1)
         n = 5
@@ -339,7 +339,7 @@ class TestWhileLoop:
         ct.store(x, (0,), t)
 
     def test_constant_assigned_inside_loop(self):
-        x = torch.zeros(1, dtype=torch.float32, device='cuda')
+        x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1,), self.constant_assigned_inside_loop, (x,))
         assert x.cpu().item() == 3.0
 
@@ -358,7 +358,7 @@ class TestWhileLoop:
         ct.store(x, (0,), t)
 
     def test_same_constant_two_branches_inside_loop(self):
-        x = torch.zeros(1, dtype=torch.float32, device='cuda')
+        x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1,),
                   self.same_constant_two_branches_inside_loop, (x,))
         assert x.cpu().item() == 3.0
@@ -378,7 +378,7 @@ class TestWhileLoop:
         ct.store(x, (0,), t)
 
     def test_different_constant_two_branches_inside_loop(self):
-        x = torch.zeros(1, dtype=torch.float32, device='cuda')
+        x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
         with pytest.raises(TileTypeError,
                            match='Invalid argument "shape" of full\\(\\): Expected a const'):
             ct.launch(torch.cuda.current_stream(), (1,),
@@ -401,7 +401,7 @@ class TestWhileLoop:
         ct.store(x, (0,), t)
 
     def test_break_with_const_value(self):
-        x = torch.zeros(1, dtype=torch.int32, device='cuda')
+        x = torch.zeros(1, dtype=torch.int32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1,),
                   self.break_const_value, (x,))
         assert x.item() == 1.0
@@ -448,7 +448,7 @@ class TestIfCondtion:
         ref_func = getattr(self, f"{func_name}_ref")
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = x.clone()
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, func, (x, condition, tile))
@@ -471,7 +471,7 @@ class TestIfCondtion:
     def test_two_ifs(self, condition0, condition1):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.plus_one_two_ifs,
@@ -506,7 +506,7 @@ class TestIfCondtion:
     def test_nested_ifs(self, condition0, condition1):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.plus_one_nested_ifs,
@@ -573,7 +573,7 @@ class TestIfCondtion:
         ref_func = getattr(self, func_name + "_ref")
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, func, (x, condition0, condition1, tile))
@@ -642,7 +642,7 @@ class TestIfCondtion:
 
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.multiple_conditions_in_if,
@@ -670,7 +670,7 @@ class TestIfCondtion:
     def test_if_else_assignment(self, condition0):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.if_else_assignment,
@@ -692,7 +692,7 @@ class TestIfCondtion:
     def test_if_else_assignment_type_mismatch(self, condition0):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         grid = ((N // tile), 1, 1)
         with pytest.raises(TileTypeError):
             ct.launch(torch.cuda.current_stream(), grid, self.if_else_assignment_type_mismatch,
@@ -719,7 +719,7 @@ class TestIfCondtion:
     def test_if_else_assignment_type_match(self, condition0):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.if_else_assignment_type_match,
@@ -751,7 +751,7 @@ class TestIfCondtion:
     def test_chain_comparison(self):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         left = 0
         right = 2
@@ -774,7 +774,7 @@ class TestIfCondtion:
         ct.store(x, index=(2,), tile=a[1])
 
     def test_if_else_tuple_result(self):
-        x = torch.ones(3, dtype=torch.float32, device="cuda")
+        x = torch.ones(3, dtype=torch.float32, device="cuda:0")
         ct.launch(torch.cuda.current_stream(), (1,), self.tuple_if_else, (x,))
         assert x.cpu().numpy()[1] == 4.0
         assert x.cpu().numpy()[2] == 6.0
@@ -790,8 +790,8 @@ class TestIfCondtion:
         ct.store(a, index=(0,), tile=tile)
 
     def test_if_else_array_result(self):
-        x = torch.zeros([1], dtype=torch.int32, device="cuda")
-        y = torch.zeros([1], dtype=torch.int32, device="cuda")
+        x = torch.zeros([1], dtype=torch.int32, device="cuda:0")
+        y = torch.zeros([1], dtype=torch.int32, device="cuda:0")
         ct.launch(torch.cuda.current_stream(), (2,), self.array_if_else, (x, y))
         assert x.cpu().numpy()[0] == 10
         assert y.cpu().numpy()[0] == 11
@@ -821,7 +821,7 @@ class TestMixedControlFlow:
     def test_basic_continue(self, n):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.plus_n_skip_2, (x, n, tile))
@@ -858,7 +858,7 @@ class TestMixedControlFlow:
     def test_more_nested_control_flow(self, n):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         cond = False
@@ -887,7 +887,7 @@ class TestMixedControlFlow:
         pytest.xfail("TODO: Unsupported syntax `match`")
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         ref = torch.zeros_like(x)
         grid = ((N // tile), 1, 1)
         option = 1
@@ -914,8 +914,8 @@ class TestUndefinedVariable:
     def test_valid_undefined_variable(self):
         N = 256
         tile = 128
-        x = torch.ones(N, dtype=torch.float32, device='cuda')
-        y = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.ones(N, dtype=torch.float32, device='cuda:0')
+        y = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.valid_undefined_variable, (x, y, tile))
         ref = torch.ones_like(x)
@@ -939,8 +939,8 @@ class TestUndefinedVariable:
     def test_valid_undefined_variable_in_loop(self):
         N = 256
         tile = 128
-        x = torch.ones(N, dtype=torch.float32, device='cuda')
-        y = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.ones(N, dtype=torch.float32, device='cuda:0')
+        y = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         grid = ((N // tile), 1, 1)
         ct.launch(torch.cuda.current_stream(), grid, self.valid_undefined_variable, (x, y, tile))
         ref = torch.ones_like(x)
@@ -964,8 +964,8 @@ class TestUndefinedVariable:
     def test_invalid_undefined_variable(self):
         N = 256
         tile = 128
-        x = torch.zeros(N, dtype=torch.float32, device='cuda')
-        y = torch.zeros(N, dtype=torch.float32, device='cuda')
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
+        y = torch.zeros(N, dtype=torch.float32, device='cuda:0')
         grid = ((N // tile), 1, 1)
         with pytest.raises(TileTypeError):
             ct.launch(torch.cuda.current_stream(), grid, self.invalid_undefined_variable,
@@ -983,7 +983,7 @@ class TestUndefinedVariable:
         ct.store(x, (0,), t)
 
     def test_same_constant_both_branches(self):
-        x = torch.zeros(1, dtype=torch.float32, device='cuda')
+        x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1,), self.same_constant_both_branches, (x,))
         assert x.cpu().item() == 3.0
 
@@ -999,7 +999,7 @@ class TestUndefinedVariable:
         ct.store(x, (0,), t)
 
     def test_different_constant_two_branches(self):
-        x = torch.zeros(1, dtype=torch.float32, device='cuda')
+        x = torch.zeros(1, dtype=torch.float32, device='cuda:0')
         with pytest.raises(TileTypeError,
                            match='Invalid argument "shape" of full\\(\\): Expected a const'):
             ct.launch(torch.cuda.current_stream(), (1,), self.different_constant_two_branches, (x,))
@@ -1030,7 +1030,7 @@ class TestUndefinedVariable:
 
     def test_3loops(self):
         depth, height, width = 8, 16, 16
-        input = torch.randn(depth, height, width, dtype=torch.float32, device="cuda")
+        input = torch.randn(depth, height, width, dtype=torch.float32, device="cuda:0")
         output = torch.zeros_like(input)
         ct.launch(torch.cuda.current_stream(), (1,), self.loop3_kernel, (input, output))
 
@@ -1051,8 +1051,8 @@ def early_return_kernel(x, y, output,
 def test_early_return(early_return):
     shape = (512, 128)
     tile = 16
-    x = torch.rand(shape, dtype=torch.float32, device="cuda")
-    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda")
+    x = torch.rand(shape, dtype=torch.float32, device="cuda:0")
+    y = torch.rand((shape[0], 1), dtype=torch.float32, device="cuda:0")
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, early_return_kernel,
@@ -1076,6 +1076,6 @@ def test_yield_previously_undefined_tuple_from_loop():
             i += 10
         ct.scatter(x, (), tx2[0])
 
-    x = torch.ones((), dtype=torch.int32, device="cuda")
+    x = torch.ones((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 11

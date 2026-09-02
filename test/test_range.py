@@ -47,23 +47,23 @@ def copy_range_3(start, stop, step, out):
 
 
 def test_range_stop():
-    x = torch.zeros((10,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((10,), dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.default_stream(), (1,), copy_range, (10, x))
-    assert_equal(x, torch.arange(10, device='cuda', dtype=torch.int32))
+    assert_equal(x, torch.arange(10, device='cuda:0', dtype=torch.int32))
 
 
 def test_range_start_stop():
     start, stop = 1, 11
     L = len(range(start, stop))
-    x = torch.zeros((L,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((L,), dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.default_stream(), (1,), copy_range_2, (start, stop, x))
-    assert_equal(x, torch.arange(start, stop, device='cuda', dtype=torch.int32))
+    assert_equal(x, torch.arange(start, stop, device='cuda:0', dtype=torch.int32))
 
 
 def test_range_start_stop_negative_constant_step():
     start, stop = 1, 11
     L = len(range(start, stop))
-    x = torch.zeros((L,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((L,), dtype=torch.int32, device='cuda:0')
     with pytest.raises(TileTypeError, match='Step must be positive, got -2'):
         ct.launch(torch.cuda.default_stream(), (1,), copy_range_2_step_negative, (start, stop, x))
 
@@ -71,22 +71,22 @@ def test_range_start_stop_negative_constant_step():
 def test_range_start_stop_positive_step():
     start, stop, step = 1, 11, 2
     L = len(range(start, stop, step))
-    x = torch.zeros((L,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((L,), dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.default_stream(), (1,), copy_range_3, (start, stop, step, x))
-    assert_equal(x, torch.arange(start, stop, step, device='cuda', dtype=torch.int32))
+    assert_equal(x, torch.arange(start, stop, step, device='cuda:0', dtype=torch.int32))
 
 
 @pytest.mark.xfail(reason="Issue 314")
 def test_range_negative_step():
     start, stop, step = 11, 1, -2
     L = len(range(start, stop, step))
-    x = torch.zeros((L,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((L,), dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.default_stream(), (1,), copy_range_3, (start, stop, step, x))
-    assert_equal(x, torch.arange(start, stop, step, device='cuda', dtype=torch.int32))
+    assert_equal(x, torch.arange(start, stop, step, device='cuda:0', dtype=torch.int32))
 
 
 def test_range_scalar_type_error():
-    x = torch.zeros((10,), dtype=torch.int32, device='cuda')
+    x = torch.zeros((10,), dtype=torch.int32, device='cuda:0')
     with pytest.raises(TileTypeError, match='Expected a scalar'):
         ct.launch(torch.cuda.default_stream(), (1,), copy_range, (x, x))
 

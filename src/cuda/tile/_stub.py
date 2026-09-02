@@ -201,7 +201,7 @@ class Array:
                 sub = x.slice(axis=0, start=1, stop=3)
                 print(ct.load(sub, (0, 0), shape=(2, 4)))
 
-            x = torch.arange(16, device='cuda').reshape(4, 4)
+            x = torch.arange(16, device='cuda:0').reshape(4, 4)
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -223,7 +223,7 @@ class Array:
                 print(ct.load(sub, (0,), shape=(4,)))
                 print(ct.load(sub, (1,), shape=(4,)))
 
-            x = torch.arange(16, device='cuda')
+            x = torch.arange(16, device='cuda:0')
             ct.launch(stream, (1,), kernel, (x, 8, 8))
 
         .. testoutput::
@@ -279,7 +279,7 @@ class Array:
                     print(tv2.load((0, 0)))
                     print(tv2.load((1, 0)))
 
-                x = torch.arange(16, device='cuda').reshape(4, 4)
+                x = torch.arange(16, device='cuda:0').reshape(4, 4)
                 ct.launch(stream, (1,), kernel, (x,))
 
             .. testoutput::
@@ -339,7 +339,7 @@ def _doc_raw_array_memory_atomic_rmw_op(f):
                     old = raw_mem.{op_name}(offset, update)
                     print(old)
 
-                x = torch.ones(4, dtype=torch.int32, device='cuda')
+                x = torch.ones(4, dtype=torch.int32, device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
 
             .. testoutput::
@@ -435,7 +435,7 @@ class RawArrayMemory:
                     old = raw_mem.atomic_cas_offset(offset, expected, desired)
                     print(old)
 
-                x = torch.tensor([0, 1, 0, 1], device='cuda')
+                x = torch.tensor([0, 1, 0, 1], device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
                 print(x.tolist())
 
@@ -577,7 +577,7 @@ class Tile:
                     tile = ct.load(x, (idx,), shape=(4,))
                     print(tile)
 
-                x = torch.arange(16, device='cuda')
+                x = torch.arange(16, device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
 
             .. testoutput::
@@ -769,7 +769,7 @@ def _doc_tv_atomic_store_rmw_op(*, testoutput: int):
                     update = ct.full((4,), 1, dtype=ct.int32)
                     tv.{op_name}(0, update)
 
-                x = torch.zeros(4, dtype=torch.int32, device='cuda')
+                x = torch.zeros(4, dtype=torch.int32, device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
                 print(x.tolist())
 
@@ -866,7 +866,7 @@ class TiledView:
                     tile = tv.load(0)
                     print(tile)
 
-                x = torch.arange(8, device='cuda')
+                x = torch.arange(8, device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
 
             .. testoutput::
@@ -913,7 +913,7 @@ class TiledView:
                     tile = ct.full((4,), 99, dtype=ct.int32)
                     tv.store(0, tile)
 
-                x = torch.zeros(8, dtype=torch.int32, device='cuda')
+                x = torch.zeros(8, dtype=torch.int32, device='cuda:0')
                 ct.launch(stream, (1,), kernel, (x,))
                 print(x.tolist())
 
@@ -1244,7 +1244,7 @@ def num_tiles(array: Array, /,
                 num_tiles_col = ct.num_tiles(x, 1, shape=tile_shape)
                 print(f"The tile space has {num_tiles_row} rows and {num_tiles_col} columns.")
 
-            x = torch.empty(42, 64, device='cuda')
+            x = torch.empty(42, 64, device='cuda:0')
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -1367,7 +1367,7 @@ def load(array: Array, /,
                 print(ct.load(x, (1,), shape=4))
                 print(ct.load(x, (2,), shape=4, padding_mode=zero_pad))
 
-            x = torch.arange(10, device='cuda')
+            x = torch.arange(10, device='cuda:0')
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -1388,7 +1388,7 @@ def load(array: Array, /,
                 print(ct.load(x, (2, 0), shape=(1, 4), order='F'))
                 print(ct.load(x, (3, 0), shape=(1, 4), order='F'))
 
-            x = torch.arange(16, device='cuda').reshape(4, 4)
+            x = torch.arange(16, device='cuda:0').reshape(4, 4)
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -1408,7 +1408,7 @@ def load(array: Array, /,
                 print(ct.load(x, (0, 0, 0), shape=(1, 2, 2), order=(0, 2, 1)))
                 print(ct.load(x, (1, 0, 0), shape=(1, 2, 2), order=(0, 2, 1)))
 
-            x = torch.arange(8, device='cuda').reshape(2, 2, 2)
+            x = torch.arange(8, device='cuda:0').reshape(2, 2, 2)
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -1428,7 +1428,7 @@ def load(array: Array, /,
                     print(tile, end=" ")
                 print()
 
-            x = torch.arange(10, device='cuda')
+            x = torch.arange(10, device='cuda:0')
             ct.launch(stream, (1,), kernel, (x,))
 
         .. testoutput::
@@ -1504,7 +1504,7 @@ def store(array: Array, /,
                 ct.store(x, (0,), tile)
                 ct.store(x, (1,), tile * 2)
 
-            x = torch.zeros(6, dtype=torch.int32, device='cuda')
+            x = torch.zeros(6, dtype=torch.int32, device='cuda:0')
             ct.launch(stream, (1,), kernel, (x,))
             print(x.tolist())
 
@@ -1524,7 +1524,7 @@ def store(array: Array, /,
                 ct.store(x, (1, 0), tile=2)
                 ct.store(x, (1, 1), tile=3)
 
-            x = torch.zeros(4, dtype=torch.int32, device='cuda').reshape(2, 2)
+            x = torch.zeros(4, dtype=torch.int32, device='cuda:0').reshape(2, 2)
             ct.launch(stream, (1,), kernel, (x,))
             print(x.tolist())
 
@@ -1588,8 +1588,8 @@ def load_advanced_indexing(array: Array, indices, /, *,
                                         padding_mode=ct.PaddingMode.ZERO)
                 ct.store(y, (0, 0), tile)
 
-            x = torch.arange(64, device='cuda', dtype=torch.int32).reshape(8, 8)
-            y = torch.zeros(4, 4, device='cuda', dtype=torch.int32)
+            x = torch.arange(64, device='cuda:0', dtype=torch.int32).reshape(8, 8)
+            y = torch.zeros(4, 4, device='cuda:0', dtype=torch.int32)
             ct.launch(stream, (1,), kernel, (x, y, 2))
             print(y.tolist())
 
@@ -1634,7 +1634,7 @@ def store_advanced_indexing(array: Array, indices, tile: TileOrScalar, /, *,
                 tile = ct.full((4, 4), 1, dtype=y.dtype)
                 ct.store_advanced_indexing(y, (row_indices, ct.Slice(0, 4)), tile)
 
-            y = torch.zeros(6, 4, device='cuda', dtype=torch.int32)
+            y = torch.zeros(6, 4, device='cuda:0', dtype=torch.int32)
             ct.launch(stream, (1,), kernel, (y,))
             print(y.tolist())
 
@@ -1808,7 +1808,7 @@ def atomic_cas(array, indices, expected, desired, /, *,
                 old = ct.atomic_cas(x, indices, expected, desired)
                 print(old)
 
-            x = torch.tensor([0, 1, 0, 1], device='cuda')
+            x = torch.tensor([0, 1, 0, 1], device='cuda:0')
             ct.launch(stream, (1,), kernel, (x,))
             print(x.tolist())
 
@@ -1854,7 +1854,7 @@ def _doc_atomic_rmw_op(f):
             old = ct.{op_name}(x, indices, update)
             print(old)
 
-        x = torch.ones(4, dtype=torch.int32, device='cuda')
+        x = torch.ones(4, dtype=torch.int32, device='cuda:0')
         ct.launch(stream, (1,), kernel, (x,))
 
     .. testoutput::
@@ -2311,13 +2311,13 @@ def mma_scaled(x, x_scale, y, y_scale, /, acc) -> Tile:
             K_s = K // SCALE_BLOCK_SIZE
             TM, TN, TK = 128, 128, 128
 
-            X = torch.ones((M, K), device='cuda').to(torch.float8_e4m3fn)
-            Y = torch.ones((N, K), device='cuda').to(torch.float8_e4m3fn)
-            X_scale = torch.full((M, K_s), 2.0, device='cuda').to(torch.float8_e8m0fnu)
+            X = torch.ones((M, K), device='cuda:0').to(torch.float8_e4m3fn)
+            Y = torch.ones((N, K), device='cuda:0').to(torch.float8_e4m3fn)
+            X_scale = torch.full((M, K_s), 2.0, device='cuda:0').to(torch.float8_e8m0fnu)
             X_scale = swizzle_32_4_4(X_scale)
-            Y_scale = torch.full((N, K_s), 2.0, device='cuda').to(torch.float8_e8m0fnu)
+            Y_scale = torch.full((N, K_s), 2.0, device='cuda:0').to(torch.float8_e8m0fnu)
             Y_scale = swizzle_32_4_4(Y_scale)
-            Z = torch.zeros((M, N), dtype=torch.float32, device='cuda')
+            Z = torch.zeros((M, N), dtype=torch.float32, device='cuda:0')
             ct.launch(stream, (1, 1, 1), kernel, (X, X_scale, Y, Y_scale, Z, TM, TN, TK))
             torch.cuda.synchronize()
             print(Z.unique().tolist())

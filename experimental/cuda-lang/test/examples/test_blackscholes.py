@@ -125,18 +125,18 @@ def test_blackscholes():
             call_result[i + 1] = call_result2
             put_result[i + 1] = put_result2
 
-    generator = torch.Generator(device="cuda").manual_seed(5347)
+    generator = torch.Generator(device="cuda:0").manual_seed(5347)
     stock_price = 5.0 + 25.0 * torch.rand(
-        OPT_N, generator=generator, dtype=torch.float32, device="cuda"
+        OPT_N, generator=generator, dtype=torch.float32, device="cuda:0"
     )
     option_strike = 1.0 + 99.0 * torch.rand(
-        OPT_N, generator=generator, dtype=torch.float32, device="cuda"
+        OPT_N, generator=generator, dtype=torch.float32, device="cuda:0"
     )
     option_years = 0.25 + 9.75 * torch.rand(
-        OPT_N, generator=generator, dtype=torch.float32, device="cuda"
+        OPT_N, generator=generator, dtype=torch.float32, device="cuda:0"
     )
-    call_result = torch.zeros(OPT_N, dtype=torch.float32, device="cuda")
-    put_result = torch.zeros(OPT_N, dtype=torch.float32, device="cuda")
+    call_result = torch.zeros(OPT_N, dtype=torch.float32, device="cuda:0")
+    put_result = torch.zeros(OPT_N, dtype=torch.float32, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),

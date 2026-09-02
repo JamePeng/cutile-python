@@ -27,8 +27,8 @@ def load_store_advanced_rows(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int
 
 def test_store_basic():
     rows, cols = 8, 4
-    x = torch.arange(rows * cols, device='cuda', dtype=torch.int32).reshape(rows, cols)
-    y = torch.zeros(rows, cols, device='cuda', dtype=torch.int32)
+    x = torch.arange(rows * cols, device='cuda:0', dtype=torch.int32).reshape(rows, cols)
+    y = torch.zeros(rows, cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), load_store_advanced_rows, (x, y, rows, cols))
     assert_equal(x, y)
 
@@ -47,9 +47,9 @@ def gather_even_rows(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[int]):
 
 def test_gather_non_contiguous():
     rows, cols = 8, 4
-    x = torch.arange(rows * cols, device='cuda', dtype=torch.int32).reshape(rows, cols)
+    x = torch.arange(rows * cols, device='cuda:0', dtype=torch.int32).reshape(rows, cols)
     y_rows, y_cols = rows // 2, cols // 2
-    y = torch.zeros(y_rows, y_cols, device='cuda', dtype=torch.int32)
+    y = torch.zeros(y_rows, y_cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), gather_even_rows, (x, y, y_rows, y_cols))
     expected = x[::2, :y_cols]
     assert_equal(expected, y)
@@ -64,9 +64,9 @@ def scatter_even_rows(y, ROWS: ct.Constant[int], COLS: ct.Constant[int], col_sta
 
 def test_scatter_non_contiguous():
     y_rows, y_cols = 8, 4
-    y = torch.zeros(y_rows, y_cols, device='cuda', dtype=torch.int32)
+    y = torch.zeros(y_rows, y_cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), scatter_even_rows, (y, y_rows, y_cols, 0))
-    expected = torch.zeros(y_rows, y_cols, device='cuda', dtype=torch.int32)
+    expected = torch.zeros(y_rows, y_cols, device='cuda:0', dtype=torch.int32)
     expected[::2] = 99
     assert_equal(expected, y)
 
@@ -88,8 +88,8 @@ def load_advanced_dynamic_col(x, y, ROWS: ct.Constant[int], COLS: ct.Constant[in
 def test_load_dynamic_col_start(col_start):
     rows, cols = 8, 4
     y_cols = cols // 2
-    x = torch.arange(rows * cols, device='cuda', dtype=torch.int32).reshape(rows, cols)
-    y = torch.zeros(rows, y_cols, device='cuda', dtype=torch.int32)
+    x = torch.arange(rows * cols, device='cuda:0', dtype=torch.int32).reshape(rows, cols)
+    y = torch.zeros(rows, y_cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,),
               load_advanced_dynamic_col, (x, y, rows, y_cols, col_start))
     assert_equal(x[:, col_start:col_start + y_cols], y)
@@ -109,8 +109,8 @@ def load_advanced_const_col_start(x, y, ROWS: ct.Constant[int], COLS: ct.Constan
 
 def test_load_constant_col_start():
     rows, x_cols, tile_cols = 8, 8, 4
-    x = torch.arange(rows * x_cols, device='cuda', dtype=torch.int32).reshape(rows, x_cols)
-    y = torch.zeros(rows, tile_cols, device='cuda', dtype=torch.int32)
+    x = torch.arange(rows * x_cols, device='cuda:0', dtype=torch.int32).reshape(rows, x_cols)
+    y = torch.zeros(rows, tile_cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,),
               load_advanced_const_col_start, (x, y, rows, tile_cols))
     assert_equal(x[:, 2:2 + tile_cols], y)
@@ -131,8 +131,8 @@ def test_load_out_of_order_sparse():
         tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
         ct.store(y, (0, 0), tile)
 
-    x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
-    y = torch.zeros(4, 4, device='cuda', dtype=torch.int32)
+    x = torch.arange(32, device='cuda:0', dtype=torch.int32).reshape(8, 4)
+    y = torch.zeros(4, 4, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 4, 4))
     expected = x[[7, 4, 2, 3], :]
     assert_equal(y, expected)
@@ -153,12 +153,12 @@ def test_load_zero_padding():
         ct.store(y, (0, 0), tile)
     rows, cols = 4, 8
     y_cols = cols // 2
-    x = torch.arange(rows * cols, device='cuda', dtype=torch.int32).reshape(rows, cols) + 1
-    y = torch.full((rows, y_cols), -1, device='cuda', dtype=torch.int32)
+    x = torch.arange(rows * cols, device='cuda:0', dtype=torch.int32).reshape(rows, cols) + 1
+    y = torch.full((rows, y_cols), -1, device='cuda:0', dtype=torch.int32)
     col_start = 6
     ct.launch(torch.cuda.current_stream(), (1,),
               load_advanced_zero_padding, (x, y, rows, y_cols, col_start))
-    expected = torch.zeros(rows, y_cols, device='cuda', dtype=torch.int32)
+    expected = torch.zeros(rows, y_cols, device='cuda:0', dtype=torch.int32)
     expected[:, :cols - col_start] = x[:, col_start:]
     assert_equal(expected, y)
 
@@ -173,10 +173,10 @@ def test_load_sparse_partial_oob_zero_padding():
                                          padding_mode=ct.PaddingMode.ZERO)
         ct.store(y, (0, 0), tile)
 
-    x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
-    y = torch.full((4, 4), -1, device='cuda', dtype=torch.int32)
+    x = torch.arange(32, device='cuda:0', dtype=torch.int32).reshape(8, 4)
+    y = torch.full((4, 4), -1, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 4, 4))
-    expected = torch.zeros(4, 4, device='cuda', dtype=torch.int32)
+    expected = torch.zeros(4, 4, device='cuda:0', dtype=torch.int32)
     expected[:2] = x[6:8]
     assert_equal(y, expected)
 
@@ -191,8 +191,8 @@ def test_load_repeated_sparse_correct():
         tile = ct.load_advanced_indexing(x, (indices, ct.Slice(0, COLS)))
         ct.store(y, (0, 0), tile)
 
-    x = torch.arange(32, device='cuda', dtype=torch.int32).reshape(8, 4)
-    y = torch.zeros(4, 4, device='cuda', dtype=torch.int32)
+    x = torch.arange(32, device='cuda:0', dtype=torch.int32).reshape(8, 4)
+    y = torch.zeros(4, 4, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 4, 4))
     expected = x[[0, 0, 4, 6], :]
     assert_equal(expected, y)
@@ -213,13 +213,13 @@ def test_store_repeated_sparse_ub():
         tile = ct.full((ROWS, COLS), 99, dtype=y.dtype)
         ct.store_advanced_indexing(y, (indices, ct.Slice(0, COLS)), tile)
 
-    y = torch.zeros(8, 4, device='cuda', dtype=torch.int32)
+    y = torch.zeros(8, 4, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y, 4, 4))
     torch.cuda.synchronize()
     # row 0 is UB (written by indices[0] and indices[1]) — no assertion on it
     # rows 4 and 6 have distinct indices and must be correctly written
-    assert_equal(y[4], torch.full((4,), 99, device='cuda', dtype=torch.int32))
-    assert_equal(y[6], torch.full((4,), 99, device='cuda', dtype=torch.int32))
+    assert_equal(y[4], torch.full((4,), 99, device='cuda:0', dtype=torch.int32))
+    assert_equal(y[6], torch.full((4,), 99, device='cuda:0', dtype=torch.int32))
 
 
 def test_store_dense_oob_ignored():
@@ -227,10 +227,10 @@ def test_store_dense_oob_ignored():
     rows, array_cols = 8, 4
     tile_rows, tile_cols = 4, 4
     col_start = 2  # slice [2, 6) but array only has cols [0, 4) → cols 4-5 are OOB
-    y = torch.zeros(rows, array_cols, device='cuda', dtype=torch.int32)
+    y = torch.zeros(rows, array_cols, device='cuda:0', dtype=torch.int32)
     ct.launch(torch.cuda.current_stream(), (1,), scatter_even_rows,
               (y, tile_rows, tile_cols, col_start))
-    expected = torch.zeros(rows, array_cols, device='cuda', dtype=torch.int32)
+    expected = torch.zeros(rows, array_cols, device='cuda:0', dtype=torch.int32)
     expected[::2, col_start:] = 99  # only in-bounds cols [2, 4) on even rows
     assert_equal(expected, y)
 
@@ -246,7 +246,7 @@ def test_error_2d_tile_as_sparse():
         indices = ct.zeros((4, 4), dtype=ct.int32)
         ct.load_advanced_indexing(x, (indices, ct.Slice(0, 4)))
 
-    x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, 8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="1D"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -257,8 +257,8 @@ def test_error_no_sparse_dim_load():
         result = ct.load_advanced_indexing(x, (ct.Slice(0, 4), ct.Slice(col_start, 4)))
         ct.store(y, (0, 0), result)
 
-    x = torch.arange(64, device='cuda', dtype=torch.int32).reshape(8, 8)
-    y = torch.zeros(4, 4, device='cuda', dtype=torch.int32)
+    x = torch.arange(64, device='cuda:0', dtype=torch.int32).reshape(8, 8)
+    y = torch.zeros(4, 4, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 0))
 
@@ -269,7 +269,7 @@ def test_error_no_sparse_dim_store():
         tile = ct.full((4, 4), 99, dtype=y.dtype)
         ct.store_advanced_indexing(y, (ct.Slice(2, 4), ct.Slice(1, 4)), tile)
 
-    y = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
+    y = torch.zeros(8, 8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
 
@@ -282,8 +282,8 @@ def test_error_multiple_sparse_dims_load():
         result = ct.load_advanced_indexing(x, (r, c))
         ct.store(y, (0,), result)
 
-    x = torch.arange(64, device='cuda', dtype=torch.int32).reshape(8, 8)
-    y = torch.zeros(4, device='cuda', dtype=torch.int32)
+    x = torch.arange(64, device='cuda:0', dtype=torch.int32).reshape(8, 8)
+    y = torch.zeros(4, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
@@ -296,7 +296,7 @@ def test_error_multiple_sparse_dims_store():
         tile = ct.full((4,), 99, dtype=y.dtype)
         ct.store_advanced_indexing(y, (r, c), tile)
 
-    y = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
+    y = torch.zeros(8, 8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="exactly one index must be a 1D integer Tile"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
 
@@ -307,7 +307,7 @@ def test_error_wrong_index_rank():
         indices = ct.arange(4, dtype=ct.int32)
         ct.load_advanced_indexing(x, (indices, ct.Slice(0, 4), ct.Slice(0, 4)))
 
-    x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, 8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="does not match array rank"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -318,6 +318,6 @@ def test_error_non_power_of_2_slice_length():
         indices = ct.arange(4, dtype=ct.int32)
         ct.load_advanced_indexing(x, (indices, ct.Slice(0, 3)))
 
-    x = torch.zeros(8, 8, device='cuda', dtype=torch.int32)
+    x = torch.zeros(8, 8, device='cuda:0', dtype=torch.int32)
     with pytest.raises(TileTypeError, match="power of two"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))

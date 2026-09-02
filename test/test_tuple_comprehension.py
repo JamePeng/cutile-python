@@ -18,11 +18,11 @@ def test_tuple_comprehension_basic():
         for i, t in ct.static_iter(enumerate(rotated)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     a, b, c = x[:16], x[16:32], x[32:]
     ref = torch.cat([b, c, a])
 
-    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -37,11 +37,11 @@ def test_tuple_comprehension_unpack_target():
         for i, t in ct.static_iter(enumerate(diffs)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(2 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(2 * 16, dtype=torch.int32, device="cuda:0")
     a, b = x[:16], x[16:]
     ref = torch.cat([a - b, b - a])
 
-    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -58,11 +58,11 @@ def test_tuple_comprehension_nested_unpack_target():
         for i, t in ct.static_iter(enumerate(result)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(4 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(4 * 16, dtype=torch.int32, device="cuda:0")
     a, b, c, d = x[:16], x[16:32], x[32:48], x[48:]
     ref = torch.cat([a + b + c, b + c + d])
 
-    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -79,11 +79,11 @@ def test_tuple_comprehension_multiple_generators():
         for i, t in ct.static_iter(enumerate(products)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(2 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(2 * 16, dtype=torch.int32, device="cuda:0")
     a, b = x[:16], x[16:]
     ref = torch.cat([a + a * 2, a + b * 2, b + a * 2, b + b * 2])
 
-    y = torch.zeros((4 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((4 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -99,11 +99,11 @@ def test_tuple_comprehension_if_on_outer_generator():
         for k, t in ct.static_iter(enumerate(result)):
             ct.store(y, (k,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     a, c = x[:16], x[32:]
     ref = torch.cat([a * 1, a * 2, c * 1, c * 2])
 
-    y = torch.zeros((4 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((4 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -121,7 +121,7 @@ def test_tuple_comprehension_nested():
                 ct.scatter(x, idx, v)
                 idx += 1
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.tolist() == [0, 0, 2, 0, 2, 4, 0, 2, 4, 6]
 
@@ -138,7 +138,7 @@ def test_tuple_comprehension_nested_in_for_loop():
                 for j, v in ct.static_iter(enumerate(row)):
                     ct.scatter(y, offset * 4 + i * 2 + j, v)
 
-    y = torch.zeros(8, dtype=torch.int32, device="cuda")
+    y = torch.zeros(8, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [offset + i + j
                           for offset in range(2) for i in range(2) for j in range(2)]
@@ -153,7 +153,7 @@ def test_tuple_comprehension_iter_var_not_leaked():
         _ = tuple(t for i, t in ct.static_iter(enumerate(tiles)))
         ct.scatter(y, (), i)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y, ))
     assert y.item() == 99
 
@@ -167,7 +167,7 @@ def test_tuple_comprehension_closure_var_not_shadowed():
         _ = tuple(n for n in ct.static_iter(range(3)))
         ct.scatter(y, (), n)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.item() == 99
 
@@ -184,7 +184,7 @@ def test_tuple_comprehension_closure_var_in_for_loop_not_shadowed():
             ct.scatter(y, (i, ), j)
         ct.scatter(y, (10, ), j)
 
-    y = torch.zeros((11,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((11,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y, ))
     assert (y == 99).all()
 
@@ -198,8 +198,8 @@ def test_tuple_comprehension_lambda():
         for k, t in ct.static_iter(enumerate(results)):
             ct.store(y, (k,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
-    y = torch.zeros(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
+    y = torch.zeros(3 * 16, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
     ref = torch.cat([x[:16] * 1, x[16:32] * 2, x[32:] * 3])
@@ -217,7 +217,7 @@ def test_tuple_comprehension_lambda_nested_capture():
         for k, f in ct.static_iter(enumerate(fns)):
             ct.scatter(y, k, f())
 
-    y = torch.zeros(3, dtype=torch.int32, device="cuda")
+    y = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [3, 3, 3]
 
@@ -230,7 +230,7 @@ def test_tuple_comprehension_lambda_stored():
         for k, f in ct.static_iter(enumerate(fns)):
             ct.scatter(y, k, f())
 
-    y = torch.zeros(4, dtype=torch.int32, device="cuda")
+    y = torch.zeros(4, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [3, 3, 3, 3]
 
@@ -243,7 +243,7 @@ def test_tuple_comprehension_lambda_immediate_call():
         for i, v in ct.static_iter(enumerate(results)):
             ct.scatter(y, i, v)
 
-    y = torch.zeros(3, dtype=torch.int32, device="cuda")
+    y = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [0, 1, 2]
 
@@ -256,7 +256,7 @@ def test_tuple_comprehension_lambda_stored_outer_reassign():
         for k, f in ct.static_iter(enumerate(fns)):
             ct.scatter(y, k, f())
 
-    y = torch.zeros(3, dtype=torch.int32, device="cuda")
+    y = torch.zeros(3, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [2, 2, 2]
 
@@ -272,8 +272,8 @@ def test_tuple_comprehension_outer_iter_from_scope():
         for k, t in ct.static_iter(enumerate(result)):
             ct.store(y, (k,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
-    y = torch.zeros((6 * 16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((6 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
 
     n = 2
@@ -292,11 +292,11 @@ def test_tuple_comprehension_inner_iter_from_scope():
         for k, t in ct.static_iter(enumerate(result)):
             ct.store(y, (k,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     a, b = x[:16], x[16:32]
     ref = torch.cat([a * 0, a * 1, a * 2, b * 0, b * 1, b * 2])
 
-    y = torch.zeros(6 * 16, dtype=torch.int32, device="cuda")
+    y = torch.zeros(6 * 16, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -311,14 +311,14 @@ def test_tuple_comprehension_inner_iter_uses_outer_induction_var():
         for k, t in ct.static_iter(enumerate(result)):
             ct.store(y, (k,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     b, c = x[16:32], x[32:]
     # n=0: range(0) → nothing
     # n=1: j=0 → tiles[1]*(0+1) = b
     # n=2: j=0 → tiles[2]*(0+1) = c; j=1 → tiles[2]*(1+1) = c*2
     ref = torch.cat([b, c, c * 2])
 
-    y = torch.zeros(3 * 16, dtype=torch.int32, device="cuda")
+    y = torch.zeros(3 * 16, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -350,7 +350,7 @@ def test_tuple_comprehension_first_iter_uses_own_induction_var():
         for i, v in ct.static_iter(enumerate(ns)):
             ct.scatter(y, i, v)
 
-    y = torch.zeros(n, dtype=torch.int32, device="cuda")
+    y = torch.zeros(n, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == list(range(n))
 
@@ -400,7 +400,7 @@ def test_tuple_comprehension_duplicate_induction_var():
         for i, v in ct.static_iter(enumerate(result)):
             ct.scatter(y, i, v)
 
-    y = torch.zeros(12, dtype=torch.int32, device="cuda")
+    y = torch.zeros(12, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [0, 1, 2, 3] * 3
 
@@ -413,10 +413,10 @@ def test_tuple_comprehension_with_if():
         for i, t in ct.static_iter(enumerate(evens)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
     ref = torch.cat([x[:16], x[32:]])
 
-    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda")
+    y = torch.zeros((2 * 16,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -429,10 +429,10 @@ def test_tuple_comprehension_with_multiple_ifs():
         for i, t in ct.static_iter(enumerate(middle)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(4 * 16, dtype=torch.int32, device="cuda")
+    x = torch.arange(4 * 16, dtype=torch.int32, device="cuda:0")
     ref = torch.cat([x[16:32], x[32:48]])
 
-    y = torch.zeros(2 * 16, dtype=torch.int32, device="cuda")
+    y = torch.zeros(2 * 16, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
 
@@ -444,7 +444,7 @@ def test_tuple_comprehension_ifelse_in_element():
         for k, v in ct.static_iter(enumerate(result)):
             ct.scatter(y, k, v)
 
-    y = torch.zeros(6, dtype=torch.int32, device="cuda")
+    y = torch.zeros(6, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
     assert y.tolist() == [0, -1, 2, -3, 4, -5]
 
@@ -457,8 +457,8 @@ def test_tuple_comprehension_dynamic_if():
         for i, t in ct.static_iter(enumerate(result)):
             ct.store(y, (i,), t)
 
-    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda")
-    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda")
+    x = torch.arange(3 * 16, dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((3 * 16,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError,
                        match="Tuple comprehension if-conditions must be statically known"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, True))

@@ -63,8 +63,8 @@ def test_a_plus_b():
     cubin = ptx_compiler.compile(ptx, cc.gpu_name)
 
     kernel = _HackKernel(cubin, "aplusb", 3)
-    a = torch.ones(32, dtype=torch.float32, device="cuda")
-    b = torch.arange(-16, 16, dtype=torch.float32, device="cuda")
+    a = torch.ones(32, dtype=torch.float32, device="cuda:0")
+    b = torch.arange(-16, 16, dtype=torch.float32, device="cuda:0")
     ref = (a + b).abs()
     c = torch.zeros_like(a)
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (a, b, c))

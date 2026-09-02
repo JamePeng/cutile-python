@@ -213,8 +213,8 @@ def test_worksteal(kernel, block_in_cluster_count, grid, block):
     # to track number of stolen jobs.
     # https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/cluster-launch-control.html#use-case-thread-blocks
     n = grid[0] * block[0]
-    data = torch.arange(n, dtype=torch.float32).cuda()
-    stolen = torch.zeros(1, dtype=torch.int64).cuda()
+    data = torch.arange(n, dtype=torch.float32).cuda(0)
+    stolen = torch.zeros(1, dtype=torch.int64).cuda(0)
     expect = (data * compute()).cpu()
     cl.launch(
         torch.cuda.current_stream(),

@@ -16,7 +16,7 @@ def do_test_device_assertions(condition, has_message):
     def kernel(tensor):
         cl.assert_(tensor[0], message="failure message" if has_message else None)
 
-    tensor = torch.tensor([condition], dtype=torch.int32).cuda()
+    tensor = torch.tensor([condition], dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor,))
     torch.cuda.synchronize()
 

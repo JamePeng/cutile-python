@@ -27,8 +27,8 @@ def kernel_use_global_variable(x, y, z):
 
 def test_use_global_variable():
     shape = (128, )
-    x = make_tensor(shape, dtype=torch.float32, device='cuda')
-    y = make_tensor(shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    y = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / global_int), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, kernel_use_global_variable, (x, y, z))
@@ -48,15 +48,15 @@ def kernel_read_before_assignment(x, y, z):
 
 def test_kernel_read_before_assignment():
     shape = (128, )
-    x = make_tensor(shape, dtype=torch.float32, device='cuda')
-    y = make_tensor(shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    y = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(x)
     grid = (ceil(shape[0] / global_int), 1, 1)
     with pytest.raises(TileSyntaxError, match=r"Undefined variable"):
         ct.launch(torch.cuda.current_stream(), grid, kernel_read_before_assignment, (x, y, z))
 
 
-global_x = make_tensor((128, ), dtype=torch.float32, device='cuda')
+global_x = make_tensor((128, ), dtype=torch.float32, device='cuda:0')
 
 
 @ct.kernel
@@ -70,7 +70,7 @@ def kernel_argument_over_global_variable(global_x, y, z, global_int: ct.Constant
 
 def test_kernel_argument_over_global_variable():
     shape = (128, )
-    y = make_tensor(shape, dtype=torch.float32, device='cuda')
+    y = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(global_x)
     grid = (ceil(shape[0] / global_int), 1, 1)
     half_global_int = global_int // 2
@@ -92,7 +92,7 @@ def kernel_argument_using_global_tensor(y, z):
 
 def test_kernel_argument_using_global_tensor():
     shape = (128, )
-    y = make_tensor(shape, dtype=torch.float32, device='cuda')
+    y = make_tensor(shape, dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(global_x)
     grid = (ceil(shape[0] / global_int), 1, 1)
     with pytest.raises(TileTypeError,

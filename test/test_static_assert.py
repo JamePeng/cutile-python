@@ -24,11 +24,11 @@ def test_static_assert_without_message():
         ct.static_assert(factorial(n) < 100)
         ct.scatter(x, (), n)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4))
     assert x.item() == 4
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticAssertionError, match=re.escape("Static assertion failed\n")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 7))
 
@@ -39,11 +39,11 @@ def test_static_assert_cuda_tile_spelling():
         cuda.tile.static_assert(factorial(n) < 100)
         ct.scatter(x, (), n)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4))
     assert x.item() == 4
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticAssertionError, match=re.escape("Static assertion failed\n")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 7))
 
@@ -55,11 +55,11 @@ def test_static_assert_with_fstring_message():
                          f"{n}! = {factorial(n)}, that's too much. And by the way, x is {x}")
         ct.scatter(x, (), n)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 4))
     assert x.item() == 4
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticAssertionError,
                        match=re.escape("Static assertion failed: 7! = 5040, that's too much."
                                        " And by the way, x is <array[int32, ()]>\n")):
@@ -72,7 +72,7 @@ def test_static_assert_empty_string_message():
         ct.static_assert(False, "")
         ct.scatter(x, (), n)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticAssertionError, match=re.escape("Static assertion failed\n")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 7))
 
@@ -83,7 +83,7 @@ def test_static_assert_proxy_message():
         ct.static_assert(False, x)
         ct.scatter(x, (), n)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticAssertionError,
                        match=re.escape("Static assertion failed: <array[int32, ()]>\n")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, 7))
@@ -96,7 +96,7 @@ def test_static_assert_error_when_called_indirectly():
         v = f(1 * 2)
         ct.scatter(y, (), v)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileSyntaxError,
                        match=re.escape("static_assert() must be used directly")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel_indirect, (y,))
@@ -108,7 +108,7 @@ def test_static_assert_error_when_condition_is_not_bool():
         ct.static_assert(n)
         ct.scatter(y, (), n)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileTypeError,
                        match=re.escape("static_assert() condition must be a boolean")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y, 42))
@@ -121,7 +121,7 @@ def test_static_assert_error_when_condition_is_not_constant():
         ct.static_assert(cond)
         ct.scatter(y, (), n)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileTypeError,
                        match=re.escape("static_assert() condition must be"
                                        " a compile-time constant")):
@@ -134,7 +134,7 @@ def test_static_assert_error_when_calling_tile_func():
         v = ct.static_assert(ct.ones((4,), dtype=ct.int32).dtype == ct.int32)
         ct.scatter(y, (), v)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("ones() cannot be called inside static_assert()")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
@@ -157,7 +157,7 @@ def test_static_assert_inside_static_eval():
         v = ct.static_eval(ct.static_assert(20))
         ct.scatter(y, (), v)
 
-    y = torch.zeros((), dtype=torch.int32, device="cuda")
+    y = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(ct.TileStaticEvalError,
                        match=re.escape("static_assert() cannot be used inside static_eval().")):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))

@@ -33,7 +33,7 @@ def test_basic_dataclass():
         ct.scatter(x, 1, fb.bar)
         ct.scatter(x, 2, fb.baz)
 
-    x = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [2, 7, 5]
 
@@ -48,7 +48,7 @@ def test_nested_dataclass():
         ct.scatter(x, 3, fb.baz.bar)
         ct.scatter(x, 4, fb.baz.baz)
 
-    x = torch.zeros((5,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((5,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [2, 7, 30, 40, 5]
 
@@ -60,7 +60,7 @@ def test_dataclass_global_capture():
     def kern(x):
         ct.scatter(x, (), fb.foo)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 2
 
@@ -75,7 +75,7 @@ def test_dataclass_with_field_named_self():
         s = Selfish(12)
         ct.scatter(x, (), s.self)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 12
 
@@ -89,7 +89,7 @@ def test_dataclass_static_eval_roundtrip_nonconstant():
         ct.scatter(x, 0, fb2.foo)
         ct.scatter(x, 1, fb2.bar)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [10, 7]
 
@@ -102,7 +102,7 @@ def test_dataclass_static_eval_roundtrip_constant():
         ct.scatter(x, 0, fb2.foo)
         ct.scatter(x, 1, fb2.bar)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [10, 7]
 
@@ -115,7 +115,7 @@ def test_dataclass_static_eval_swap_fields():
         ct.scatter(x, 0, fb2.foo)
         ct.scatter(x, 1, fb2.bar)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [12, 10]
 
@@ -133,7 +133,7 @@ def test_dataclasses_replace():
         ct.scatter(x, 5, fb2.bar[1])
         ct.scatter(x, 6, fb2.baz)
 
-    x = torch.zeros((7,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((7,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [2, 7, 13, 2, 30, 40, 123]
 
@@ -148,7 +148,7 @@ def test_loop_carried_dataclass_reconstructed_with_field_info():
         ct.scatter(x, 1, fb.bar)
         ct.scatter(x, 2, fb.baz)
 
-    x = torch.zeros((3,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((3,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x, 3))
     assert x.tolist() == [4, 13, 100]
 
@@ -171,9 +171,9 @@ def test_user_defined_methods_and_constants():
         ct.scatter(y, ct.bid(0), fb.NUMBER)
         ct.scatter(z, ct.bid(0), WithMethod.NUMBER)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
-    y = torch.zeros((2,), dtype=torch.int32, device="cuda")
-    z = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
+    y = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
+    z = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kern, (x, y, z))
     assert x.tolist() == [57, 67]
     assert y.tolist() == [123, 123]
@@ -195,7 +195,7 @@ def test_user_defined_property():
         fb = WithProperty(ct.bid(0) + 5, 7)
         ct.scatter(x, ct.bid(0), fb.foo)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (2,), kern, (x,))
     assert x.tolist() == [57, 67]
 
@@ -286,7 +286,7 @@ def test_post_init():
     def kern(x):
         PostInit(3, x)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 3
 
@@ -323,7 +323,7 @@ def test_dataclass_with_base():
         ct.scatter(x, 0, d.x)
         ct.scatter(x, 1, d.y)
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [3, 5]
 
@@ -411,7 +411,7 @@ def test_init_static_def():
         ct.scatter(x, 0, d.x)
         ct.scatter(x, 1, d.y)
 
-    x = torch.zeros(2, dtype=torch.int32, device="cuda")
+    x = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [50, 70]
 
@@ -431,7 +431,7 @@ def test_call_dunder():
         val = d(7)
         ct.scatter(x, (), val)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 357
 
@@ -456,7 +456,7 @@ def test_call_dunder_static_def():
         val = d(7)
         ct.scatter(x, (), val)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 753
 
@@ -479,7 +479,7 @@ def test_call_dunder_base_class():
         val = d(7)
         ct.scatter(x, (), val)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 357
 
@@ -506,7 +506,7 @@ def test_call_dunder_base_class_shadowed():
         val = d(7)
         ct.scatter(x, (), val)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 357
 
@@ -522,7 +522,7 @@ def test_reject_call_no_dunder():
         d = NoCall(3, 5)
         d(7)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TypeCheckingError, match="Cannot call an object of type NoCall"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
 
@@ -541,7 +541,7 @@ def test_getitem_dunder():
         res = d[7]
         ct.scatter(x, (), res)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.item() == 21
 
@@ -559,7 +559,7 @@ def test_setitem_dunder():
         d = WithSetitem(x)
         d[1] = 5
 
-    x = torch.arange(4, dtype=torch.int32, device="cuda")
+    x = torch.arange(4, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x,))
     assert x.tolist() == [0, 50, 2, 3]
 
@@ -576,7 +576,7 @@ def test_dataclass_instance_as_kernel_arg():
     def kern(d):
         ct.scatter(d.x, d.idx, d.val)
 
-    x = torch.zeros((3, 3), dtype=torch.float32, device="cuda")
+    x = torch.zeros((3, 3), dtype=torch.float32, device="cuda:0")
     d = KernelArg(x=x, idx=(1, 2), val=5)
     ct.launch(torch.cuda.current_stream(), (1,), kern, (d,))
     assert x.tolist() == [[0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 0.0]]
@@ -593,7 +593,7 @@ def test_dataclass_instance_as_constant_kernel_arg():
     def kern(x, d: ct.Constant):
         ct.scatter(x, d.idx, d.val)
 
-    x = torch.zeros((3, 3), dtype=torch.float32, device="cuda")
+    x = torch.zeros((3, 3), dtype=torch.float32, device="cuda:0")
     d = ConstKernelArg(idx=(1, 2), val=5)
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x, d))
     assert x.tolist() == [[0.0, 0.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 0.0]]
@@ -609,7 +609,7 @@ def test_reject_nonfrozen_kernel_arg():
     def kern(x, d):
         ct.scatter(x, (), d.val)
 
-    x = torch.zeros((), dtype=torch.int32, device="cuda")
+    x = torch.zeros((), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileTypeError, match="Only frozen dataclasses are supported"):
         ct.launch(torch.cuda.current_stream(), (1,), kern, (x, NonFrozenArg(3)))
 
@@ -626,7 +626,7 @@ def test_tuple_of_dataclasses_as_kernel_arg():
         ct.scatter(x, 0, t[0].a * 10 + t[0].b)
         ct.scatter(x, 1, t[1].a * 10 + t[1].b)
 
-    x = torch.zeros((2,), dtype=torch.float32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x, (Arg(1, 2.5), Arg(3, 4.5))))
     assert x.tolist() == [12.5, 34.5]
 
@@ -643,7 +643,7 @@ def test_tuple_of_dataclass_and_array_as_kernel_arg():
         item, out = t
         ct.scatter(out, (), item.a * 10 + item.b)
 
-    x = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.zeros((), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, ((Arg(3, 0.5), x),))
     assert x.item() == 30.5
 
@@ -659,7 +659,7 @@ def test_dataclass_with_tuple_component_as_kernel_arg():
     def kern(x, d):
         ct.scatter(x, d.idx, d.n)
 
-    x = torch.zeros((3, 3), dtype=torch.int32, device="cuda")
+    x = torch.zeros((3, 3), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (x, Arg(idx=(1, 2), n=7)))
     assert x.tolist() == [[0, 0, 0], [0, 0, 7], [0, 0, 0]]
 
@@ -676,8 +676,8 @@ def test_dataclass_with_list_of_arrays_as_kernel_arg():
         ct.scatter(d.arrays[0], (), d.val)
         ct.scatter(d.arrays[1], (), d.val * 2)
 
-    x = torch.zeros((), dtype=torch.float32, device="cuda")
-    y = torch.zeros((), dtype=torch.float32, device="cuda")
+    x = torch.zeros((), dtype=torch.float32, device="cuda:0")
+    y = torch.zeros((), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern, (Arg([x, y], 2.5),))
     assert x.item() == 2.5
     assert y.item() == 5.0
@@ -708,7 +708,7 @@ def test_dataclass_with_dataclass_components_as_kernel_arg():
         ct.scatter(d.out, 0, d.inner1.a * 10 + d.inner1.b)
         ct.scatter(d.out, 1, d.inner2.x + d.inner2.y * 100 + d.inner2.z * 1000)
 
-    x = torch.zeros((2,), dtype=torch.float32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern,
               (Outer(Inner1(3, 0.5), Inner2(0.25, 4, 5), x),))
     assert x.tolist() == [30.5, 5400.25]
@@ -732,7 +732,7 @@ def test_two_top_level_dataclass_args():
         ct.scatter(out, 0, d1.a * 10 + d1.b)
         ct.scatter(out, 1, d2.x + d2.y * 100 + d2.z * 1000)
 
-    x = torch.zeros((2,), dtype=torch.float32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kern,
               (x, First(3, 0.5), Second(0.25, 4, 5)))
     assert x.tolist() == [30.5, 5400.25]

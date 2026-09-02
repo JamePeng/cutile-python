@@ -902,13 +902,13 @@ def benchmark_fp8_b200_gemm(n, config, warmups=5, iterations=10):
     torch.manual_seed(2024)
     arguments = []
     for _ in range(groups):
-        a = torch.randn((n, n), dtype=torch.float32, device="cuda").to(
+        a = torch.randn((n, n), dtype=torch.float32, device="cuda:0").to(
             torch.float8_e4m3fn
         )
-        b = torch.randn((n, n), dtype=torch.float32, device="cuda").to(
+        b = torch.randn((n, n), dtype=torch.float32, device="cuda:0").to(
             torch.float8_e4m3fn
         )
-        c = torch.empty((n, n), dtype=torch.bfloat16, device="cuda")
+        c = torch.empty((n, n), dtype=torch.bfloat16, device="cuda:0")
         arguments.append((a, b, c, prepare_fp8_b200_gemm_b(b)))
 
     for iteration in range(warmups):
@@ -942,9 +942,9 @@ def main():
 def test_fp8_b200_gemm(m, n, k):
 
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    b = torch.randn((k, n), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    b = torch.randn((k, n), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda:0")
     tiles = (m // 256) * (n // 256)
 
     cl.launch(
@@ -982,9 +982,9 @@ def test_fp8_b200_gemm_persistent(config, m, n, k):
 
 def check_fp8_b200_gemm_persistent(config, m, n, k):
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    b = torch.randn((k, n), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    b = torch.randn((k, n), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda:0")
 
     launch_fp8_b200_gemm(a, b, c, config)
     torch.cuda.synchronize()
@@ -1007,9 +1007,9 @@ def test_fp8_b200_gemm_clc_work_stealing():
     tasks = multiprocessors // 2 + 16
     m, n, k = tasks * 256, 256, 128
     torch.manual_seed(1)
-    a = torch.randn((m, k), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    b = torch.randn((k, n), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda")
+    a = torch.randn((m, k), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    b = torch.randn((k, n), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda:0")
 
     launch_fp8_b200_gemm(a, b, c, config)
     torch.cuda.synchronize()

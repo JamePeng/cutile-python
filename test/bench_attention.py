@@ -56,9 +56,9 @@ def dtype(request):
 def bench_fmha(qkv_shape, dtype, backend, benchmark):
     q_shape, kv_shape = qkv_shape
 
-    q = torch.randn(q_shape, dtype=dtype, device='cuda')
-    k = torch.randn(kv_shape, dtype=dtype, device='cuda')
-    v = torch.randn(kv_shape, dtype=dtype, device='cuda')
+    q = torch.randn(q_shape, dtype=dtype, device='cuda:0')
+    k = torch.randn(kv_shape, dtype=dtype, device='cuda:0')
+    v = torch.randn(kv_shape, dtype=dtype, device='cuda:0')
     o = torch.empty_like(q)
     ref = torch.empty_like(q)
     is_causal = q_shape[2] == kv_shape[2]
@@ -125,9 +125,9 @@ def tune_fmha(is_causal):
     else:
         q_shape, kv_shape = (1, 32, 1, 128), (1, 32, 1024, 128)
     dtype = torch.float16
-    q = torch.randn(q_shape, dtype=dtype, device='cuda')
-    k = torch.randn(kv_shape, dtype=dtype, device='cuda')
-    v = torch.randn(kv_shape, dtype=dtype, device='cuda')
+    q = torch.randn(q_shape, dtype=dtype, device='cuda:0')
+    k = torch.randn(kv_shape, dtype=dtype, device='cuda:0')
+    v = torch.randn(kv_shape, dtype=dtype, device='cuda:0')
     o = torch.empty_like(q)
 
     b, qh, q_len, d = q.shape

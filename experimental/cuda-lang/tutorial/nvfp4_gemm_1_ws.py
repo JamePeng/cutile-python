@@ -484,7 +484,7 @@ def _make_scale_tensors(
         blocked.view(torch.uint16)
         .reshape(batch, rest_rows, rest_k, 256)
         .permute(3, 2, 1, 0)
-        .cuda()
+        .cuda(0)
     )
     return reference, tma
 
@@ -498,10 +498,10 @@ def prepare_tensors(m: int, n: int, k: int, batch: int = 1, **_):
 
     torch.manual_seed(1111)
     a_storage = torch.randint(
-        0, 2, (batch, m, k // 2), dtype=torch.uint8, device="cuda"
+        0, 2, (batch, m, k // 2), dtype=torch.uint8, device="cuda:0"
     )
     b_storage = torch.randint(
-        0, 2, (batch, n, k // 2), dtype=torch.uint8, device="cuda"
+        0, 2, (batch, n, k // 2), dtype=torch.uint8, device="cuda:0"
     )
     a = a_storage.permute(2, 1, 0)
     b = b_storage.permute(2, 1, 0)
@@ -511,7 +511,7 @@ def prepare_tensors(m: int, n: int, k: int, batch: int = 1, **_):
     sf_k = cl.cdiv(k, SF_VECTOR_SIZE)
     sfa_ref, sfa = _make_scale_tensors(batch, m, sf_k)
     sfb_ref, sfb = _make_scale_tensors(batch, n, sf_k)
-    c = torch.empty((batch, m, n), dtype=torch.float16, device="cuda").permute(
+    c = torch.empty((batch, m, n), dtype=torch.float16, device="cuda:0").permute(
         1, 2, 0
     )
     return {

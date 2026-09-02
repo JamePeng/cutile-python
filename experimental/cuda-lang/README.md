@@ -21,8 +21,8 @@ def saxpy(
 
 N = 256
 alpha = 2.0
-X = torch.ones(N, dtype=torch.float32, device="cuda")
-Y = torch.ones(N, dtype=torch.float32, device="cuda")
+X = torch.ones(N, dtype=torch.float32, device="cuda:0")
+Y = torch.ones(N, dtype=torch.float32, device="cuda:0")
 expected = (alpha * X + Y).cpu()
 cl.launch(
   torch.cuda.current_stream(),

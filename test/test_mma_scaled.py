@@ -85,11 +85,11 @@ def test_mma_scaled_fp8(input_dtype):
     scaling_block_size = 32
     ks = k // scaling_block_size
 
-    X = torch.randn((m, k), device='cuda').to(input_dtype)
-    X_scale = torch.randn((m, ks), device='cuda').to(f8e8m0fnu)
-    Y = torch.randn((k, n), device='cuda').to(input_dtype)
-    Y_scale = torch.randn((ks, n), device='cuda').to(f8e8m0fnu)
-    Z = torch.randn((m, n), dtype=f32, device='cuda')
+    X = torch.randn((m, k), device='cuda:0').to(input_dtype)
+    X_scale = torch.randn((m, ks), device='cuda:0').to(f8e8m0fnu)
+    Y = torch.randn((k, n), device='cuda:0').to(input_dtype)
+    Y_scale = torch.randn((ks, n), device='cuda:0').to(f8e8m0fnu)
+    Z = torch.randn((m, n), dtype=f32, device='cuda:0')
 
     ref_X_scale = torch.repeat_interleave(X_scale, scaling_block_size, dim=1).to(f32)
     ref_Y_scale = torch.repeat_interleave(Y_scale, scaling_block_size, dim=0).to(f32)
@@ -107,11 +107,11 @@ def test_mma_scaled_general_fp8(input_dtype, dtype_id):
     scaling_block_size = 32
     ks = k // scaling_block_size
 
-    X_raw = torch.randint(0, 256, (m, k), dtype=torch.uint8, device='cuda')
-    Y_raw = torch.randint(0, 256, (k, n), dtype=torch.uint8, device='cuda')
-    X_scale = torch.randn((m, ks), device='cuda').to(f8e8m0fnu)
-    Y_scale = torch.randn((ks, n), device='cuda').to(f8e8m0fnu)
-    Z = torch.randn((m, n), dtype=f32, device='cuda')
+    X_raw = torch.randint(0, 256, (m, k), dtype=torch.uint8, device='cuda:0')
+    Y_raw = torch.randint(0, 256, (k, n), dtype=torch.uint8, device='cuda:0')
+    X_scale = torch.randn((m, ks), device='cuda:0').to(f8e8m0fnu)
+    Y_scale = torch.randn((ks, n), device='cuda:0').to(f8e8m0fnu)
+    Z = torch.randn((m, n), dtype=f32, device='cuda:0')
 
     ref_X = X_raw.view(input_dtype).to(f32)
     ref_Y = Y_raw.view(input_dtype).to(f32)
@@ -130,11 +130,11 @@ def test_batch_mma_scaled_fp8():
     scaling_block_size = 32
     ks = k // scaling_block_size
 
-    X = torch.randn((m, k), device='cuda').to(f8e4m3fn)
-    X_scale = torch.randn((m, ks), device='cuda').to(f8e8m0fnu)
-    Y = torch.randn((b, k, n), device='cuda').to(f8e4m3fn)
-    Y_scale = torch.randn((b, ks, n), device='cuda').to(f8e8m0fnu)
-    Z = torch.randn((b, m, n), dtype=f32, device='cuda')
+    X = torch.randn((m, k), device='cuda:0').to(f8e4m3fn)
+    X_scale = torch.randn((m, ks), device='cuda:0').to(f8e8m0fnu)
+    Y = torch.randn((b, k, n), device='cuda:0').to(f8e4m3fn)
+    Y_scale = torch.randn((b, ks, n), device='cuda:0').to(f8e8m0fnu)
+    Z = torch.randn((b, m, n), dtype=f32, device='cuda:0')
 
     ref_X_scale = torch.repeat_interleave(X_scale, scaling_block_size, dim=-1).to(f32)
     ref_Y_scale = torch.repeat_interleave(Y_scale, scaling_block_size, dim=-2).to(f32)
@@ -167,11 +167,11 @@ def test_mma_scaled_general_f4(scale_dtype, scaling_block_size):
     m, n, k = 16, 16, 64
     ks = k // scaling_block_size
 
-    X_packed = torch.randint(0, 256, (m, k // 2), dtype=torch.uint8, device='cuda')
-    Y_packed = torch.randint(0, 256, (k, n // 2), dtype=torch.uint8, device='cuda')
-    X_scale = torch.randn((m, ks), device='cuda').to(scale_dtype)
-    Y_scale = torch.randn((ks, n), device='cuda').to(scale_dtype)
-    Z = torch.randn((m, n), dtype=f32, device='cuda')
+    X_packed = torch.randint(0, 256, (m, k // 2), dtype=torch.uint8, device='cuda:0')
+    Y_packed = torch.randint(0, 256, (k, n // 2), dtype=torch.uint8, device='cuda:0')
+    X_scale = torch.randn((m, ks), device='cuda:0').to(scale_dtype)
+    Y_scale = torch.randn((ks, n), device='cuda:0').to(scale_dtype)
+    Z = torch.randn((m, n), dtype=f32, device='cuda:0')
 
     ref_X = _unpack_f4e2m1fn_to_f32(X_packed, (m, k))
     ref_Y = _unpack_f4e2m1fn_to_f32(Y_packed, (k, n))
@@ -192,23 +192,23 @@ def test_mma_e5m3fnu_scaled_f4(scaling_block_size):
     m, n, k = 16, 16, 64
     ks = k // scaling_block_size
 
-    X_packed = torch.randint(0, 256, (m, k // 2), dtype=torch.uint8, device='cuda')
-    Y_packed = torch.randint(0, 256, (k, n // 2), dtype=torch.uint8, device='cuda')
-    X_scale = torch.randint(0, 255, (m, ks), dtype=torch.uint8, device="cuda")
-    Y_scale = torch.randint(0, 255, (ks, n), dtype=torch.uint8, device="cuda")
+    X_packed = torch.randint(0, 256, (m, k // 2), dtype=torch.uint8, device='cuda:0')
+    Y_packed = torch.randint(0, 256, (k, n // 2), dtype=torch.uint8, device='cuda:0')
+    X_scale = torch.randint(0, 255, (m, ks), dtype=torch.uint8, device="cuda:0")
+    Y_scale = torch.randint(0, 255, (ks, n), dtype=torch.uint8, device="cuda:0")
 
-    Z = torch.randn((m, n), dtype=f32, device='cuda')
+    Z = torch.randn((m, n), dtype=f32, device='cuda:0')
 
     ref_X = _unpack_f4e2m1fn_to_f32(X_packed, (m, k))
     ref_Y = _unpack_f4e2m1fn_to_f32(Y_packed, (k, n))
 
     ref_X_scale = torch.repeat_interleave(X_scale, scaling_block_size, dim=1)
     ref_X_scale = [float_from_bits(int(i), SimpleType.F8E5M3FNU) for i in ref_X_scale.view(-1)]
-    ref_X_scale = torch.tensor(ref_X_scale, dtype=f32, device='cuda').reshape((m, k))
+    ref_X_scale = torch.tensor(ref_X_scale, dtype=f32, device='cuda:0').reshape((m, k))
 
     ref_Y_scale = torch.repeat_interleave(Y_scale, scaling_block_size, dim=0)
     ref_Y_scale = [float_from_bits(int(i), SimpleType.F8E5M3FNU) for i in ref_Y_scale.view(-1)]
-    ref_Y_scale = torch.tensor(ref_Y_scale, dtype=f32, device='cuda').reshape((k, n))
+    ref_Y_scale = torch.tensor(ref_Y_scale, dtype=f32, device='cuda:0').reshape((k, n))
 
     ref = (ref_X * ref_X_scale) @ (ref_Y * ref_Y_scale) + Z
     ct.launch(torch.cuda.current_stream(), (1,), mma_scaled_general_kernel,
@@ -264,11 +264,11 @@ dtype_error_cases = [
 @pytest.mark.parametrize("case", dtype_error_cases, ids=str)
 def test_mma_scaled_dtype_error(case):
     m, n, k, ks = 16, 16, 64, 2
-    X = torch.randn((m, k), device='cuda').to(case.x_dtype)
-    X_scale = torch.randn((m, ks), device='cuda').to(case.x_scale_dtype)
-    Y = torch.randn((k, n), device='cuda').to(case.y_dtype)
-    Y_scale = torch.randn((ks, n), device='cuda').to(case.y_scale_dtype)
-    Z = torch.zeros((m, n), device='cuda').to(case.acc_dtype)
+    X = torch.randn((m, k), device='cuda:0').to(case.x_dtype)
+    X_scale = torch.randn((m, ks), device='cuda:0').to(case.x_scale_dtype)
+    Y = torch.randn((k, n), device='cuda:0').to(case.y_dtype)
+    Y_scale = torch.randn((ks, n), device='cuda:0').to(case.y_scale_dtype)
+    Z = torch.zeros((m, n), device='cuda:0').to(case.acc_dtype)
     with pytest.raises(TileTypeError, match=case.message):
         ct.launch(torch.cuda.current_stream(), (1,), mma_scaled_error_kernel,
                   (X, X_scale, Y, Y_scale, Z, m, n, k, m, ks, n))
@@ -307,11 +307,11 @@ shape_error_cases = [
 
 @pytest.mark.parametrize("case", shape_error_cases, ids=str)
 def test_mma_scaled_shape_error(case):
-    X = torch.randn((case.tm, case.tk), device='cuda').to(f8e4m3fn)
-    X_scale = torch.randn((case.tms, case.tks), device='cuda').to(f8e8m0fnu)
-    Y = torch.randn((case.tk, case.tn), device='cuda').to(f8e4m3fn)
-    Y_scale = torch.randn((case.tks, case.tns), device='cuda').to(f8e8m0fnu)
-    Z = torch.zeros((case.tm, case.tn), dtype=f32, device='cuda')
+    X = torch.randn((case.tm, case.tk), device='cuda:0').to(f8e4m3fn)
+    X_scale = torch.randn((case.tms, case.tks), device='cuda:0').to(f8e8m0fnu)
+    Y = torch.randn((case.tk, case.tn), device='cuda:0').to(f8e4m3fn)
+    Y_scale = torch.randn((case.tks, case.tns), device='cuda:0').to(f8e8m0fnu)
+    Z = torch.zeros((case.tm, case.tn), dtype=f32, device='cuda:0')
     with pytest.raises(TileTypeError, match=case.message):
         ct.launch(torch.cuda.current_stream(), (1,), mma_scaled_error_kernel,
                   (X, X_scale, Y, Y_scale, Z,

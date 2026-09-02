@@ -82,9 +82,9 @@ def tile():
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("op", ['sqrt', 'rsqrt'], ids=['sqrt', 'rsqrt'])
 def test_array_root_ops(shape, tile, dtype, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda')
+    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda:0')
     y_ref = getattr(torch, op)(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel(op, f"ty = ct.{op}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, y_ref)
@@ -96,9 +96,9 @@ def test_array_root_ops(shape, tile, dtype, op, tmp_path):
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_array_root_ops_flush_to_zero(shape, tile, dtype, op, flush_to_zero, tmp_path):
     should_raise = flush_to_zero and dtype in float_dtypes and dtype != torch.float32
-    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda')
+    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda:0')
     y_ref = getattr(torch, op)(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel(f"{op}_flush_to_zero",
                           f"ty = ct.{op}(tx, flush_to_zero={flush_to_zero})",
                           tmp_path)
@@ -124,8 +124,8 @@ def test_array_sqrt_rounding_mode(shape, tile, dtype, rounding_mode, tmp_path):
     should_raise_rounding_mode = rounding_mode in [RMd.RZI, RMd.FULL]
     should_raise_dtype = (rounding_mode in [RMd.APPROX]
                           and dtype in float_dtypes and dtype != torch.float32)
-    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda')
-    y = torch.zeros_like(x, device="cuda")
+    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda:0')
+    y = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel("sqrt_rounding_mode",
                           f"ty = ct.sqrt(tx, rounding_mode={rounding_mode})", tmp_path,
                           globals={"RoundingMode": RMd})
@@ -154,9 +154,9 @@ def test_array_sqrt_rounding_mode(shape, tile, dtype, rounding_mode, tmp_path):
 @pytest.mark.parametrize("op", ['log', 'log2'], ids=['log', 'log2'])
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_log(shape, tile, dtype, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda')
+    x = make_tensor(shape, dtype=dtype, low=0, high=100, device='cuda:0')
     y_ref = getattr(torch, op)(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel('log', f"ty = ct.{op}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, y_ref)
@@ -166,9 +166,9 @@ def test_array_log(shape, tile, dtype, op, tmp_path):
                          ids=['sin', 'cos', 'tan', 'sinh', 'cosh', 'tanh'])
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_trig(shape, tile, dtype, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = getattr(torch, op)(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel('trig', f"ty = ct.{op}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, y_ref)
@@ -177,9 +177,9 @@ def test_array_trig(shape, tile, dtype, op, tmp_path):
 @pytest.mark.parametrize("neg_func", ['-', 'ct.negative'])
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_neg(shape, tile, dtype, tmp_path, neg_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = -x.to(torch.int32) if dtype == torch.bool else -x
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel('neg',
                           "ty = -tx" if neg_func == "-" else f"ty = {neg_func}(tx)",
                           tmp_path)
@@ -196,7 +196,7 @@ def test_scalar_neg(shape, tile, is_constant, dtype, tmp_path):
     else:
         x = 5.0
         dtype_str = "float"
-    y = torch.zeros(shape, dtype=dtype, device='cuda')
+    y = torch.zeros(shape, dtype=dtype, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('neg', 'c = -x', tmp_path)
     else:
@@ -207,9 +207,9 @@ def test_scalar_neg(shape, tile, is_constant, dtype, tmp_path):
 
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_pos(shape, tile, dtype, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = x.to(torch.int32) if dtype == torch.bool else +x
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel('pos', "ty = +tx", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, y_ref)
@@ -218,8 +218,8 @@ def test_array_pos(shape, tile, dtype, tmp_path):
 @pytest.mark.parametrize("abs_func", ['abs', 'ct.abs'])
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_abs(shape, tile, dtype, tmp_path, abs_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel('abs', f"ty = {abs_func}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, abs(x))
@@ -235,7 +235,7 @@ def test_scalar_abs(shape, tile, is_constant, dtype, tmp_path, abs_func):
     else:
         x = -5.0
         dtype_str = "float"
-    y = torch.zeros(shape, dtype=dtype, device='cuda')
+    y = torch.zeros(shape, dtype=dtype, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('abs', f'c = {abs_func}(x)', tmp_path)
     else:
@@ -247,8 +247,8 @@ def test_scalar_abs(shape, tile, is_constant, dtype, tmp_path, abs_func):
 @pytest.mark.parametrize("bitwise_not_func", ['~', 'ct.bitwise_not'])
 @pytest.mark.parametrize("dtype", int_dtypes + bool_dtypes, ids=dtype_id)
 def test_array_bitwise_not(shape, tile, dtype, tmp_path, bitwise_not_func):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel('bitwise_not',
                           "ty = ~tx" if bitwise_not_func == "~" else f"ty = {bitwise_not_func}(tx)",
                           tmp_path)
@@ -260,7 +260,7 @@ def test_array_bitwise_not(shape, tile, dtype, tmp_path, bitwise_not_func):
 @pytest.mark.parametrize("dtype", int_dtypes, ids=dtype_id)
 def test_scalar_bitwise_not(shape, tile, is_constant, dtype, tmp_path):
     x = 5
-    y = torch.zeros(shape, dtype=torch.int32, device='cuda')
+    y = torch.zeros(shape, dtype=torch.int32, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel('bitwise_not', 'c = ~x', tmp_path)
     else:
@@ -273,9 +273,9 @@ def test_scalar_bitwise_not(shape, tile, is_constant, dtype, tmp_path):
                          ids=['exp', 'exp2'])
 @pytest.mark.parametrize("dtype", bool_dtypes + int_dtypes + float_dtypes, ids=dtype_id)
 def test_array_exp(shape, tile, dtype, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = getattr(torch, op)(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel('exp', f"ty = ct.{op}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_close(y, y_ref)
@@ -286,8 +286,8 @@ def test_array_exp(shape, tile, dtype, op, tmp_path):
 @pytest.mark.parametrize("flush_to_zero", [True, False])
 def test_array_exp2_flush_to_zero(shape, tile, dtype, flush_to_zero, tmp_path):
     should_raise = flush_to_zero and (dtype != torch.float32)
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel("exp2_flush_to_zero",
                           f"ty = ct.exp2(tx, flush_to_zero={flush_to_zero})", tmp_path)
     if should_raise:
@@ -307,8 +307,8 @@ def test_array_exp2_flush_to_zero(shape, tile, dtype, flush_to_zero, tmp_path):
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("op", ['floor', 'ceil'], ids=['floor', 'ceil'])
 def test_array_rounding(shape, tile, dtype, op, tmp_path):
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device="cuda:0")
     kernel = array_kernel(op, f"ty = ct.{op}(tx)", tmp_path)
     launch_unary(kernel, x, y, tile)
     assert_equal(y, getattr(torch, op)(x))
@@ -324,7 +324,7 @@ def test_scalar_rounding(shape, tile, is_constant, dtype, op, tmp_path):
     else:
         x = -5.5
         dtype_str = "float"
-    y = torch.zeros(shape, dtype=dtype, device='cuda')
+    y = torch.zeros(shape, dtype=dtype, device='cuda:0')
     if not is_constant:
         kernel = scalar_kernel(op, f'c = ct.{op}(x)', tmp_path)
     else:
@@ -339,9 +339,9 @@ def test_scalar_rounding(shape, tile, is_constant, dtype, op, tmp_path):
 @pytest.mark.parametrize("rounding_mode", [RMd.FULL, RMd.APPROX, None])
 def test_array_tanh_rounding_mode(shape, tile, dtype, rounding_mode, tmp_path):
     should_raise_dtype = rounding_mode in [RMd.FULL, RMd.APPROX] and dtype != torch.float32
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = torch.tanh(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel("tanh_rounding_mode",
                           f"ty = ct.tanh(tx, rounding_mode={rounding_mode})",
                           tmp_path,
@@ -371,9 +371,9 @@ def test_array_tanh_rounding_mode(shape, tile, dtype, rounding_mode, tmp_path):
 @pytest.mark.parametrize("rounding_mode", [RMd.FULL, RMd.APPROX, None])
 def test_array_exp_rounding_mode(shape, tile, dtype, rounding_mode, tmp_path):
     should_raise_dtype = rounding_mode in [RMd.FULL, RMd.APPROX] and dtype != torch.float32
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y_ref = torch.exp(x)
-    y = torch.zeros_like(y_ref, device="cuda")
+    y = torch.zeros_like(y_ref, device="cuda:0")
     kernel = array_kernel("exp_rounding_mode",
                           f"ty = ct.exp(tx, rounding_mode={rounding_mode})",
                           tmp_path,

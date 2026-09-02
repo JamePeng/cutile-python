@@ -89,8 +89,8 @@ def test_atomic_rmw_supported_types(op, dtype, initial, update, expected_new):
         ptr = A.get_element_pointer(0)
         out[0] = atomic(ptr, _scalar(dtype, update))
 
-    A = torch.tensor([initial], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(1, dtype=torch_dtype, device="cuda")
+    A = torch.tensor([initial], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(1, dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert torch.allclose(out.cpu(), torch.tensor([initial], dtype=torch_dtype))
     assert torch.allclose(A.cpu(), torch.tensor([expected_new], dtype=torch_dtype))
@@ -105,8 +105,8 @@ def test_atomic_xchg_supported_types(dtype):
         ptr = A.get_element_pointer(0)
         out[0] = cl.atomic_xchg(ptr, _scalar(dtype, 11))
 
-    A = torch.tensor([7], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(1, dtype=torch_dtype, device="cuda")
+    A = torch.tensor([7], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(1, dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert torch.allclose(out.cpu(), torch.tensor([7], dtype=torch_dtype))
     assert torch.allclose(A.cpu(), torch.tensor([11], dtype=torch_dtype))
@@ -121,8 +121,8 @@ def test_atomic_cas_supported_types(dtype):
         ptr = A.get_element_pointer(0)
         out[0] = cl.atomic_cas(ptr, _scalar(dtype, 7), _scalar(dtype, 11))
 
-    A = torch.tensor([7], dtype=torch_dtype, device="cuda")
-    out = torch.zeros(1, dtype=torch_dtype, device="cuda")
+    A = torch.tensor([7], dtype=torch_dtype, device="cuda:0")
+    out = torch.zeros(1, dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert torch.allclose(out.cpu(), torch.tensor([7], dtype=torch_dtype))
     assert torch.allclose(A.cpu(), torch.tensor([11], dtype=torch_dtype))
@@ -134,8 +134,8 @@ def test_atomic_cas_failure():
         ptr = A.get_element_pointer(0)
         out[0] = cl.atomic_cas(ptr, cl.int32(8), cl.int32(11))
 
-    A = torch.tensor([7], dtype=torch.int32, device="cuda")
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    A = torch.tensor([7], dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert out.cpu()[0].item() == 7
     assert A.cpu()[0].item() == 7
@@ -147,8 +147,8 @@ def test_atomic_inc_wrap():
         ptr = A.get_element_pointer(0)
         out[0] = cl.atomic_inc(ptr, cl.uint32(7))
 
-    A = torch.tensor([7], dtype=torch.uint32, device="cuda")
-    out = torch.zeros(1, dtype=torch.uint32, device="cuda")
+    A = torch.tensor([7], dtype=torch.uint32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.uint32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert out.cpu()[0].item() == 7
     assert A.cpu()[0].item() == 0
@@ -160,8 +160,8 @@ def test_atomic_dec_wrap():
         ptr = A.get_element_pointer(0)
         out[0] = cl.atomic_dec(ptr, cl.uint32(7))
 
-    A = torch.tensor([0], dtype=torch.uint32, device="cuda")
-    out = torch.zeros(1, dtype=torch.uint32, device="cuda")
+    A = torch.tensor([0], dtype=torch.uint32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.uint32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert out.cpu()[0].item() == 0
     assert A.cpu()[0].item() == 7
@@ -173,8 +173,8 @@ def test_atomic_tuple_index():
         ptr = A.get_element_pointer((0, 1))
         out[0] = cl.atomic_add(ptr, cl.int32(5))
 
-    A = torch.tensor([[1, 2], [3, 4]], dtype=torch.int32, device="cuda")
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    A = torch.tensor([[1, 2], [3, 4]], dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A, out))
     assert out.cpu()[0].item() == 2
     assert A.cpu()[0, 1].item() == 7

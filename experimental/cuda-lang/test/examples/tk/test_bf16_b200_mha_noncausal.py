@@ -811,17 +811,17 @@ def test_bf16_b200_mha_noncausal(batch, q_sequence, kv_sequence, heads):
     torch.manual_seed(0)
     q = torch.randn(
         (batch, q_sequence, heads, HEAD_DIM_QK),
-        device="cuda",
+        device="cuda:0",
         dtype=torch.bfloat16,
     )
     k = torch.randn(
         (batch, kv_sequence, heads, HEAD_DIM_QK),
-        device="cuda",
+        device="cuda:0",
         dtype=torch.bfloat16,
     )
     v = torch.randn(
         (batch, kv_sequence, heads, HEAD_DIM_V),
-        device="cuda",
+        device="cuda:0",
         dtype=torch.bfloat16,
     )
 

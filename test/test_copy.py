@@ -37,8 +37,8 @@ def array_copy_1d(x, y, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("stride_step", [1, 2])
 @pytest.mark.parametrize("dtype", test_dtypes, ids=dtype_id)
 def test_array_copy_1d(shape, stride_step, dtype, tile):
-    x = make_test_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device='cuda')
+    x = make_test_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device='cuda:0')
     xx = x[::stride_step]
     assert xx.stride() == (stride_step,)
     yy = y[::stride_step]
@@ -65,7 +65,7 @@ def array_copy_2d(x, y, TILE_X: ct.Constant[int], TILE_Y: ct.Constant[int]):
 @pytest.mark.parametrize("stride_step", [1, 2])
 @pytest.mark.parametrize("dtype", test_dtypes, ids=dtype_id)
 def test_array_copy_2d(shape, stride_step, permute, dtype, tile):
-    x = make_test_tensor(shape, dtype=dtype, device='cuda')
+    x = make_test_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     xx = x[::stride_step, ::stride_step].permute(permute)
     yy = y[::stride_step, ::stride_step].permute(permute)
@@ -95,8 +95,8 @@ def array_copy_3d(x, y,
 @pytest.mark.parametrize("stride_step", [1, 2])
 @pytest.mark.parametrize("dtype", test_dtypes, ids=dtype_id)
 def test_array_copy_3d(shape, stride_step, permute, dtype, tile):
-    x = make_test_tensor(shape, dtype=dtype, device='cuda')
-    y = torch.zeros_like(x, device='cuda')
+    x = make_test_tensor(shape, dtype=dtype, device='cuda:0')
+    y = torch.zeros_like(x, device='cuda:0')
     xx = x[:, :, ::stride_step].permute(permute)
     yy = y[:, :, ::stride_step].permute(permute)
     assert_tensors_contiguity((xx, yy), stride_step == 1 and permute == (0, 1, 2))
@@ -131,8 +131,8 @@ def make_array_copy_2d_with_padding_kernel(padding_mode: Optional[PaddingMode]):
 def test_array_copy_2d_with_padding(padding_value, float_padding_value):
     shape = (63, 63)
     tile = (64, 64)
-    x = make_tensor(shape, dtype=torch.float32, device='cuda')
-    y = make_tensor(tile, dtype=torch.float32, device='cuda')
+    x = make_tensor(shape, dtype=torch.float32, device='cuda:0')
+    y = make_tensor(tile, dtype=torch.float32, device='cuda:0')
     grid = (ceil(shape[0] / tile[0]), ceil(shape[1] / tile[1]), 1)
     ct.launch(torch.cuda.current_stream(), grid,
               make_array_copy_2d_with_padding_kernel(padding_value),
@@ -140,6 +140,6 @@ def test_array_copy_2d_with_padding(padding_value, float_padding_value):
     if float_padding_value is None:
         assert_equal(y[:shape[0], :shape[1]], x)
     else:
-        y_expected = torch.ones(tile, dtype=torch.float32, device='cuda') * float_padding_value
+        y_expected = torch.ones(tile, dtype=torch.float32, device='cuda:0') * float_padding_value
         y_expected[:shape[0], :shape[1]] = x
         assert_equal(y, y_expected)

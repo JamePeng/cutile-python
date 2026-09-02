@@ -9,7 +9,7 @@ def kernel(array):
 
 
 torch.cuda.init()
-array = torch.zeros(3, 3, dtype=torch.int32, device="cuda")
+array = torch.zeros(3, 3, dtype=torch.int32, device="cuda:0")
 cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (array,))
 torch.cuda.synchronize()
 

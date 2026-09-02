@@ -389,9 +389,9 @@ def test_tcgen05_mma(block_n, cta_group, num_stages, m, n, k):
         num_stages=num_stages,
     )
 
-    a = torch.randn((m, k), device="cuda", dtype=torch.bfloat16)
-    b = torch.randn((n, k), device="cuda", dtype=torch.bfloat16)
-    c = torch.zeros((m, n), device="cuda", dtype=torch.bfloat16)
+    a = torch.randn((m, k), device="cuda:0", dtype=torch.bfloat16)
+    b = torch.randn((n, k), device="cuda:0", dtype=torch.bfloat16)
+    c = torch.zeros((m, n), device="cuda:0", dtype=torch.bfloat16)
 
     a_tma_view = make_3d_view(a)
     b_tma_view = make_3d_view(b)

@@ -62,8 +62,8 @@ def test_type_conversions(from_dtype, to_dtype):
         casted = to_cl_dtype(b[0])
         a[0] = casted
 
-    a = torch.zeros(1, dtype=to_torch_dtype, device="cuda")
-    b = torch.tensor([2], dtype=from_torch_dtype, device="cuda")
+    a = torch.zeros(1, dtype=to_torch_dtype, device="cuda:0")
+    b = torch.tensor([2], dtype=from_torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b))
     assert a[0] == numeric_dtype_category(to_cl_dtype).pytype(b[0])
 
@@ -85,9 +85,9 @@ def test_arithmetic(dtype, operation):
         x = operation(a[0], b[0])
         c[0] = cl_dtype(x)
 
-    a = torch.tensor([10], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([2], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([10], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([2], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(operation(10, 2))
 
@@ -131,8 +131,8 @@ def test_arithmetic_vector_scalar(
 
     scalar_torch_dtype = to_torch_dtype(scalar_dtype)
     result_torch_dtype = to_torch_dtype(result_dtype)
-    inp = torch.tensor([scalar_value], dtype=scalar_torch_dtype, device="cuda")
-    out = torch.zeros(4, dtype=result_torch_dtype, device="cuda")
+    inp = torch.tensor([scalar_value], dtype=scalar_torch_dtype, device="cuda:0")
+    out = torch.zeros(4, dtype=result_torch_dtype, device="cuda:0")
     vector = torch.tensor(vector_values, dtype=result_torch_dtype)
     scalar = torch.tensor(scalar_value, dtype=result_torch_dtype)
     expected = operation(scalar, vector)
@@ -150,8 +150,8 @@ def test_arithmetic_vector_comparison(op):
         v2 = inp.get_element_pointer(4).load(count=4)
         out.get_base_pointer().store(op(v1, v2))
 
-    inp = torch.ones(8, dtype=torch.int32).cuda()
-    out = torch.zeros(4, dtype=torch.bool).cuda()
+    inp = torch.ones(8, dtype=torch.int32).cuda(0)
+    out = torch.zeros(4, dtype=torch.bool).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert all(out.cpu() == op(0, 0))
 
@@ -172,8 +172,8 @@ def test_unary_arithmetic(dtype, operation):
     def kernel(a, c):
         c[0] = cl_dtype(operation(a[0]))
 
-    a = torch.tensor([10], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([10], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, c))
     expected = numeric_dtype_category(cl_dtype).pytype(operation(10))
     assert c[0] == expected
@@ -189,9 +189,9 @@ def test_integer_division(dtype, operation):
         x = operation(a[0], b[0])
         c[0] = cl_dtype(x)
 
-    a = torch.tensor([10], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([3], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([10], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([3], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(operation(10, 3))
 
@@ -204,9 +204,9 @@ def test_integer_floordiv_signed_rounds_down(dtype):
     def kernel(a, b, c):
         c[0] = cl_dtype(a[0] // b[0])
 
-    a = torch.tensor([-3], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([2], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([-3], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([2], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(-3 // 2)
 
@@ -226,9 +226,9 @@ def test_integer_bitwise(dtype, operation, lhs, rhs):
     def kernel(a, b, c):
         c[0] = operation(a[0], b[0])
 
-    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(operation(lhs, rhs))
 
@@ -244,10 +244,10 @@ def test_integer_bitwise_multiple_outputs(dtype):
 
     lhs = 0b1100
     rhs = 0b1010
-    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda")
-    out_and = torch.tensor([0], dtype=torch_dtype, device="cuda")
-    out_or = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda:0")
+    out_and = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
+    out_or = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, out_and, out_or))
     assert out_and[0] == numeric_dtype_category(cl_dtype).pytype(lhs & rhs)
     assert out_or[0] == numeric_dtype_category(cl_dtype).pytype(lhs | rhs)
@@ -272,9 +272,9 @@ def test_integer_bitshift(dtype, operation, lhs, rhs, signed_only):
     def kernel(a, b, c):
         c[0] = operation(a[0], b[0])
 
-    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda")
-    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda")
-    c = torch.tensor([0], dtype=torch_dtype, device="cuda")
+    a = torch.tensor([lhs], dtype=torch_dtype, device="cuda:0")
+    b = torch.tensor([rhs], dtype=torch_dtype, device="cuda:0")
+    c = torch.tensor([0], dtype=torch_dtype, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
     assert c[0] == numeric_dtype_category(cl_dtype).pytype(operation(lhs, rhs))
 
@@ -297,8 +297,8 @@ def test_comparison(dtype, operation):
         res[0] = cmp
 
     x = [1, 2]
-    dx = torch.tensor(x, dtype=torch_dtype, device="cuda")
-    res = torch.tensor([0], dtype=torch.bool, device="cuda")
+    dx = torch.tensor(x, dtype=torch_dtype, device="cuda:0")
+    res = torch.tensor([0], dtype=torch.bool, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (2,), (2,), kernel, (res, dx))
     assert res.cpu()[0] == operation(x[0], x[1])
 
@@ -310,8 +310,8 @@ def test_bool_comparison():
         res[1] = x[0] != x[1]
 
     x = [True, False]
-    dx = torch.tensor(x, dtype=torch.bool, device="cuda")
-    res = torch.zeros(2, dtype=torch.bool, device="cuda")
+    dx = torch.tensor(x, dtype=torch.bool, device="cuda:0")
+    res = torch.zeros(2, dtype=torch.bool, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (2,), (2,), kernel, (res, dx))
     assert res.cpu()[0] == False  # noqa: E712
     assert res.cpu()[1] == True  # noqa: E712
@@ -334,7 +334,7 @@ def test_comparison_bool_value(op, lhs, rhs, expect):
     def kernel(out, inp):
         out[0] = cl.int8(op(inp[0], inp[1]))
 
-    inp = torch.tensor([lhs, rhs], dtype=torch.int32).cuda()
-    out = torch.zeros(1, dtype=torch.int8).cuda()
+    inp = torch.tensor([lhs, rhs], dtype=torch.int32).cuda(0)
+    out = torch.zeros(1, dtype=torch.int8).cuda(0)
     cl.launch(torch.cuda.current_stream(), (2,), (2,), kernel, (out, inp))
     assert out.cpu().item() == expect

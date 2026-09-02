@@ -28,7 +28,7 @@ def compile_with(pyfunc, args, arch: str | None, version: str, output_format="cu
     torch.float8_e8m0fnu
 ], ids=dtype_id)
 def test_fp8_not_supported_on_sm80(dtype):
-    x = make_tensor((64,), dtype=torch.float32, device='cuda').to(dtype)
+    x = make_tensor((64,), dtype=torch.float32, device='cuda:0').to(dtype)
 
     def kernel(x):
         tx = ct.gather(x, 0)
@@ -75,7 +75,7 @@ def test_f8e8m0fnu_requires_13_2():
 
     with pytest.raises(TileUnsupportedFeatureError,
                        match=r"float8_e8m0fnu requires tileiras 13\.2"):
-        x = make_tensor((1,), dtype=torch.uint8, device='cuda').view(torch.float8_e8m0fnu)
+        x = make_tensor((1,), dtype=torch.uint8, device='cuda:0').view(torch.float8_e8m0fnu)
         y = torch.zeros_like(x)
         compile_with(kernel, (x, y), "sm_100", "13.1")
 
@@ -85,7 +85,7 @@ def test_f4e2m1fn_requires_13_3():
         t = ct.full((2,), 1.5, dtype=ct.float4_e2m1fn)
         ct.store(x, 0, tile=t.astype(ct.uint8))
 
-    x = make_tensor((1,), dtype=torch.uint8, device='cuda')
+    x = make_tensor((1,), dtype=torch.uint8, device='cuda:0')
     with pytest.raises(TileUnsupportedFeatureError,
                        match=r"float4_e2m1fn requires tileiras 13\.3"):
         compile_with(kernel, (x,), "sm_100", "13.2")
@@ -148,7 +148,7 @@ def test_atomic_red_view_add_bf16_requires_hopper():
         update = y.tiled_view((128,)).load(0)
         tv_x.atomic_store_add(0, update)
 
-    x = make_tensor((128,), dtype=torch.bfloat16, device='cuda')
+    x = make_tensor((128,), dtype=torch.bfloat16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileUnsupportedFeatureError,
                        match="bfloat16 is not supported by atomic add on sm_80"):
@@ -161,7 +161,7 @@ def test_atomic_add_bf16_requires_hopper_13_3():
         update = ct.gather(y, indices)
         ct.atomic_add(x, indices, update)
 
-    x = make_tensor((128,), dtype=torch.bfloat16, device='cuda')
+    x = make_tensor((128,), dtype=torch.bfloat16, device='cuda:0')
     y = torch.zeros_like(x)
     with pytest.raises(TileUnsupportedFeatureError,
                        match="bfloat16 is not supported by atomic add on sm_80"):

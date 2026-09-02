@@ -3006,7 +3006,7 @@ def prepare_tensors(
 ) -> dict[str, torch.Tensor]:
     prepared = fmha_utils.prepare_tensors(
         config,
-        device="cuda",
+        device="cuda:0",
         seed=seed,
         q_input=q_input,
         k_input=k_input,
@@ -3018,22 +3018,22 @@ def prepare_tensors(
     tensors["_lse_arg"] = (
         prepared.lse
         if prepared.lse is not None
-        else torch.empty((1,), device="cuda", dtype=torch.float32)
+        else torch.empty((1,), device="cuda:0", dtype=torch.float32)
     )
     tensors["_sinks_arg"] = (
         prepared.sinks
         if prepared.sinks is not None
-        else torch.empty((1,), device="cuda", dtype=torch.float16)
+        else torch.empty((1,), device="cuda:0", dtype=torch.float16)
     )
     tensors["_cum_seqlen_q_arg"] = (
         prepared.cumulative_q
         if prepared.cumulative_q is not None
-        else torch.zeros((1,), device="cuda", dtype=torch.int32)
+        else torch.zeros((1,), device="cuda:0", dtype=torch.int32)
     )
     tensors["_cum_seqlen_k_arg"] = (
         prepared.cumulative_k
         if prepared.cumulative_k is not None
-        else torch.zeros((1,), device="cuda", dtype=torch.int32)
+        else torch.zeros((1,), device="cuda:0", dtype=torch.int32)
     )
     return tensors
 

@@ -56,7 +56,7 @@ complex_to_real_dtype = {
 def bench_fft(shape, dtype, fft_backend, benchmark):
     batch_size, decomp = shape[0], shape[1:]
     N = math.prod(decomp)
-    x = torch.rand((batch_size, N), dtype=dtype, device='cuda')
+    x = torch.rand((batch_size, N), dtype=dtype, device='cuda:0')
     weights = make_twiddles(decomp, complex_to_real_dtype[dtype])
     args = (x, decomp, *weights)
     y_test = fft_backend(*args)
@@ -123,8 +123,8 @@ def torch_fft(x, *args):
 
 
 def twiddles(rows: int, cols: int, factor: int):
-    (I, J) = torch.meshgrid(torch.arange(rows, device='cuda'),
-                            torch.arange(cols, device='cuda'),
+    (I, J) = torch.meshgrid(torch.arange(rows, device='cuda:0'),
+                            torch.arange(cols, device='cuda:0'),
                             indexing='ij')
     W = torch.exp(-2*math.pi*1j*(I*J) / factor)
     return torch.view_as_real(W)

@@ -171,13 +171,13 @@ def test_convolution_separable():
             dst[src_offset + step * COLUMNS_BLOCKDIM_Y * pitch] = acc
 
     src = (
-        torch.arange(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda")
+        torch.arange(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda:0")
         .reshape(IMAGE_H, IMAGE_W)
         / 64.0
     )
-    kernel = torch.linspace(-1.0, 1.0, steps=KERNEL_LENGTH, dtype=torch.float32, device="cuda")
-    tmp = torch.zeros(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda")
-    dst = torch.zeros(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda")
+    kernel = torch.linspace(-1.0, 1.0, steps=KERNEL_LENGTH, dtype=torch.float32, device="cuda:0")
+    tmp = torch.zeros(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda:0")
+    dst = torch.zeros(IMAGE_W * IMAGE_H, dtype=torch.float32, device="cuda:0")
 
     cl.launch(
         torch.cuda.current_stream(),

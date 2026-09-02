@@ -23,7 +23,7 @@ def arange_dynamic_start_step(x, step, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [64])
 @pytest.mark.parametrize("dtype", int_dtypes + float_dtypes, ids=dtype_id)
 def test_arange_dynamic_start_step(shape, dtype, tile):
-    x = torch.zeros(shape, dtype=dtype, device='cuda')
+    x = torch.zeros(shape, dtype=dtype, device='cuda:0')
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, arange_dynamic_start_step, (x, 1, tile))
     ref = torch.arange(len(x), dtype=dtype, device=x.device)
@@ -48,7 +48,7 @@ def test_arange(size, start, step, dtype):
             tx = ct.arange(size, start=start, step=step, dtype=x.dtype)
         ct.store(x, index=(0,), tile=tx)
 
-    x = torch.zeros(size, dtype=dtype, device='cuda')
+    x = torch.zeros(size, dtype=dtype, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1, 1, 1), arange_kernel, (x,))
     if step == 0:
         ref = torch.full((size,), start, dtype=dtype, device=x.device)
@@ -76,7 +76,7 @@ def test_arange_invalid_size(size, start, step, error_message):
         ct.store(x, index=(0,), tile=tx)
 
     with pytest.raises(TileTypeError, match=error_message):
-        x = torch.zeros(1, dtype=torch.int32, device='cuda')
+        x = torch.zeros(1, dtype=torch.int32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), arange_kernel, (x,))
 
 
@@ -87,5 +87,5 @@ def test_arange_reject_dynamic_size():
         ct.store(x, index=(0,), tile=tx)
 
     with pytest.raises(TileTypeError, match="Expected an integer constant"):
-        x = torch.zeros(1, dtype=torch.int32, device='cuda')
+        x = torch.zeros(1, dtype=torch.int32, device='cuda:0')
         ct.launch(torch.cuda.current_stream(), (1, 1, 1), arange_dynamic_size, (x,))

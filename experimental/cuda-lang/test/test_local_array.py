@@ -23,6 +23,6 @@ def test_local_array_in_if_else():
 
         x[cl.thread_index(0)] = res
 
-    x = torch.zeros((2,), dtype=torch.int32, device="cuda")
+    x = torch.zeros((2,), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (2,), kern, (x, ))
     assert x.tolist() == [3, 5]

@@ -748,22 +748,22 @@ def reference_mxfp8_gemm(a, a_scales, b, b_scales):
 
 def make_test_scales(rows, k, nonuniform=False):
     if nonuniform:
-        row = torch.arange(rows, device="cuda")[:, None]
-        block = torch.arange(k // 32, device="cuda")[None, :]
+        row = torch.arange(rows, device="cuda:0")[:, None]
+        block = torch.arange(k // 32, device="cuda:0")[None, :]
         exponents = (row + block) % 5 - 2
         return torch.exp2(exponents.float()).to(torch.float8_e8m0fnu)
-    return torch.ones((rows, k // 32), dtype=torch.float8_e8m0fnu, device="cuda")
+    return torch.ones((rows, k // 32), dtype=torch.float8_e8m0fnu, device="cuda:0")
 
 
 def check_mxfp8_b200_gemm(config, m, n, k, nonuniform=False):
     torch.manual_seed(0)
-    a = torch.randn((m, k), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
-    b = torch.randn((n, k), dtype=torch.float32, device="cuda").to(torch.float8_e4m3fn)
+    a = torch.randn((m, k), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
+    b = torch.randn((n, k), dtype=torch.float32, device="cuda:0").to(torch.float8_e4m3fn)
     a_scales = make_test_scales(m, k, nonuniform)
     b_scales = make_test_scales(n, k, nonuniform)
     packed_a_scales = pack_mxfp8_scales(a_scales)
     packed_b_scales = pack_mxfp8_scales(b_scales)
-    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda")
+    c = torch.empty((m, n), dtype=torch.bfloat16, device="cuda:0")
 
     launch_mxfp8_b200_gemm(
         a,
@@ -790,21 +790,21 @@ def benchmark_mxfp8_b200_gemm(n, config, warmups=5, iterations=10):
     torch.manual_seed(2024)
     arguments = []
     for _ in range(groups):
-        a = torch.randn((n, n), dtype=torch.float32, device="cuda").to(
+        a = torch.randn((n, n), dtype=torch.float32, device="cuda:0").to(
             torch.float8_e4m3fn
         )
-        b = torch.randn((n, n), dtype=torch.float32, device="cuda").to(
+        b = torch.randn((n, n), dtype=torch.float32, device="cuda:0").to(
             torch.float8_e4m3fn
         )
-        a_scale_values = torch.randint(-3, 4, (n, n // 32), device="cuda")
-        b_scale_values = torch.randint(-3, 4, (n, n // 32), device="cuda")
+        a_scale_values = torch.randint(-3, 4, (n, n // 32), device="cuda:0")
+        b_scale_values = torch.randint(-3, 4, (n, n // 32), device="cuda:0")
         a_scales = pack_mxfp8_scales(
             torch.exp2(a_scale_values.float()).to(torch.float8_e8m0fnu)
         )
         b_scales = pack_mxfp8_scales(
             torch.exp2(b_scale_values.float()).to(torch.float8_e8m0fnu)
         )
-        c = torch.empty((n, n), dtype=torch.bfloat16, device="cuda")
+        c = torch.empty((n, n), dtype=torch.bfloat16, device="cuda:0")
         arguments.append((a, a_scales, b, b_scales, c))
 
     for iteration in range(warmups):

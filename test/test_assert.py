@@ -33,9 +33,9 @@ def kernel_ct_assert_without_msg(x, cond, y, TILE: ct.Constant[int]):
 
 def _run_kernel_subprocess_ct(cond: bool, has_msg: bool):
     TILE = 128
-    x = make_tensor((TILE*2, ), dtype=torch.float32, device="cuda")
+    x = make_tensor((TILE*2, ), dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
-    cond_array = torch.full((TILE*2, ), True, device="cuda")
+    cond_array = torch.full((TILE*2, ), True, device="cuda:0")
     if not cond:
         # make one element false, so the first tile should fail and the second tile should pass
         cond_array[0] = False

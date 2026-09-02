@@ -398,8 +398,8 @@ def test_boundschecked_array():
         array[0, 1, 2] = 101
         array[1, 1, 0] = 102
 
-    tensor = torch.arange(24, device="cuda")
-    output = torch.zeros(2, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(24, device="cuda:0")
+    output = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.cpu().tolist() == [23, 13]
@@ -444,8 +444,8 @@ def test_python_boundschecked_array():
         array[-1, -2, -3] = 101
         array[-2, -1, -1] = 102
 
-    tensor = torch.arange(24, device="cuda")
-    output = torch.zeros(2, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(24, device="cuda:0")
+    output = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.cpu().tolist() == [23, 0]
@@ -498,8 +498,8 @@ def test_python_boundschecked_array_slice():
         output[3] = nested_view[-1, -1]
         view[-2, -3] = 999
 
-    tensor = torch.arange(216, device="cuda")
-    output = torch.zeros(4, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(216, device="cuda:0")
+    output = torch.zeros(4, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.cpu().tolist() == [22, 202, 178, 58]
@@ -525,8 +525,8 @@ def test_python_boundschecked_array_negative_step_slice():
         output[1] = view[-1, -1]
         view[-2, -1] = 999
 
-    tensor = torch.arange(216, device="cuda")
-    output = torch.zeros(2, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(216, device="cuda:0")
+    output = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.cpu().tolist() == [203, 35]
@@ -541,8 +541,8 @@ def test_custom_strides():
         output[0] = array[1, 2]
         array[0, 1] = 101
 
-    tensor = torch.arange(6, device="cuda")
-    output = torch.zeros(1, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(6, device="cuda:0")
+    output = torch.zeros(1, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.item() == 5
@@ -570,8 +570,8 @@ def test_custom_callback_is_not_called_for_valid_indices():
         array[0, 1] = 101
         python_array[-1, -1] = 102
 
-    tensor = torch.arange(6, device="cuda")
-    output = torch.zeros(2, dtype=torch.int64, device="cuda")
+    tensor = torch.arange(6, device="cuda:0")
+    output = torch.zeros(2, dtype=torch.int64, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor, output))
 
     assert output.cpu().tolist() == [5, 0]
@@ -696,7 +696,7 @@ CRASHING_KERNELS = {
 
 def run_crashing_kernel(kernel_name):
     kernel = CRASHING_KERNELS[kernel_name]
-    tensor = torch.arange(6, device="cuda")
+    tensor = torch.arange(6, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor,))
     torch.cuda.synchronize()
 

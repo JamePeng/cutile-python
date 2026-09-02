@@ -29,13 +29,13 @@ def propagate_constant_int_then_promote(n: ct.Constant[int], out):
 
 
 def test_propagate_constant_int_then_promote():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), propagate_constant_int_then_promote, (5, a))
     assert a.tolist() == [18, 19, 20, 21]
 
 
 def test_propagate_constant_int_then_promote_out_of_range():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     with pytest.raises(TileValueError, match="Integer constant -170 is out of range of int8"):
         ct.launch(torch.cuda.current_stream(), (1,), propagate_constant_int_then_promote, (50, a))
 
@@ -58,7 +58,7 @@ def propagate_constant_float_then_promote(n: ct.Constant[int], out):
 
 
 def test_propagate_constant_float_then_promote():
-    a = torch.zeros((4,), dtype=torch.float32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), propagate_constant_float_then_promote, (5, a))
     assert a.tolist() == [20.5, 21.5, 22.5, 23.5]
 
@@ -79,7 +79,7 @@ def pack_tuple_then_getitem_and_promote(n: ct.Constant[int], out):
 
 
 def test_pack_tuple_then_getitem_and_promote():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), pack_tuple_then_getitem_and_promote, (11, a))
     assert a.tolist() == [5, 6, 7, 8]
 
@@ -100,7 +100,7 @@ def pack_nested_tuple_then_getitem_and_promote(n: ct.Constant[int], out):
 
 
 def test_pack_nested_tuple_then_getitem_and_promote():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), pack_nested_tuple_then_getitem_and_promote,
               (11, a))
     assert a.tolist() == [5, 6, 7, 8]
@@ -124,7 +124,7 @@ def propagate_constant_int_through_if_else_then_promote(n: ct.Constant[int], out
 
 
 def test_propagate_constant_int_through_if_else_then_promote():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,),
               propagate_constant_int_through_if_else_then_promote, (5, a))
     assert a.tolist() == [7, 8, 9, 10]
@@ -148,7 +148,7 @@ def different_constants_in_if_else_then_promote(n: ct.Constant[int], out):
 
 
 def test_different_constants_in_if_else_then_promote():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,),
               different_constants_in_if_else_then_promote, (5, a))
     assert a.tolist() == [5, 6, 7, 8]
@@ -165,7 +165,7 @@ def combine_loose_and_strict_int(n: ct.Constant[int], out):
 
 
 def test_combine_loose_and_strict_int():
-    a = torch.zeros((4,), dtype=torch.int32, device="cuda")
+    a = torch.zeros((4,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), combine_loose_and_strict_int, (5, a))
     assert a.tolist() == [7, 8, 9, 10]
 
@@ -182,6 +182,6 @@ def call_float_and_store(out):
 
 
 def test_float_constructor_produces_loosely_typed_constant():
-    a = torch.zeros((2,), dtype=torch.float16, device="cuda")
+    a = torch.zeros((2,), dtype=torch.float16, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), call_float_and_store, (a,))
     assert a.tolist() == [2.0, 5.0]

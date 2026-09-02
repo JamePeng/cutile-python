@@ -58,6 +58,11 @@ html_sidebars = {
 
 # Doc testing
 doctest_test_doctest_blocks = ""
+doctest_global_setup = """
+import torch
+
+torch.cuda.set_device(0)
+"""
 
 # -- Generated content --------------------------------------------------------
 # Make sure the generated includes directory exists

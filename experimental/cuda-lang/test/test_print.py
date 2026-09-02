@@ -57,7 +57,7 @@ def run_print_scalars():
         # CHECK: mbarrier 0x{{([0-9a-f]{8})}}
         print(f"mbarrier {mbarriers[0]}")
 
-    A = torch.tensor([5], dtype=torch.int32).cuda()
+    A = torch.tensor([5], dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -99,7 +99,7 @@ def run_print_vectors():
         # CHECK: <1.{{0+}}, 2.{{0+}}, 3.{{0+}}, 4.{{0+}}>
         print(cl.Vector(1, 2, 3, 4, dtype=cl.float32))
 
-    A = torch.tensor(range(4), dtype=torch.int32).cuda()
+    A = torch.tensor(range(4), dtype=torch.int32).cuda(0)
     cl.launch(
         torch.cuda.current_stream(),
         (1,),

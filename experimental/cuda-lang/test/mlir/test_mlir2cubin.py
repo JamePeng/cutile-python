@@ -209,9 +209,9 @@ def test_a_plus_b():
         mlir.memref.add_StoreOp(value=res, memref=c, indices=(thread_id,))
         mlir.gpu.add_ReturnOp(operands=())
 
-    x_tensor = torch.arange(10, 138, dtype=torch.float32, device="cuda")
-    y_tensor = torch.full((128,), 3.0, dtype=torch.float32, device="cuda")
-    result = torch.zeros(128, dtype=torch.float32, device="cuda")
+    x_tensor = torch.arange(10, 138, dtype=torch.float32, device="cuda:0")
+    y_tensor = torch.full((128,), 3.0, dtype=torch.float32, device="cuda:0")
+    result = torch.zeros(128, dtype=torch.float32, device="cuda:0")
     mlir_launch(module, "add_kernel", (x_tensor, y_tensor, result))
     assert result[0] == 13.0
 
@@ -303,11 +303,11 @@ def test_cond_br():
         mlir.memref.add_StoreOp(value=merged, memref=mr, indices=(c0_index,))
         mlir.gpu.add_ReturnOp(operands=())
 
-    zeros = torch.zeros(1, dtype=torch.float32, device="cuda")
+    zeros = torch.zeros(1, dtype=torch.float32, device="cuda:0")
     mlir_launch(module, entrypoint, (zeros,))
     assert zeros[0] == 2.0
 
-    ones = torch.ones(1, dtype=torch.float32, device="cuda")
+    ones = torch.ones(1, dtype=torch.float32, device="cuda:0")
     mlir_launch(module, entrypoint, (ones,))
     assert ones[0] == 1.0
 

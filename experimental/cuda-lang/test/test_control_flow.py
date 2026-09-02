@@ -20,7 +20,7 @@ def test_if_else():
         else:
             X[idx] = 1
 
-    X = torch.tensor([-1, 1], dtype=torch.int32, device="cuda")
+    X = torch.tensor([-1, 1], dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (X, 0))
     assert X[0] == 1
 
@@ -34,7 +34,7 @@ def test_while_loop():
         while X[0] > 0:
             X[0] = X[0] - 1
 
-    X = torch.tensor([3], dtype=torch.int32, device="cuda")
+    X = torch.tensor([3], dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (X,))
     assert X[0] == 0
 
@@ -50,7 +50,7 @@ def test_for_loop(start, step):
         X[0] = tot
 
     x = [3]
-    dx = torch.tensor(x, dtype=torch.int32, device="cuda")
+    dx = torch.tensor(x, dtype=torch.int32, device="cuda:0")
     cl.launch(
         torch.cuda.current_stream(),
         (1,),
@@ -84,7 +84,7 @@ def test_static_phi_int():
     def kernel(flag: cl.Constant[int], out):
         out[0] = choose(flag)
 
-    out = torch.empty(1, dtype=torch.int32, device="cuda")
+    out = torch.empty(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (0, out))
     assert out.cpu().item() == 7
 

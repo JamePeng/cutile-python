@@ -26,7 +26,7 @@ def test_inline_ptx_multiple_outputs_runtime():
         out[0] = res0
         out[1] = res1
 
-    out = torch.zeros(2, dtype=torch.int32, device="cuda")
+    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [8, 2]
 
@@ -47,7 +47,7 @@ def test_inline_ptx_write_only_placeholders_runtime():
         out[0] = res0
         out[1] = res1
 
-    out = torch.zeros(2, dtype=torch.int32, device="cuda")
+    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [8, 2]
 
@@ -63,8 +63,8 @@ def test_inline_ptx_pointer_load():
         )
         out[0] = value
 
-    inp = torch.tensor([42], dtype=torch.int32, device="cuda")
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    inp = torch.tensor([42], dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out.cpu().tolist() == [42]
 
@@ -82,8 +82,8 @@ def test_inline_ptx_pointer_output():
         cl.static_assert(cl.dtype_of(ptr) == dtype)
         out[0] = ptr.load()
 
-    inp = torch.tensor([42], dtype=torch.int32, device="cuda")
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    inp = torch.tensor([42], dtype=torch.int32, device="cuda:0")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out.cpu().tolist() == [42]
 
@@ -103,7 +103,7 @@ def test_inline_ptx_shared_pointer_output():
         cl.static_assert(cl.dtype_of(result) == dtype)
         out[0] = result.load()
 
-    out = torch.zeros(1, dtype=torch.int32, device="cuda")
+    out = torch.zeros(1, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     assert out.cpu().tolist() == [42]
 

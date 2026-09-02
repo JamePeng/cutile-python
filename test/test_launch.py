@@ -60,9 +60,9 @@ def test_launch_on_null_stream():
     """When launch on Null stream, get device context from the array arguments.
     """
 
-    a = torch.randn(N, device='cuda')
-    b = torch.randn(N, device='cuda')
-    c = torch.empty(N, device='cuda')
+    a = torch.randn(N, device='cuda:0')
+    b = torch.randn(N, device='cuda:0')
+    c = torch.empty(N, device='cuda:0')
     kernel = ct.kernel(_vec_add_impl)
     ct.launch(0, (N // TS,), kernel, (a, b, c, TS))
     torch.testing.assert_close(c, a + b)

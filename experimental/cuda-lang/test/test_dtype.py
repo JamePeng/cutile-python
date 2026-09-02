@@ -39,7 +39,7 @@ def test_dtype_of():
         cl.static_assert(vec_dtype == cl.int8)
         cl.static_assert(vec_dtype.bitwidth == 8)
 
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (x,))
 
 

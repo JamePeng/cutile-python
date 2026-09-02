@@ -51,8 +51,8 @@ def _run_concurrent_launch(launch_func_name):
     N_ITERS = 800
     N_ELEMS = 8192
 
-    x = torch.randint(0, 100, (N_ELEMS,), device='cuda', dtype=torch.int32)
-    y = torch.randint(0, 100, (N_ELEMS,), device='cuda', dtype=torch.int32)
+    x = torch.randint(0, 100, (N_ELEMS,), device='cuda:0', dtype=torch.int32)
+    y = torch.randint(0, 100, (N_ELEMS,), device='cuda:0', dtype=torch.int32)
     expected = x + y
 
     errors = []

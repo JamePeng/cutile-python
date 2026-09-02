@@ -21,7 +21,7 @@ def split_ge_kernel(x):
 
 
 def test_split_ge():
-    x = torch.zeros(10, dtype=torch.int32, device="cuda")
+    x = torch.zeros(10, dtype=torch.int32, device="cuda:0")
     sig = ct.compilation.KernelSignature.from_kernel_args(
             split_ge_kernel, (x,),
             ct.compilation.CallingConvention.cutile_python_v1())
@@ -31,7 +31,7 @@ def test_split_ge():
     assert len(loop_ops) == 2
 
     ct.launch(torch.cuda.current_stream(), (1,), split_ge_kernel, (x,))
-    ref = torch.tensor([0, 1, 2, 30, 40, 50, 60, 70, 80, 90], dtype=torch.int32, device="cuda")
+    ref = torch.tensor([0, 1, 2, 30, 40, 50, 60, 70, 80, 90], dtype=torch.int32, device="cuda:0")
     assert_equal(x, ref)
 
 
@@ -45,9 +45,9 @@ def loop_carried_condition_kernel(output, stop: int):
 
 
 def test_loop_carried_condition():
-    output = torch.empty((1,), dtype=torch.int32, device="cuda")
+    output = torch.empty((1,), dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), loop_carried_condition_kernel, (output, 1))
-    assert_equal(output, torch.tensor([0], dtype=torch.int32, device="cuda"))
+    assert_equal(output, torch.tensor([0], dtype=torch.int32, device="cuda:0"))
 
 
 @ct.kernel
@@ -60,7 +60,7 @@ def dynamic_split_boundary_kernel(output, split: int):
 
 
 def test_dynamic_split_boundary():
-    output = torch.empty(7, dtype=torch.int32, device="cuda")
+    output = torch.empty(7, dtype=torch.int32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), dynamic_split_boundary_kernel, (output, 3))
-    ref = torch.tensor([0, 1, 2, 30, 40, 50, 60], dtype=torch.int32, device="cuda")
+    ref = torch.tensor([0, 1, 2, 30, 40, 50, 60], dtype=torch.int32, device="cuda:0")
     assert_equal(output, ref)

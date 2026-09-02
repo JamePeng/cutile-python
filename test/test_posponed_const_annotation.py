@@ -44,6 +44,6 @@ def _arange_kernel(out, N: ConstInt):
 
 def test_kernel_with_postponed_annotations() -> None:
     N = 8
-    out = torch.zeros(N, dtype=torch.int32, device='cuda')
+    out = torch.zeros(N, dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), _arange_kernel, (out, N))
     torch.testing.assert_close(out.cpu(), torch.arange(N, dtype=torch.int32))

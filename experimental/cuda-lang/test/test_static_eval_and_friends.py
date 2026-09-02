@@ -15,7 +15,7 @@ def test_cl_static_eval():
     def kern(a):
         a[()] = cl.static_eval([2*3].pop())
 
-    a = torch.zeros((), dtype=torch.int32, device="cuda")
+    a = torch.zeros((), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
     assert a.item() == 6
 
@@ -25,7 +25,7 @@ def test_cuda_lang_static_eval():
     def kern(a):
         a[()] = cuda.lang.static_eval([2*3].pop())
 
-    a = torch.zeros((), dtype=torch.int32, device="cuda")
+    a = torch.zeros((), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
     assert a.item() == 6
 
@@ -35,7 +35,7 @@ def test_imported_static_eval():
     def kern(a):
         a[()] = static_eval([2*3].pop())
 
-    a = torch.zeros((), dtype=torch.int32, device="cuda")
+    a = torch.zeros((), dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
     assert a.item() == 6
 
@@ -55,6 +55,6 @@ def test_static_iter():
         for i, x in cl.static_iter(enumerate([10, 20])):
             a[i] = x
 
-    a = torch.zeros(2, dtype=torch.int32, device="cuda")
+    a = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kern, (a,))
     assert a.tolist() == [10, 20]

@@ -26,7 +26,7 @@ def expanded_copy(x, y, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [128])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_expand_dims(shape, dtype, tile):
-    x = make_tensor(shape, dtype=dtype, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x).unsqueeze(-1)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, expanded_copy, (x, y, tile))
@@ -60,7 +60,7 @@ def test_new_axis_indexing(kernel_axes, tmp_path):
     expand_expr, index_expr, expected_fn = kernel_axes
     shape = (128, 128)
     tile = (128, 128)
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(expected_fn(x))
     grid = (ceil(shape[0] / tile[0]), ceil(shape[1] / tile[1]), 1)
     source = new_axis_indexing_kernel_template.format(name="new_axis_indexing",
@@ -75,7 +75,7 @@ def test_new_axis_indexing(kernel_axes, tmp_path):
 def test_invalid_new_axis_indexing(expand_expr, tmp_path):
     shape = (128, 128)
     tile = (128, 128)
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile[0]), ceil(shape[1] / tile[1]), 1)
     source = new_axis_indexing_kernel_template.format(name="new_axis_indexing",
@@ -106,7 +106,7 @@ def reshape_copy(x, y,
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("use_method", [True, False])
 def test_reshape_copy(dtype, r_tile, c_tile, use_method):
-    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda")
+    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda:0")
     y = torch.zeros((r_tile, c_tile), dtype=dtype, device=x.device)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, reshape_copy, (x, y, r_tile, c_tile, use_method))
@@ -127,7 +127,7 @@ def reshape_implicit_dim(x, y,
 @pytest.mark.parametrize("c_tile", [128])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_reshape_implicit_dim(dtype, r_tile, c_tile):
-    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda")
+    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda:0")
     y = torch.zeros((r_tile, c_tile), dtype=dtype, device=x.device)
     grid = (1, 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, reshape_implicit_dim, (x, y, r_tile, c_tile))
@@ -147,7 +147,7 @@ def reshape_more_than_one_dim_negative_one(x, y,
 def test_reshape_more_than_one_negative_one():
     r_tile, c_tile = 128, 128
     dtype = torch.float32
-    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda")
+    x = make_tensor((r_tile * c_tile,), dtype=dtype, device="cuda:0")
     y = torch.zeros((r_tile, c_tile), dtype=dtype, device=x.device)
     grid = (1, 1, 1)
     with pytest.raises(TileTypeError, match="Only one dimension can be -1"):
@@ -161,6 +161,6 @@ def test_reshape_scalar():
         tx = ct.reshape(4, (1, 1, 1))
         ct.store(x, (0, 0, 0), tx)
 
-    x = torch.zeros((1, 1, 1), device="cuda")
+    x = torch.zeros((1, 1, 1), device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
     assert x.item() == 4

@@ -67,15 +67,15 @@ class TestMemoryBehavior:
     ], ids=lambda f: f.__name__)
     def test_memory_behavior(self, kernel):
         tile_size = 1024
-        X = torch.zeros(tile_size, device="cuda", dtype=torch.int32)
-        expected = torch.flip(torch.arange(tile_size, device="cuda", dtype=torch.int32), [0])
+        X = torch.zeros(tile_size, device="cuda:0", dtype=torch.int32)
+        expected = torch.flip(torch.arange(tile_size, device="cuda:0", dtype=torch.int32), [0])
         ct.launch(torch.cuda.current_stream(), (1,), ct.kernel(kernel), (X, tile_size))
         torch.testing.assert_close(X, expected)
 
     def test_spinning_lock(self):
         n = 1024
-        X = torch.tensor(3.14, device="cuda", dtype=torch.float32)
-        L = torch.tensor(0, device="cuda", dtype=torch.int32)
+        X = torch.tensor(3.14, device="cuda:0", dtype=torch.float32)
+        L = torch.tensor(0, device="cuda:0", dtype=torch.int32)
         expected = X + n
         ct.launch(torch.cuda.current_stream(), (n,), self.spinning_lock, (X, L))
         torch.testing.assert_close(X, expected)
@@ -121,7 +121,7 @@ class TestNoControlFlowMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.ones((2 * tile_size,), device="cuda", dtype=torch.int32)
+        X = torch.ones((2 * tile_size,), device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, tile_size))
         return bytecode
 
@@ -185,7 +185,7 @@ class TestIfElseMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, True, tile_size))
         return bytecode
 
@@ -243,7 +243,7 @@ class TestForLoopMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, 10, tile_size))
         return bytecode
 
@@ -343,8 +343,8 @@ class TestForLoopParallelStoreMLIR(MLIRTestBase):
     def compile_kernel(self, kernel):
         tile_size = 1024
         n = 10
-        X = torch.arange(tile_size * 10, device="cuda", dtype=torch.int32)
-        Y = torch.arange(tile_size * 10, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size * 10, device="cuda:0", dtype=torch.int32)
+        Y = torch.arange(tile_size * 10, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, Y, n, tile_size))
         return bytecode
 
@@ -405,9 +405,9 @@ class TestForLoopNonParallelStoreMLIR(MLIRTestBase):
         tile_size = 128
         n = 8
         # X, Y each of non-disjoint elements in memory
-        X = torch.tensor(1., dtype=torch.float32, device="cuda").broadcast_to(
+        X = torch.tensor(1., dtype=torch.float32, device="cuda:0").broadcast_to(
             (tile_size * n, tile_size * n))
-        Y = torch.randn((tile_size * n, tile_size * n), device="cuda",
+        Y = torch.randn((tile_size * n, tile_size * n), device="cuda:0",
                         dtype=torch.float32)
         Y = torch.as_strided(Y, size=(tile_size * n, tile_size * n),
                              stride=(2, 1))
@@ -482,7 +482,7 @@ class TestWhileLoopMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, 10, tile_size))
         return bytecode
 
@@ -813,8 +813,8 @@ class TestMemoryOrderMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
-        Y = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
+        Y = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         n = 10
         bytecode = get_bytecode(kernel, (X, Y, n, tile_size))
         return bytecode
@@ -955,9 +955,9 @@ class TestRuntimeAlias(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 128
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
-        Y = torch.arange(tile_size, device="cuda", dtype=torch.int32)
-        Z = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
+        Y = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
+        Z = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, Y, Z, 10, tile_size))
         return bytecode
 
@@ -1133,7 +1133,7 @@ class TestArrayViewMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size * 2, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size * 2, device="cuda:0", dtype=torch.int32)
         return get_bytecode(kernel, (X, 2, tile_size))
 
     @pytest.mark.parametrize("kernel, check_directive", make_cases(
@@ -1159,7 +1159,7 @@ class TestArrayViewMLIR(MLIRTestBase):
     ))
     def test_strided_view_mlir(self, kernel, check_directive):
         tile_size = 1024
-        X = torch.arange(tile_size * 2, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size * 2, device="cuda:0", dtype=torch.int32)
         bytecode = get_bytecode(kernel, (X, 2, tile_size, tile_size // 2))
         filecheck(bytecode, check_directive)
 
@@ -1251,7 +1251,7 @@ class TestLoadStoreMemoryOrderMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         return get_bytecode(kernel, (X, tile_size))
 
     @pytest.mark.parametrize("kernel, check_directive", make_cases(
@@ -1326,8 +1326,8 @@ class TestLoadStoreTokenOrderMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
-        Y = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
+        Y = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         return get_bytecode(kernel, (X, Y, tile_size))
 
     @pytest.mark.parametrize("kernel, check_directive", make_cases(
@@ -1351,7 +1351,7 @@ class TestLoadStoreMemoryOrderErrors:
         def kernel(X, TILE: ct.Constant[int]):
             ct.load(X, index=(0,), shape=(TILE,), memory_order=memory_order)
 
-        X = torch.zeros(64, device="cuda", dtype=torch.int32)
+        X = torch.zeros(64, device="cuda:0", dtype=torch.int32)
         with pytest.raises(TileTypeError, match="Invalid memory order for tile_load"):
             ct.launch(torch.cuda.current_stream(), (1,), kernel, (X, 64))
 
@@ -1365,7 +1365,7 @@ class TestLoadStoreMemoryOrderErrors:
             tx = ct.load(X, index=(0,), shape=(TILE,))
             ct.store(X, index=(0,), tile=tx, memory_order=memory_order)
 
-        X = torch.zeros(64, device="cuda", dtype=torch.int32)
+        X = torch.zeros(64, device="cuda:0", dtype=torch.int32)
         with pytest.raises(TileTypeError, match="Invalid memory order for tile_store"):
             ct.launch(torch.cuda.current_stream(), (1,), kernel, (X, 64))
 
@@ -1398,8 +1398,8 @@ class TestTiledViewAtomicTokenOrderMLIR(MLIRTestBase):
     @override
     def compile_kernel(self, kernel):
         tile_size = 1024
-        X = torch.arange(tile_size, device="cuda", dtype=torch.int32)
-        Y = torch.arange(tile_size, device="cuda", dtype=torch.int32)
+        X = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
+        Y = torch.arange(tile_size, device="cuda:0", dtype=torch.int32)
         return get_bytecode(kernel, (X, Y, tile_size))
 
     @requires_tileiras(BytecodeVersion.V_13_3)

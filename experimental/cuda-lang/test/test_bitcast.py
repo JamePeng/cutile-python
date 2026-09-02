@@ -119,7 +119,7 @@ def test_bitcast_between_pointers():
         (p2 + 1).store(0xDEAD)
         out[0] = p1.load()
 
-    out = torch.zeros(1, dtype=torch.int64).cuda()
+    out = torch.zeros(1, dtype=torch.int64).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
     got = out.cpu().item()
     assert got == 0xDEADBEEF, f"0x{got:x}"
@@ -197,8 +197,8 @@ def test_bitcast_vector_elementwise():
         out.get_base_pointer().store(r)
 
     values = torch.tensor([1.5, -2.25, 3.75, 0.5], dtype=torch.float32)
-    inp = values.view(torch.int32).cuda()
-    out = torch.zeros(4, dtype=torch.float32).cuda()
+    inp = values.view(torch.int32).cuda(0)
+    out = torch.zeros(4, dtype=torch.float32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp, out))
     assert out.cpu().tolist() == values.tolist()
 

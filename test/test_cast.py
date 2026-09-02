@@ -44,7 +44,7 @@ def array_astype_to_float32(x, y, TILE: ct.Constant[int], use_method: ct.Constan
 
 @pytest.mark.parametrize("use_method", [True, False])
 def test_astype(shape, tile, use_method):
-    x = make_tensor(shape, dtype=torch.int32, device='cuda')
+    x = make_tensor(shape, dtype=torch.int32, device='cuda:0')
     ref = x.to(torch.float32)
     y = torch.zeros_like(ref)
     grid = (ceil(shape[0] / tile), 1, 1)
@@ -81,14 +81,14 @@ def test_astype_rounding_mode_f64_f32(use_method, rounding_mode):
     low = np.float32(1)
     high = np.nextafter(low, np.float32(2))
     val = np.float64(low) + np.float64(high - low) * 0.6
-    x = torch.tensor([-val, val], dtype=torch.float64, device='cuda')
+    x = torch.tensor([-val, val], dtype=torch.float64, device='cuda:0')
 
     match rounding_mode:
         case ct.RoundingMode.RN | None: ref = [-high, high]
         case ct.RoundingMode.RM: ref = [-high, low]
         case ct.RoundingMode.RP: ref = [-low, high]
         case ct.RoundingMode.RZ: ref = [-low, low]
-    ref = torch.tensor(ref, dtype=torch.float32, device='cuda')
+    ref = torch.tensor(ref, dtype=torch.float32, device='cuda:0')
 
     y = torch.zeros_like(ref)
     grid = (1,)
@@ -125,13 +125,13 @@ def test_astype_rounding_mode_f32_tf32(use_method, rounding_mode):
     low = np.float32(1)
     high = np.float32(1 + 2**-10)
     val = np.float32(1 + 2**-11)
-    x = torch.tensor([-val, val], dtype=torch.float32, device='cuda')
+    x = torch.tensor([-val, val], dtype=torch.float32, device='cuda:0')
 
     match rounding_mode:
         case ct.RoundingMode.RN | None: ref = [-low, low]
         case ct.RoundingMode.RA: ref = [-high, high]
         case ct.RoundingMode.RZ: ref = [-low, low]
-    ref = torch.tensor(ref, dtype=torch.float32, device='cuda')
+    ref = torch.tensor(ref, dtype=torch.float32, device='cuda:0')
 
     y = torch.zeros_like(ref)
     grid = (1,)
@@ -202,8 +202,8 @@ def make_to_f8e5m3fnu_astype_kernel(use_method):
                           (ct.float8_e4m3fn, torch.float8_e4m3fn)],
                          ids=["f64", "f32", "f16", "bf16", "f8e5m2", "f8e4m3fn"])
 def test_astype_from_f8e5m3fnu(to_dtype, torch_dtype, use_method):
-    y = torch.empty((4,), dtype=torch_dtype, device="cuda")
-    ref = torch.full((4,), 1.5, dtype=torch_dtype, device="cuda")
+    y = torch.empty((4,), dtype=torch_dtype, device="cuda:0")
+    ref = torch.full((4,), 1.5, dtype=torch_dtype, device="cuda:0")
     kernel = make_from_f8e5m3fnu_astype_kernel(to_dtype, use_method)
 
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (y,))
@@ -224,9 +224,9 @@ def test_rounding_from_f8e5m3fnu(use_method, rounding_mode, to_dtype, torch_dtyp
     vals = [1.0, 1.125, 1.25, 1.375]
 
     x = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in vals]
-    x = torch.tensor(x, dtype=torch.uint8, device="cuda")
+    x = torch.tensor(x, dtype=torch.uint8, device="cuda:0")
 
-    ref = torch.tensor(vals, dtype=torch_dtype, device='cuda')
+    ref = torch.tensor(vals, dtype=torch_dtype, device='cuda:0')
     y = torch.zeros_like(ref)
 
     kernel = make_from_f8e5m3fnu_rounding_kernel(to_dtype, use_method, rounding_mode)
@@ -242,12 +242,12 @@ def test_rounding_from_f8e5m3fnu(use_method, rounding_mode, to_dtype, torch_dtyp
                           torch.float8_e5m2, torch.float8_e4m3fn, torch.float8_e8m0fnu],
                          ids=["f64", "f32", "f16", "bf16", "f8e5m2", "f8e4m3fn", "f8e8m0fnu"])
 def test_astype_to_f8e5m3fnu(from_torch_dtype, use_method):
-    x = torch.full((4,), 0.5, dtype=from_torch_dtype, device="cuda")
-    y = torch.empty((4,), dtype=torch.uint8, device="cuda")
+    x = torch.full((4,), 0.5, dtype=from_torch_dtype, device="cuda:0")
+    y = torch.empty((4,), dtype=torch.uint8, device="cuda:0")
 
     ref = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in
            torch.full((4,), 0.5, dtype=torch.float32)]
-    ref = torch.tensor(ref, dtype=torch.uint8, device="cuda")
+    ref = torch.tensor(ref, dtype=torch.uint8, device="cuda:0")
 
     kernel = make_to_f8e5m3fnu_astype_kernel(use_method)
 
@@ -263,12 +263,12 @@ def test_astype_to_f8e5m3fnu(from_torch_dtype, use_method):
                          ids=["f64", "f32", "f16"])
 def test_rounding_to_f8e5m3fnu(from_torch_dtype, use_method):
     x = [1.0625, 1.1875]
-    x = torch.tensor(x, dtype=from_torch_dtype, device="cuda")
-    y = torch.empty((2,), dtype=torch.uint8, device="cuda")
+    x = torch.tensor(x, dtype=from_torch_dtype, device="cuda:0")
+    y = torch.empty((2,), dtype=torch.uint8, device="cuda:0")
 
     ref = [1.0, 1.25]
     ref = [float_to_bits(i, SimpleType.F8E5M3FNU) for i in ref]
-    ref = torch.tensor(ref, dtype=torch.uint8, device="cuda")
+    ref = torch.tensor(ref, dtype=torch.uint8, device="cuda:0")
 
     kernel = make_to_f8e5m3fnu_astype_kernel(use_method)
 
@@ -282,7 +282,7 @@ def test_rounding_to_f8e5m3fnu(from_torch_dtype, use_method):
                                            ct.RoundingMode.RP,
                                            ct.RoundingMode.RZ])
 def test_reject_astype_rounding_mode_i32_f32(rounding_mode):
-    y = torch.zeros((2,), dtype=torch.int32, device='cuda')
+    y = torch.zeros((2,), dtype=torch.int32, device='cuda:0')
     kernel = make_astype_to_kernel(rounding_mode, y.dtype, ct.float32)
 
     with pytest.raises(TileTypeError, match="rounding_mode is only valid for float "
@@ -303,7 +303,7 @@ def compile_with(kernel, args, arch: str, version: str):
                                            ct.RoundingMode.RP])
 def test_reject_astype_rounding_mode_from_float8_e8m0fnu(to_dtype, rounding_mode):
     from_dtype = ct.float8_e8m0fnu
-    y = torch.zeros((2,), dtype=torch.float32, device='cuda')
+    y = torch.zeros((2,), dtype=torch.float32, device='cuda:0')
     kernel = make_astype_to_kernel(rounding_mode, from_dtype, to_dtype)
 
     with pytest.raises(TileTypeError, match=f"rounding_mode={rounding_mode} is "
@@ -322,7 +322,7 @@ def test_reject_astype_rounding_mode_from_float8_e8m0fnu(to_dtype, rounding_mode
                                            ct.RoundingMode.RZ])
 def test_reject_astype_rounding_mode_bc_version(from_dtype, rounding_mode):
     to_dtype = ct.float64
-    y = torch.zeros((2,), dtype=torch.float32, device='cuda')
+    y = torch.zeros((2,), dtype=torch.float32, device='cuda:0')
     kernel = make_astype_to_kernel(rounding_mode, from_dtype, to_dtype)
 
     with pytest.raises(TileUnsupportedFeatureError,
@@ -354,7 +354,7 @@ def kernel_astype_tf32(x, y, TILE: ct.Constant[int]):
                                    torch.float64])
 def test_cast_tf32(dtype):
     # Test that tf32 is casted to float32
-    x = make_tensor((32, 32), dtype=dtype, device='cuda')
+    x = make_tensor((32, 32), dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     ref = torch_to_tf32(x).view(-1)
     x = x.view(-1)
@@ -388,11 +388,11 @@ def test_cast_tf32(dtype):
 def test_array_bitcast(shape, tile, dtype_x, dtype_y):
     # avoid inputs that could produce nans of infs to not break assert
     if dtype_x == torch.bool:
-        x = torch.randint(0, 2, shape, dtype=dtype_x, device='cuda')
+        x = torch.randint(0, 2, shape, dtype=dtype_x, device='cuda:0')
     elif dtype_x in (torch.int32, torch.int64, torch.int8, torch.uint8):
-        x = torch.randint(0, 100, shape, dtype=dtype_x, device='cuda')
+        x = torch.randint(0, 100, shape, dtype=dtype_x, device='cuda:0')
     else:
-        x = torch.randn(shape, dtype=dtype_x, device='cuda')
+        x = torch.randn(shape, dtype=dtype_x, device='cuda:0')
     ref = x.view(dtype=dtype_y)
     y = torch.zeros_like(ref)
     grid = (ceil(shape[0] / tile), 1, 1)
@@ -414,9 +414,9 @@ def array_astype_bool_to_float(y):
 
 
 def test_astype_bool_to_float():
-    x = torch.zeros((1,), dtype=torch.float32, device='cuda')
+    x = torch.zeros((1,), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), array_astype_bool_to_float, (x,))
-    ref = torch.ones((1,), dtype=torch.float32, device='cuda')
+    ref = torch.ones((1,), dtype=torch.float32, device='cuda:0')
     assert_equal(x, ref)
 
 
@@ -427,10 +427,10 @@ def scalar_astype(scalar, array_out):
 
 
 def test_astype_scalar():
-    x = torch.zeros((1,), dtype=torch.float32, device='cuda')
+    x = torch.zeros((1,), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,),
               scalar_astype, (5, x,))
-    ref = torch.full((1,), 5, dtype=torch.float32, device='cuda')
+    ref = torch.full((1,), 5, dtype=torch.float32, device='cuda:0')
     assert_equal(x, ref)
 
 
@@ -447,7 +447,7 @@ def make_array_astype_kernel(to_dtype):
 @pytest.mark.parametrize("from_dtype", float_dtypes+int_dtypes+bool_dtypes, ids=dtype_id)
 @pytest.mark.parametrize("to_dtype", float_dtypes+int_dtypes+bool_dtypes, ids=dtype_id)
 def test_array_astype(shape, tile, from_dtype, to_dtype):
-    x = make_tensor(shape, dtype=from_dtype, device='cuda') * 5
+    x = make_tensor(shape, dtype=from_dtype, device='cuda:0') * 5
     # Make the second half of the array 0 to test truncation
     x[x.numel()//2:] = 0
     y = torch.zeros_like(x, dtype=to_dtype)

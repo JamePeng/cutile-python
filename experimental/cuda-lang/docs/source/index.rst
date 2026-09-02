@@ -53,7 +53,7 @@ memory:
            1.0, 1.0, 2.0, 4.0,
        ],
        dtype=torch.float32,
-       device="cuda",
+       device="cuda:0",
    )
    normalized = torch.empty_like(values)
    cl.launch(stream,

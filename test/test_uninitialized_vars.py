@@ -108,7 +108,7 @@ def mma_uninitialized_var_in_if(A, B, C,
 
 def _launch(func):
     m, n, k = 4, 2, 8
-    A = torch.randn((m, k), dtype=torch.float32, device="cuda")
+    A = torch.randn((m, k), dtype=torch.float32, device="cuda:0")
     B = torch.randn((k, n), dtype=torch.float32, device=A.device)
     C = torch.zeros((m, n), dtype=torch.float32, device=A.device)
     tm, tn, tk = 2, 2, 2

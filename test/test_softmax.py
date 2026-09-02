@@ -49,7 +49,7 @@ def softmax_gold(input):
 @pytest.mark.parametrize("tile", [16])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_softmax(shape, tile, dtype):
-    x = make_tensor(shape, dtype=dtype, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, softmax, (x, y, tile, shape[1]))
@@ -62,7 +62,7 @@ def test_softmax(shape, tile, dtype):
 @pytest.mark.parametrize("tile", [16])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_softmax_per_row(shape, tile, dtype):
-    x = make_tensor(shape, dtype=dtype, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, softmax_per_row, (x, y, shape[0], shape[1]))

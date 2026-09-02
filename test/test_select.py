@@ -26,7 +26,7 @@ def masked_copy(mask, x, y, z, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [128])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_mask_copy(shape, dtype, tile):
-    x = make_tensor(shape, dtype=dtype, device="cuda") - 0.5
+    x = make_tensor(shape, dtype=dtype, device="cuda:0") - 0.5
     y = torch.zeros_like(x)
     z = torch.zeros_like(x)
     mask = x > y
@@ -48,7 +48,7 @@ def select_scalar(mask, z, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [128])
 @pytest.mark.parametrize("dtype", float_dtypes, ids=dtype_id)
 def test_select_scalar(shape, dtype, tile):
-    x = make_tensor(shape, dtype=dtype, device="cuda") - 0.5
+    x = make_tensor(shape, dtype=dtype, device="cuda:0") - 0.5
     y = torch.zeros_like(x)
     z = torch.zeros_like(x, dtype=torch.float32)
     mask = x > y
@@ -71,8 +71,8 @@ def select_tensor_scalar(mask, x, z, MASK_N: ct.Constant[int], MASK_M: ct.Consta
 @pytest.mark.parametrize("x_tile", [(128, 128), (1, 128), (128, 1), (1, 1)])
 @pytest.mark.parametrize("mask_tile", [(128, 128), (1, 128), (128, 1), (1, 1)])
 def test_select_tensor_scalar(dtype, x_tile, mask_tile):
-    x = make_tensor(x_tile, dtype=dtype, device="cuda") - 0.5
-    mask = make_tensor(mask_tile, dtype=torch.bool, device="cuda")
+    x = make_tensor(x_tile, dtype=dtype, device="cuda:0") - 0.5
+    mask = make_tensor(mask_tile, dtype=torch.bool, device="cuda:0")
     ref = torch.where(mask, x, 0.)
 
     z = torch.zeros_like(ref)

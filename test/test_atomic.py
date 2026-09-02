@@ -117,18 +117,18 @@ def test_atomic_arith(op_name, torch_op, x_dtype, y_dtype, mode, test_raw_memory
         pytest.skip("bfloat16 atomics require Hopper or newer and tileiras V_13_3+")
 
     if mode == "array":
-        x = make_tensor((512,), dtype=x_dtype, device='cuda')
-        y = make_tensor((512,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((512,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((512,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = tuple(map(lambda d: ceil(d / 128), z.shape))
 
         def launch():
             ct.launch(torch.cuda.current_stream(), grid, atomic_arith_kernel,
                       (x, y, z, 128, op_name.value, test_raw_memory))
     else:
-        x = make_tensor((1,), dtype=x_dtype, device='cuda')
-        y = make_tensor((1,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((1,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((1,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = (1,)
 
         def launch():
@@ -158,18 +158,18 @@ atomic_bitwise_config = [
 @pytest.mark.parametrize("test_raw_memory", [True, False])
 def test_atomic_bitwise(op_name, torch_op, x_dtype, y_dtype, mode, test_raw_memory):
     if mode == "array":
-        x = make_tensor((512,), dtype=x_dtype, device='cuda')
-        y = make_tensor((512,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((512,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((512,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = tuple(map(lambda d: ceil(d / 128), z.shape))
 
         def launch():
             ct.launch(torch.cuda.current_stream(), grid, atomic_arith_kernel,
                       (x, y, z, 128, op_name.value, test_raw_memory))
     else:
-        x = make_tensor((1,), dtype=x_dtype, device='cuda')
-        y = make_tensor((1,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((1,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((1,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = (1,)
 
         def launch():
@@ -240,18 +240,18 @@ atomic_cas_dtypes = [torch.uint32, torch.uint64, torch.int32, torch.int64,
 @pytest.mark.parametrize("test_raw_memory", [True, False])
 def test_atomic_cas(x_dtype, y_dtype, mode, test_raw_memory):
     if mode == "array":
-        x = make_tensor((512,), dtype=x_dtype, device='cuda')
-        y = make_tensor((512,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((512,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((512,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = tuple(map(lambda d: ceil(d / 128), z.shape))
 
         def launch():
             ct.launch(torch.cuda.current_stream(), grid,
                       atomic_cas, (x, y, z, 128, test_raw_memory))
     else:
-        x = make_tensor((1,), dtype=x_dtype, device='cuda')
-        y = make_tensor((1,), dtype=y_dtype, device='cuda')
-        z = torch.zeros_like(x, device="cuda")
+        x = make_tensor((1,), dtype=x_dtype, device='cuda:0')
+        y = make_tensor((1,), dtype=y_dtype, device='cuda:0')
+        z = torch.zeros_like(x, device="cuda:0")
         grid = (1,)
 
         def launch():
@@ -337,7 +337,7 @@ def test_atomic_order_scope(order, scope, test_raw_memory):
     memory_scope = scope if scope is not None else ct.MemoryScope.DEVICE
     check_directive += f" {ct_scope_to_tileir_scope[memory_scope]}"
 
-    x = make_tensor((512,), dtype=torch.int32, device='cuda')
+    x = make_tensor((512,), dtype=torch.int32, device='cuda:0')
     bytecode = get_bytecode(atomic_kernel_for_order_scope, (x, 128))
     filecheck(bytecode, check_directive)
 
@@ -367,8 +367,8 @@ def raw_memory_mixed_scalar_tile_atomic(x, y):
 
 @pytest.mark.parametrize("test_raw_memory", [True, False])
 def test_mixed_scalar_tile_atomic(test_raw_memory):
-    x = make_tensor((1,), dtype=torch.int32, device="cuda")
-    y = make_tensor((1,), dtype=torch.int32, device="cuda")
+    x = make_tensor((1,), dtype=torch.int32, device="cuda:0")
+    y = make_tensor((1,), dtype=torch.int32, device="cuda:0")
     kernel = (mixed_scalar_tile_atomic if not test_raw_memory
               else raw_memory_mixed_scalar_tile_atomic)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
@@ -388,7 +388,7 @@ class TestInvalidAtomicMemoryOrderAndScope:
                 mem_x = x.get_raw_memory()
                 mem_x.atomic_cas_offset(0, 0, 0, memory_order=ct.MemoryOrder.WEAK,
                                         memory_scope=ct.MemoryScope.DEVICE)
-        x = make_tensor((1,), dtype=torch.int32, device="cuda")
+        x = make_tensor((1,), dtype=torch.int32, device="cuda:0")
         with pytest.raises(TileTypeError, match="Invalid memory order for tile_atomic_cas"):
             ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -405,7 +405,7 @@ class TestInvalidAtomicMemoryOrderAndScope:
                 mem_x = x.get_raw_memory()
                 mem_x.atomic_add_offset(0, 0, memory_order=ct.MemoryOrder.WEAK,
                                         memory_scope=ct.MemoryScope.DEVICE)
-        x = make_tensor((1,), dtype=torch.int32, device="cuda")
+        x = make_tensor((1,), dtype=torch.int32, device="cuda:0")
         with pytest.raises(TileTypeError, match="Invalid memory order for tile_atomic_rmw"):
             ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -431,7 +431,7 @@ class TestInvalidAtomicMemoryOrderAndScope:
                 mem_x = x.get_raw_memory()
                 mem_x.atomic_add_offset(0, 0, memory_order=memory_order,
                                         memory_scope=ct.MemoryScope.NONE)
-        x = make_tensor((1,), dtype=torch.int32, device="cuda")
+        x = make_tensor((1,), dtype=torch.int32, device="cuda:0")
         with pytest.raises(
             TileTypeError,
             match="tile_atomic_rmw with (.+) memory ordering requires a memory scope",
@@ -460,7 +460,7 @@ class TestInvalidAtomicMemoryOrderAndScope:
                 mem_x = x.get_raw_memory()
                 mem_x.atomic_cas_offset(0, 0, 0, memory_order=memory_order,
                                         memory_scope=ct.MemoryScope.NONE)
-        x = make_tensor((1,), dtype=torch.int32, device="cuda")
+        x = make_tensor((1,), dtype=torch.int32, device="cuda:0")
         with pytest.raises(
             TileTypeError,
             match="tile_atomic_cas with (.+) memory ordering requires a memory scope",
@@ -481,8 +481,8 @@ def offset_atomic_add_with_mask(x, update, TILE: ct.Constant[int]):
 
 def test_atomic_offset_mask():
     n = 512
-    x = torch.zeros(n, dtype=torch.int32, device='cuda')
-    update = torch.ones(n, dtype=torch.int32, device='cuda')
+    x = torch.zeros(n, dtype=torch.int32, device='cuda:0')
+    update = torch.ones(n, dtype=torch.int32, device='cuda:0')
     tile = 128
     grid = (ceil(n / tile),)
     ct.launch(torch.cuda.current_stream(), grid, offset_atomic_add_with_mask,
@@ -510,10 +510,10 @@ def test_atomic_offset_cas_mask():
     """When mask is False, atomic_cas_offset returns expected"""
     n = 512
     dtype = torch.int32
-    x = torch.zeros(n, dtype=dtype, device='cuda')
-    expected = torch.full((n,), -1, dtype=dtype, device='cuda')
-    desired = torch.ones(n, dtype=dtype, device='cuda')
-    out = torch.zeros(n, dtype=dtype, device='cuda')
+    x = torch.zeros(n, dtype=dtype, device='cuda:0')
+    expected = torch.full((n,), -1, dtype=dtype, device='cuda:0')
+    desired = torch.ones(n, dtype=dtype, device='cuda:0')
+    out = torch.zeros(n, dtype=dtype, device='cuda:0')
     tile = 128
     grid = (ceil(n / tile),)
     ct.launch(torch.cuda.current_stream(), grid, offset_atomic_cas_with_mask,

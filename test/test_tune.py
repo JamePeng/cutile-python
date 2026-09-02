@@ -34,7 +34,7 @@ def grid_fn_on_x(x, cfg):
 
 # ========== Test basic exhaustive search ==========
 def test_exhaustive_search_returns_best(monkeypatch):
-    x = torch.empty((256,), device="cuda")
+    x = torch.empty((256,), device="cuda:0")
     search_space = [64, 128, 256]
 
     times = {64: 5.0, 128: 1.0, 256: 3.0}
@@ -66,7 +66,7 @@ def test_exhaustive_search_returns_best(monkeypatch):
 
 
 def test_exhaustive_search_skips_slow_configs(monkeypatch):
-    x = torch.empty((256,), device="cuda")
+    x = torch.empty((256,), device="cuda:0")
     search_space = range(1, 8)
     times = {
         1: [1.0],
@@ -112,7 +112,7 @@ def test_exhaustive_search_skips_slow_configs(monkeypatch):
 
 # ========== Test empty search space ==========
 def test_empty_search_space_raises():
-    x = torch.empty((256,), device="cuda")
+    x = torch.empty((256,), device="cuda:0")
     with pytest.raises(ValueError, match=r"Search space is empty"):
         exhaustive_search(
             [],
@@ -125,7 +125,7 @@ def test_empty_search_space_raises():
 
 # ========== Test error skips bad configs ==========
 def test_skips_failed_configs(monkeypatch):
-    x = torch.empty((256,), device="cuda")
+    x = torch.empty((256,), device="cuda:0")
 
     failures = {
         64: TileCompilerTimeoutError("simulated timeout", "", None),
@@ -168,7 +168,7 @@ def test_skips_failed_configs(monkeypatch):
 
 # ========== Test all configs fail ==========
 def test_all_configs_fail_raises(monkeypatch):
-    x = torch.empty((256,), device="cuda")
+    x = torch.empty((256,), device="cuda:0")
 
     def fake_benchmark(*args, **kwargs):
         raise TileCompilerTimeoutError("always fails", "", None)
@@ -198,7 +198,7 @@ def inplace_kernel(x, TILE_SIZE: ct.Constant[int]):
 
 
 def test_inplace_plus_one():
-    x = torch.ones((1024,), device="cuda")
+    x = torch.ones((1024,), device="cuda:0")
     original_x = x.clone()
 
     result = exhaustive_search(
@@ -229,8 +229,8 @@ def add_arrays(arrays, out):
 
 
 def test_tune_list_of_arrays():
-    arrays = [torch.ones(16, 16, dtype=torch.int32, device="cuda") for _ in range(3)]
-    out = torch.zeros(16, 16, dtype=torch.int32, device="cuda")
+    arrays = [torch.ones(16, 16, dtype=torch.int32, device="cuda:0") for _ in range(3)]
+    out = torch.zeros(16, 16, dtype=torch.int32, device="cuda:0")
 
     result = exhaustive_search(
         [1],
@@ -244,8 +244,8 @@ def test_tune_list_of_arrays():
 
 
 def test_tune_list_of_arrays_ipc(monkeypatch):
-    arrays = [torch.ones(16, 16, dtype=torch.int32, device="cuda") for _ in range(3)]
-    out = torch.zeros(16, 16, dtype=torch.int32, device="cuda")
+    arrays = [torch.ones(16, 16, dtype=torch.int32, device="cuda:0") for _ in range(3)]
+    out = torch.zeros(16, 16, dtype=torch.int32, device="cuda:0")
 
     monkeypatch.setattr(
         tune_utils, "_benchmark",
@@ -281,8 +281,8 @@ def test_ipc_tune_handles_launch_timeout(monkeypatch):
         grid_fn=lambda cfg: (1,),
         kernel=conditional_dead_loop_kernel,
         args_fn=lambda cfg: (
-            torch.full((tile_size,), cfg, dtype=torch.int32, device="cuda"),
-            torch.zeros((tile_size,), dtype=torch.int32, device="cuda"),
+            torch.full((tile_size,), cfg, dtype=torch.int32, device="cuda:0"),
+            torch.zeros((tile_size,), dtype=torch.int32, device="cuda:0"),
             tile_size),
         single_run_timeout_sec=single_run_timeout_sec,
     )
@@ -296,7 +296,7 @@ def test_ipc_tune_handles_launch_timeout(monkeypatch):
 
 
 def test_timeout_disabled_runs_without_subprocess(monkeypatch):
-    x = torch.empty((1,), device="cuda")
+    x = torch.empty((1,), device="cuda:0")
     search_space = [1, 2, 3]
 
     monkeypatch.setattr(
@@ -329,7 +329,7 @@ def test_ipc_export_none_falls_back(monkeypatch):
 
 
 def test_ipc_skip_cache_and_recompile_kernel(monkeypatch):
-    x = torch.arange(16, dtype=torch.float32, device="cuda")
+    x = torch.arange(16, dtype=torch.float32, device="cuda:0")
     out = torch.empty_like(x)
     stream = torch.cuda.current_stream()
     ct.launch(stream, (1,), copy_kernel, (x, out, 16))
@@ -385,7 +385,7 @@ def make_fill_kernel(cfg):
 
 def test_kernel_generated_per_config():
     search_space = [0, 1, 2]
-    outs = {cfg: torch.zeros((16,), dtype=torch.int32, device="cuda")
+    outs = {cfg: torch.zeros((16,), dtype=torch.int32, device="cuda:0")
             for cfg in search_space}
 
     result = exhaustive_search(

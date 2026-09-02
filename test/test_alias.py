@@ -72,8 +72,8 @@ def helper_alias(X, Y, n: int, TILE: ct.Constant[int]):
 )
 def test_alias(kernel):
     tile = 256
-    X = torch.zeros((tile,), dtype=torch.float32, device='cuda')
+    X = torch.zeros((tile,), dtype=torch.float32, device='cuda:0')
     Y = torch.zeros_like(X)
-    expected_Y = torch.full((tile,), 3, dtype=torch.float32, device='cuda')
+    expected_Y = torch.full((tile,), 3, dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), ct.kernel(kernel), (X, Y, 1, tile))
     torch.testing.assert_close(Y, expected_Y)

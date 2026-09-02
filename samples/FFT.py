@@ -360,7 +360,7 @@ if __name__ == "__main__":
     # Generate a random input tensor of complex64 numbers, placed on the CUDA device.
     # `torch.manual_seed(0)` ensures reproducibility of the random numbers.
     torch.manual_seed(0)
-    input_data_complex = torch.randn(BATCH_SIZE, FFT_SIZE, dtype=torch.complex64, device='cuda')
+    input_data_complex = torch.randn(BATCH_SIZE, FFT_SIZE, dtype=torch.complex64, device='cuda:0')
 
     print("  Configuration:")
     print(f"  FFT Size (N): {FFT_SIZE}")

@@ -59,7 +59,7 @@ def test_ir2mlir_branch():
             x = 10.0
         res[0] = x
 
-    res = torch.zeros(1, dtype=torch.float32, device="cuda")
+    res = torch.zeros(1, dtype=torch.float32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (True, res))
     assert res[0] == 5.0
 

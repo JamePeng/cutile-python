@@ -569,13 +569,13 @@ def prepare_tensors(
         return (
             torch.empty((rows, columns), dtype=torch.int32)
             .random_(-2, 2)
-            .to(device="cuda", dtype=torch_dtype)
+            .to(device="cuda:0", dtype=torch_dtype)
         )
 
     return {
         "a": make(m, k),
         "b": make(n, k),
-        "c": torch.empty((m, n), device="cuda", dtype=torch_dtype),
+        "c": torch.empty((m, n), device="cuda:0", dtype=torch_dtype),
     }
 
 

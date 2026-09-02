@@ -45,7 +45,7 @@ def test_tiled_view_copy_1d(shape, tile_size, dtype, allow_tma):
         tv_y = y.tiled_view(TILE)
         tv_y.store(bid, tv_x.load(bid, allow_tma=allow_tma), allow_tma=allow_tma)
 
-    x = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
     y = torch.zeros_like(x)
     shape = shape[0] if isinstance(shape, tuple) else shape
     grid = (ct.cdiv(shape, tile_size),)
@@ -74,12 +74,12 @@ def test_tiled_view_copy_2d(shape, tile_size, dtype, noncontiguous):
             tv_n.store(0, nt1)
             tv_n.store(1, nt2)
 
-    x = make_tensor(shape, dtype=dtype, device='cuda', noncontiguous=noncontiguous)
+    x = make_tensor(shape, dtype=dtype, device='cuda:0', noncontiguous=noncontiguous)
     y = torch.zeros_like(x)
-    n = torch.zeros(len(shape), dtype=torch.int32, device='cuda')
+    n = torch.zeros(len(shape), dtype=torch.int32, device='cuda:0')
     ref_n = torch.tensor([ct.cdiv(shape[0], tile_size[0]), ct.cdiv(shape[1], tile_size[1])],
                          dtype=torch.int32,
-                         device='cuda')
+                         device='cuda:0')
 
     grid = (ct.cdiv(shape[0], tile_size[0]), ct.cdiv(shape[1], tile_size[1]))
     ct.launch(torch.cuda.current_stream(), grid, kernel, (x, y, n, tile_size[0], tile_size[1]))
@@ -110,8 +110,8 @@ def test_tiled_view_padding_mode(padding_mode):
         tile = tv.load(1)
         ct.store(z, 0, tile=tile)
 
-    x = make_tensor((100,), dtype=torch.float32, device='cuda')
-    z = torch.zeros(1, dtype=torch.float32, device='cuda')
+    x = make_tensor((100,), dtype=torch.float32, device='cuda:0')
+    z = torch.zeros(1, dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, z, 128))
 
     if padding_mode == ct.PaddingMode.NAN:
@@ -126,7 +126,7 @@ def test_tiled_view_rank_mismatch(tile_size):
     def kernel(x):
         x.tiled_view(tile_size)
 
-    x = torch.zeros(16, dtype=torch.float32, device='cuda')
+    x = torch.zeros(16, dtype=torch.float32, device='cuda:0')
     with pytest.raises(TileTypeError, match=f"Expected shape length to be 1, got {len(tile_size)}"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -137,8 +137,8 @@ def test_store_tile_shape_mismatch():
         wrong_tile = ct.load(x, 0, (TILE * 2,))
         y.tiled_view(TILE).store(0, wrong_tile)
 
-    x = torch.zeros(16, dtype=torch.float32, device='cuda')
-    y = torch.zeros(16, dtype=torch.float32, device='cuda')
+    x = torch.zeros(16, dtype=torch.float32, device='cuda:0')
+    y = torch.zeros(16, dtype=torch.float32, device='cuda:0')
     match = r"Tile shape \(8,\) is not broadcastable to the tiled view's tile shape \(4,\)"
     with pytest.raises(TileTypeError, match=match):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 4))
@@ -157,8 +157,8 @@ def test_tiled_view_store_broadcast(src_shape, dst_shape):
         y.tiled_view(dst_shape).store((0, 0), tile)
 
     x_shape = src_shape if len(src_shape) > 0 else (1, 1)
-    x = make_tensor(x_shape, dtype=torch.float32, device='cuda')
-    y = torch.zeros(dst_shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(x_shape, dtype=torch.float32, device='cuda:0')
+    y = torch.zeros(dst_shape, dtype=torch.float32, device='cuda:0')
     ref = torch.broadcast_to(x, dst_shape)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
     assert_equal(y, ref)
@@ -172,8 +172,8 @@ def test_tiled_view_ifelse_result(use_x):
         for i in range(tv.num_tiles(0)):
             z.tiled_view(TILE).store(i, tv.load(i))
 
-    x = make_tensor((128,), dtype=torch.float32, device='cuda')
-    y = make_tensor((128,), dtype=torch.float32, device='cuda')
+    x = make_tensor((128,), dtype=torch.float32, device='cuda:0')
+    y = make_tensor((128,), dtype=torch.float32, device='cuda:0')
     z = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, z, 64, use_x))
     assert_equal(z, x if use_x else y)
@@ -188,9 +188,9 @@ def test_tiled_view_loop_carried():
             tv_z.store(i, tv.load(0))
             tv = y.tiled_view(TILE)
 
-    x = make_tensor((128,), dtype=torch.float32, device='cuda')
-    y = make_tensor((128,), dtype=torch.float32, device='cuda')
-    z = torch.zeros((256,), dtype=torch.float32, device='cuda')
+    x = make_tensor((128,), dtype=torch.float32, device='cuda:0')
+    y = make_tensor((128,), dtype=torch.float32, device='cuda:0')
+    z = torch.zeros((256,), dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, z, 128))
     ref_z = torch.cat((x, y))
     assert_equal(z, ref_z)
@@ -205,7 +205,7 @@ def test_tiled_view_ifelse_type_mismatch():
             tv = x.tiled_view(TILE_B)
         tv.store(0, ct.full(TILE_A, 1.0, ct.float32))
 
-    x = torch.zeros(128, dtype=torch.float32, device='cuda')
+    x = torch.zeros(128, dtype=torch.float32, device='cuda:0')
     with pytest.raises(TileTypeError, match="depends on path taken"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, True, 64, 32))
 
@@ -224,7 +224,7 @@ def test_tiled_view_helper_func():
         for i in range(tv_x.num_tiles(0)):
             copy_tile(tv_x, tv_y, i)
 
-    x = make_tensor((128,), dtype=torch.float32, device='cuda')
+    x = make_tensor((128,), dtype=torch.float32, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 64))
     assert_equal(y, x)
@@ -247,7 +247,7 @@ def test_tiled_view_closure():
         for i in range(tv_x.num_tiles(0)):
             func(i)
 
-    x = make_tensor((128,), dtype=torch.float32, device='cuda')
+    x = make_tensor((128,), dtype=torch.float32, device='cuda:0')
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y, 64))
     assert_equal(y, x)
@@ -272,7 +272,7 @@ def test_tiled_view_traversal_steps_parity():
         for i in range(tv_x.num_tiles(0)):
             tv_y.store(i, tv_x.load(i))
 
-    x = make_tensor((128,), dtype=torch.float32, device='cuda')
+    x = make_tensor((128,), dtype=torch.float32, device='cuda:0')
     y_default = torch.zeros_like(x)
     y_explicit = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), kernel_default, (x, y_default, 64))
@@ -296,10 +296,10 @@ def test_tiled_view_traversal_steps_sliding_window(tile_size, step, n, dtype):
         for i in range(tv.num_tiles(0)):
             tv_out.store(i, tv.load(i))
 
-    x = make_tensor(n, dtype=dtype, device='cuda')
-    out = torch.zeros(n, dtype=dtype, device='cuda')
+    x = make_tensor(n, dtype=dtype, device='cuda:0')
+    out = torch.zeros(n, dtype=dtype, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, out, tile_size, step))
-    ref = torch.zeros(n, dtype=dtype, device='cuda')
+    ref = torch.zeros(n, dtype=dtype, device='cuda:0')
     for start in range(0, n, step):
         ref[start:start + tile_size] = x[start:start + tile_size]
     assert_equal(out, ref)
@@ -324,10 +324,10 @@ def test_tiled_view_2d_conv_no_padding():
                 tile = tv.load((i, j))
                 out_tv.store(i * OUT_W + j, ct.sum(tile))
 
-    x = make_tensor((H, W), dtype=torch.int32, device='cuda', low=0, high=10)
+    x = make_tensor((H, W), dtype=torch.int32, device='cuda:0', low=0, high=10)
     out_h = (H - KH) // SH + 1
     out_w = (W - KW) // SW + 1
-    out = torch.zeros(out_h * out_w, dtype=torch.int32, device='cuda')
+    out = torch.zeros(out_h * out_w, dtype=torch.int32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel,
               (x, out, KH, KW, SH, SW, out_h, out_w))
     ref = x.unfold(0, KH, SH).unfold(1, KW, SW).sum(dim=(-2, -1)).flatten().to(torch.int32)
@@ -347,8 +347,8 @@ def test_tiled_view_traversal_steps_num_tiles():
     N = 16
     TILE = 4
     STEP = 2
-    x = torch.zeros(N, dtype=torch.float32, device='cuda')
-    out = torch.zeros(1, dtype=torch.float32, device='cuda')
+    x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
+    out = torch.zeros(1, dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, out, TILE, STEP))
     assert out[0].item() == ct.cdiv(N, STEP)
 
@@ -372,8 +372,8 @@ def test_tiled_view_0d_tile_with_traversal_steps(step_h, step_w):
             for j in range(NUM_W):
                 out_tv.store(i * NUM_W + j, tv.load((i, j)))
 
-    x = torch.arange(H * W, dtype=torch.float32, device='cuda').reshape(H, W)
-    out = torch.zeros(NUM_H * NUM_W, dtype=torch.float32, device='cuda')
+    x = torch.arange(H * W, dtype=torch.float32, device='cuda:0').reshape(H, W)
+    out = torch.zeros(NUM_H * NUM_W, dtype=torch.float32, device='cuda:0')
     ct.launch(torch.cuda.current_stream(), (1,), kernel,
               (x, out, step_h, step_w, NUM_H, NUM_W))
     assert_equal(out, x[::step_h, ::step_w].flatten().to(torch.float32))
@@ -390,7 +390,7 @@ def test_tiled_view_traversal_steps_version_error(array_shape, tile_shape, trave
     def kernel(x):
         x.tiled_view(tile_shape, traversal_steps=traversal_steps)
 
-    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda')
+    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda:0')
     cconv = CallingConvention.cutile_python_v1()
     sig = KernelSignature.from_kernel_args(kernel, (x,), cconv)
     with patch('cuda.tile._compile._get_max_supported_bytecode_version',
@@ -411,7 +411,7 @@ def test_tiled_view_traversal_steps_rank_mismatch(array_shape, tile_shape, trave
     def kernel(x):
         x.tiled_view(tile_shape, traversal_steps=traversal_steps)
 
-    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda')
+    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda:0')
     ndim = len(array_shape)
     with pytest.raises(TileTypeError,
                        match=f"Expected traversal_steps length to be {ndim},"
@@ -433,7 +433,7 @@ def test_tiled_view_non_positive_traversal_steps(traversal_steps):
     def kernel(x):
         x.tiled_view(tile_shape, traversal_steps=traversal_steps)
 
-    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda')
+    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda:0')
     with pytest.raises(TileTypeError, match="of traversal_steps .* is not positive"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x,))
 
@@ -455,7 +455,7 @@ def test_tiled_view_traversal_steps_property(array_shape, tile_shape, traversal_
         tv_traversal_steps = tv.traversal_steps
         ct.static_assert(tv_traversal_steps == expected_steps)
 
-    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda')
+    x = torch.zeros(array_shape, dtype=torch.float32, device='cuda:0')
     grid = (1,) * len(array_shape)
     ct.launch(torch.cuda.current_stream(), grid, kernel, (x,))
 
@@ -473,7 +473,7 @@ def test_tiled_view_check_bounds():
 
     shape = (64, 64)
     tile = 32
-    x = make_tensor(shape, dtype=torch.float32, device="cuda")
+    x = make_tensor(shape, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (shape[0] // tile, shape[1] // tile, 1)
     bytecode = get_bytecode(tiled_view_no_check_bounds, (x, y, tile))
@@ -498,7 +498,7 @@ def test_tiled_view_check_bounds_with_traversal_steps():
         tv_y.store((ct.bid(0),), tx, check_bounds=False)
 
     tile, step, size = 2, 4, 4
-    x = make_tensor((size,), dtype=torch.float32, device="cuda")
+    x = make_tensor((size,), dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     bytecode = get_bytecode(tiled_view_no_check_bounds, (x, y, tile, step))
     wildcard = "{{.*}}"
@@ -576,8 +576,8 @@ def test_tiled_view_atomic(atomic_op, x_dtype, y_dtype):
     shape = (200, 256)
     tile_size = (128, 128)
     get_tv_method, torch_op, supported_dtypes = tv_atomic_configs[atomic_op]
-    x = make_tensor(shape, dtype=x_dtype, device='cuda')
-    y = make_tensor(shape, dtype=y_dtype, device='cuda')
+    x = make_tensor(shape, dtype=x_dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=y_dtype, device='cuda:0')
     ref_x = x.clone()
     kernel = make_tv_atomic_kernel(get_tv_method, None)
 
@@ -613,8 +613,8 @@ def test_tiled_view_atomic(atomic_op, x_dtype, y_dtype):
 def test_tiled_view_atomic_traversal_steps(atomic_op, shape, tile_size, traversal_steps):
     dtype = torch.int32
     get_tv_method, torch_op, _ = tv_atomic_configs[atomic_op]
-    x = make_tensor(shape, dtype=dtype, device='cuda')
-    y = make_tensor(shape, dtype=dtype, device='cuda')
+    x = make_tensor(shape, dtype=dtype, device='cuda:0')
+    y = make_tensor(shape, dtype=dtype, device='cuda:0')
     ref_x = x.clone()
     kernel = make_tv_atomic_kernel(get_tv_method, traversal_steps)
     ref_fn = ref_atomic_bitwise if atomic_op.is_bitwise() else ref_atomic_arith
@@ -642,8 +642,8 @@ def test_tiled_view_atomic_broadcast(tile_size, update_size):
         tv_x.atomic_store_add((0, 0), update)
 
     y_shape = update_size if len(update_size) > 0 else (1, 1)
-    x = make_tensor(tile_size, dtype=torch.float32, device='cuda')
-    y = make_tensor(y_shape, dtype=torch.float32, device='cuda')
+    x = make_tensor(tile_size, dtype=torch.float32, device='cuda:0')
+    y = make_tensor(y_shape, dtype=torch.float32, device='cuda:0')
     ref = x + torch.broadcast_to(y, tile_size)
 
     ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))
@@ -658,8 +658,8 @@ def test_tiled_view_atomic_shape_mismatch():
         update = y.tiled_view(8).load(0)
         tv_x.atomic_store_add(0, update)
 
-    x = torch.zeros((16,), dtype=torch.float32, device='cuda')
-    y = torch.zeros((8,), dtype=torch.float32, device='cuda')
+    x = torch.zeros((16,), dtype=torch.float32, device='cuda:0')
+    y = torch.zeros((8,), dtype=torch.float32, device='cuda:0')
 
     with pytest.raises(TileTypeError, match=r"Update shape \(8,\) is not broadcastable"):
         ct.launch(torch.cuda.current_stream(), (1,), kernel, (x, y))

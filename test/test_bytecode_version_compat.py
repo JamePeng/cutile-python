@@ -22,7 +22,7 @@ def compile_with_version(kernel, args, version: str):
 
 
 def tensor(dtype=torch.float32):
-    return torch.zeros(64, dtype=dtype, device='cuda')
+    return torch.zeros(64, dtype=dtype, device='cuda:0')
 
 
 def test_atan2_requires_13_2():

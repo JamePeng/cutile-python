@@ -24,7 +24,7 @@ def dtype(request):
 
 def _run_transpose_benchmark(shape, dtype, backend, benchmark, atol=1e-3, rtol=1e-3):
     m, n = shape
-    A = torch.rand((m, n), dtype=dtype, device="cuda")
+    A = torch.rand((m, n), dtype=dtype, device="cuda:0")
     B = torch.zeros((n, m), dtype=dtype, device=A.device)
 
     backend(A, B)
@@ -60,7 +60,7 @@ def bench_transpose(shape, dtype, backend, benchmark):
 def tune_transpose():
     m, n = (2048, 2028)
     dtype = torch.float16
-    A = torch.rand((m, n), dtype=dtype, device="cuda")
+    A = torch.rand((m, n), dtype=dtype, device="cuda:0")
     B = torch.zeros((n, m), dtype=dtype, device=A.device)
     search_space = [
         {"tm": tm, "tn": tn}

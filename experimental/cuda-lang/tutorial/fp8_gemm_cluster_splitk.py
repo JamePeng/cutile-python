@@ -770,20 +770,20 @@ def prepare_tensors(m: int, n: int, k: int, batch: int):
     torch.manual_seed(1111)
     a = (
         torch.randint(
-            -3, 4, (batch, m, k), dtype=torch.float32, device="cuda"
+            -3, 4, (batch, m, k), dtype=torch.float32, device="cuda:0"
         )
         .to(torch.float8_e4m3fn)
         .permute(2, 1, 0)
     )
     b = (
         torch.randint(
-            -3, 4, (batch, n, k), dtype=torch.float32, device="cuda"
+            -3, 4, (batch, n, k), dtype=torch.float32, device="cuda:0"
         )
         .to(torch.float8_e4m3fn)
         .permute(2, 1, 0)
     )
     c = torch.zeros(
-        (batch, n, m), dtype=torch.float8_e4m3fn, device="cuda"
+        (batch, n, m), dtype=torch.float8_e4m3fn, device="cuda:0"
     ).permute(2, 1, 0)
     return {"a": a, "b": b, "c": c}
 

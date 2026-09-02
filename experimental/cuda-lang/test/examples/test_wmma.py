@@ -533,19 +533,19 @@ def make_matrix(shape, dtype, generator):
     torch_dtype = CL2TORCH[dtype]
     if dtype is cl.uint8:
         return torch.randint(
-            0, 17, shape, generator=generator, dtype=torch_dtype, device="cuda"
+            0, 17, shape, generator=generator, dtype=torch_dtype, device="cuda:0"
         )
     if dtype in (cl.int8, cl.int32):
         return torch.randint(
-            -8, 9, shape, generator=generator, dtype=torch_dtype, device="cuda"
+            -8, 9, shape, generator=generator, dtype=torch_dtype, device="cuda:0"
         )
-    values = torch.rand(shape, generator=generator, dtype=torch.float32, device="cuda")
+    values = torch.rand(shape, generator=generator, dtype=torch.float32, device="cuda:0")
     return (values * 4.0 - 2.0).to(torch_dtype)
 
 
 @pytest.mark.parametrize("case", TEST_CASES, ids=str)
 def test_wmma(case):
-    generator = torch.Generator(device="cuda").manual_seed(1234)
+    generator = torch.Generator(device="cuda:0").manual_seed(1234)
     m_global, n_global, k_global = case.global_shape
 
     a_shape = (
@@ -570,7 +570,7 @@ def test_wmma(case):
     d = torch.zeros(
         acc_shape,
         dtype=CL2TORCH[case.acc_dtype],
-        device="cuda",
+        device="cuda:0",
     )
 
     gemm = WmmaGemm(case, a, b, c, d)

@@ -27,7 +27,7 @@ def copy_via_raw_array_memory_1d(x, y, TILE: ct.Constant[int]):
 @pytest.mark.parametrize("tile", [64, 128])
 @pytest.mark.parametrize("dtype", float_dtypes + int_dtypes, ids=dtype_id)
 def test_copy_via_raw_array_memory_1d(shape, tile, dtype):
-    x = make_tensor(shape, dtype=dtype, device="cuda")
+    x = make_tensor(shape, dtype=dtype, device="cuda:0")
     y = torch.zeros_like(x)
     grid = (ceil(shape[0] / tile), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, copy_via_raw_array_memory_1d, (x, y, tile))
@@ -44,7 +44,7 @@ def scalar_load_store_via_raw_array_memory(x, y):
 
 
 def test_scalar_load_store_via_get_raw_memory():
-    x = torch.full((1,), 42.0, dtype=torch.float32, device="cuda")
+    x = torch.full((1,), 42.0, dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), scalar_load_store_via_raw_array_memory, (x, y))
     assert y.cpu().item() == 42.0
@@ -62,11 +62,11 @@ def load_offset_with_padding_value(x, y, pad_val: ct.Constant[float]):
 
 
 def test_load_offset_with_padding_value():
-    x = torch.arange(100, 108, dtype=torch.float32, device="cuda")
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.arange(100, 108, dtype=torch.float32, device="cuda:0")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     pad_val = -1.0
     ct.launch(torch.cuda.current_stream(), (1,), load_offset_with_padding_value, (x, y, pad_val))
-    expected = torch.cat([x[:5], torch.full((3,), pad_val, dtype=torch.float32, device="cuda")])
+    expected = torch.cat([x[:5], torch.full((3,), pad_val, dtype=torch.float32, device="cuda:0")])
     assert_equal(y, expected)
 
 
@@ -82,7 +82,7 @@ def load_store_offset_with_latency(x, y, TILE: ct.Constant[int]):
 
 
 def test_load_store_offset_with_latency():
-    x = make_tensor((64,), dtype=torch.float32, device="cuda")
+    x = make_tensor((64,), dtype=torch.float32, device="cuda:0")
     y = torch.zeros_like(x)
     ct.launch(torch.cuda.current_stream(), (1,), load_store_offset_with_latency, (x, y, 64))
     assert_equal(x, y)
@@ -114,13 +114,13 @@ def test_2d_sparse_load_offset_vs_gather_scatter():
     cols = [0, 3, 1, 4, 7, 2, 5, 6]
     n = len(rows)
 
-    x = make_tensor((M, N), dtype=torch.float32, device="cuda")
+    x = make_tensor((M, N), dtype=torch.float32, device="cuda:0")
     y_gather = torch.zeros_like(x)
     y_offsets = torch.zeros_like(x)
 
     # Logical indices for gather/scatter
-    row_idx = torch.tensor(rows, dtype=torch.int64, device="cuda")
-    col_idx = torch.tensor(cols, dtype=torch.int64, device="cuda")
+    row_idx = torch.tensor(rows, dtype=torch.int64, device="cuda:0")
+    col_idx = torch.tensor(cols, dtype=torch.int64, device="cuda:0")
 
     ct.launch(
         torch.cuda.current_stream(), (1,),
@@ -130,7 +130,7 @@ def test_2d_sparse_load_offset_vs_gather_scatter():
 
     # Element memory offsets (row-major: offset = row * N + col)
     offsets = [r * N + c for r, c in zip(rows, cols)]
-    off_tensor = torch.tensor(offsets, dtype=torch.int64, device="cuda")
+    off_tensor = torch.tensor(offsets, dtype=torch.int64, device="cuda:0")
 
     ct.launch(
         torch.cuda.current_stream(), (1,),
@@ -154,8 +154,8 @@ def test_load_offset_broadcast_padding_value_scalar():
         t = mem_in.load_offset(offsets, padding_value=pad)
         mem_out.store_offset(offsets, t)
 
-    x = torch.arange(100, 108, dtype=torch.float32, device="cuda")
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.arange(100, 108, dtype=torch.float32, device="cuda:0")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), load_offset_scalar_padding, (x, y))
     assert_equal(x, y)
 
@@ -169,9 +169,9 @@ def test_store_offset_broadcast_value_scalar():
         offsets = ct.arange(8, dtype=ct.int64)
         mem_out.store_offset(offsets, 7.0)
 
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), store_offset_scalar_value, (y,))
-    expected = torch.full((8,), 7.0, dtype=torch.float32, device="cuda")
+    expected = torch.full((8,), 7.0, dtype=torch.float32, device="cuda:0")
     assert_equal(y, expected)
 
 
@@ -185,7 +185,7 @@ def test_store_offset_value_broadcasts_to_offset_shape():
         value_4x1 = ct.full((4, 1), fill_val, dtype=ct.float32)
         mem_out.store_offset(offsets, value_4x1)
 
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     ct.launch(
         torch.cuda.current_stream(), (1,),
         store_offset_value_shape_4x1_offset_4x2,
@@ -206,8 +206,8 @@ def test_load_offset_broadcast_mask():
         t = mem_in.load_offset(offsets, mask=mask, padding_value=0.0)
         mem_out.store_offset(offsets, t)
 
-    x = torch.arange(100, 108, dtype=torch.float32, device="cuda")
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    x = torch.arange(100, 108, dtype=torch.float32, device="cuda:0")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), load_offset_mask_shape_1, (x, y))
     assert_equal(x, y)
 
@@ -223,7 +223,7 @@ def test_no_offset_to_value_broadcasting():
         value_8 = ct.arange(8, dtype=ct.float32)
         mem_out.store_offset(offsets_1, value_8)
 
-    y = torch.zeros(8, dtype=torch.float32, device="cuda")
+    y = torch.zeros(8, dtype=torch.float32, device="cuda:0")
     with pytest.raises(ct.TileTypeError, match="broadcastable"):
         ct.launch(
             torch.cuda.current_stream(), (1,),
@@ -267,7 +267,7 @@ def test_interleave_load_store_gather_scatter_offset_ordering():
     """Interleaving ct.load/ct.store, gather/scatter, load_offset/store_offset on same array.
     Verifies token/ordering is correct: each read sees the preceding writes.
     """
-    a = torch.zeros(16, dtype=torch.float32, device="cuda")
+    a = torch.zeros(16, dtype=torch.float32, device="cuda:0")
     ct.launch(
         torch.cuda.current_stream(), (1,),
         interleave_load_store_gather_scatter_offset,
@@ -303,5 +303,5 @@ def test_raw_array_memory_dtype(dtype):
         mem_dtype = mem.dtype
         ct.static_assert(mem_dtype == x.dtype)
 
-    x = make_tensor((4,), dtype=dtype, device="cuda")
+    x = make_tensor((4,), dtype=dtype, device="cuda:0")
     ct.launch(torch.cuda.current_stream(), (1,), check_raw_dtype, (x,))
