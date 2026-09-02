@@ -170,6 +170,12 @@ from ._stub.core_api import (
     assert_,
     clock,
 )
+from ._stub.pointer import (
+    load,
+    store,
+    atomic_load,
+    atomic_store,
+)
 from cuda.tile._stub import (
     Constant,
     static_eval,
@@ -512,4 +518,8 @@ __all__ = (
     "MatrixStoreShape",
     "_debug",
     "clock",
+    "load",
+    "store",
+    "atomic_load",
+    "atomic_store",
 )

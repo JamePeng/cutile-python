@@ -14,6 +14,25 @@ from cuda.lang._exception import TypeCheckingError, InvalidValueError
 from cuda.lang.compilation import KernelSignature, ScalarConstraint
 
 
+def test_load_store_vector_free_functions():
+    @cl.kernel
+    def kernel(inp_1, inp_2, out_1, out_2):
+        vector_1 = inp_1.get_base_pointer().load(count=4, alignment=16)
+        out_1.get_base_pointer().store(vector_1, alignment=16)
+
+        vector_2 = cl.load(inp_2.get_base_pointer(), count=4, alignment=16)
+        cl.store(out_2.get_base_pointer(), vector_2, alignment=16)
+
+    inp_1 = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float32).cuda()
+    out_1 = torch.zeros((4,), dtype=torch.float32).cuda()
+    inp_2 = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float32).cuda()
+    out_2 = torch.zeros((4,), dtype=torch.float32).cuda()
+
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (inp_1, inp_2, out_1, out_2))
+    assert out_1.cpu().tolist() == [1.0, 2.0, 3.0, 4.0]
+    assert out_2.cpu().tolist() == [1.0, 2.0, 3.0, 4.0]
+
+
 @pytest.mark.parametrize("element_count", [2, 4, 8])
 @pytest.mark.parametrize(
     "dtype",

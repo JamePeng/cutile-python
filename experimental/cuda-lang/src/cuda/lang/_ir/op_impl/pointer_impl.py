@@ -62,6 +62,7 @@ from cuda.tile._ir.ops import PointerOffset
 from ..._stub import core_api
 from ..._stub.core_api import Array
 from ..._stub.types import Pointer
+from ..._stub import pointer as pointer_api
 
 
 _registry = ImplRegistry()
@@ -261,6 +262,7 @@ def array_setitem(object: Var, key: Var, value: Var):
     )
 
 
+@impl(pointer_api.load)
 def pointer_load(
     pointer: Var,
     count: Var,
@@ -281,6 +283,7 @@ def pointer_load(
     )
 
 
+@impl(pointer_api.store)
 def pointer_store(
     pointer: Var,
     value: Var,
@@ -334,6 +337,7 @@ def require_atomic_mmio(
     return True
 
 
+@impl(pointer_api.atomic_load)
 def pointer_atomic_load(
     pointer: Var,
     memory_order: Var,
@@ -368,6 +372,7 @@ def pointer_atomic_load(
     )
 
 
+@impl(pointer_api.atomic_store)
 def pointer_atomic_store(
     pointer: Var,
     value: Var,
@@ -449,47 +454,6 @@ def getattr_pointer_method(object: Var, name: Var):
     name = require_constant_str(name)
     unbound_func = getattr(Pointer, name)
     return bind_method(object, unbound_func)
-
-
-@impl(Pointer.load)
-def pointer_load_impl(
-    self: Var,
-    count: Var,
-    alignment: Var,
-) -> Var:
-    return pointer_load(self, count, alignment)
-
-
-@impl(Pointer.store)
-def pointer_store_impl(
-    self: Var,
-    value: Var,
-    alignment: Var,
-) -> None:
-    pointer_store(self, value, alignment)
-
-
-@impl(Pointer.atomic_load)
-def pointer_atomic_load_impl(
-    self: Var,
-    memory_order: Var,
-    memory_scope: Var,
-    mmio: Var,
-    alignment: Var,
-) -> Var:
-    return pointer_atomic_load(self, memory_order, memory_scope, mmio, alignment)
-
-
-@impl(Pointer.atomic_store)
-def pointer_atomic_store_impl(
-    self: Var,
-    value: Var,
-    memory_order: Var,
-    memory_scope: Var,
-    mmio: Var,
-    alignment: Var,
-) -> None:
-    pointer_atomic_store(self, value, memory_order, memory_scope, mmio, alignment)
 
 
 @impl(core_api.address_space_cast)

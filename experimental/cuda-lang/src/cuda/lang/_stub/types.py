@@ -10,6 +10,7 @@ from cuda.lang._enums import MemoryOrder
 from cuda.tile._memory_model import MemoryScope, MemorySpace
 from .._enums import VectorReduction
 from .._stub import math as cl_math
+from .._stub import pointer as pointer_api
 
 
 T = TypeVar("T")
@@ -264,7 +265,6 @@ class Pointer(Generic[T]):
             value: Value to store.
         """
 
-    @stub
     def load(
         self,
         *,
@@ -285,8 +285,8 @@ class Pointer(Generic[T]):
                 have this alignment. If the value is ``None``, the compiler
                 does not get an alignment hint.
         """
+        return pointer_api.load(self, count=count, alignment=alignment)
 
-    @stub
     def store(
         self,
         value: T | Vector[T],
@@ -306,8 +306,8 @@ class Pointer(Generic[T]):
                 have this alignment. If the value is ``None``, the compiler
                 does not get an alignment hint.
         """
+        return pointer_api.store(self, value, alignment=alignment)
 
-    @stub
     def atomic_load(
         self,
         *,
@@ -333,8 +333,10 @@ class Pointer(Generic[T]):
                 have at least this alignment. If the value is ``None``, the
                 natural alignment of the pointee data type is used.
         """
+        return pointer_api.atomic_load(self,
+                                       memory_order=memory_order, memory_scope=memory_scope,
+                                       mmio=mmio, alignment=alignment)
 
-    @stub
     def atomic_store(
         self,
         value: T,
@@ -363,6 +365,9 @@ class Pointer(Generic[T]):
                 have at least this alignment. If the value is ``None``, the
                 natural alignment of the pointee data type is used.
         """
+        return pointer_api.atomic_store(self, value,
+                                        memory_order=memory_order, memory_scope=memory_scope,
+                                        mmio=mmio, alignment=alignment)
 
     @property
     @stub

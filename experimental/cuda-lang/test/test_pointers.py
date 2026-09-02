@@ -304,6 +304,19 @@ def test_observe_atomic_load_store():
     assert result.cpu().tolist() == [42, 43]
 
 
+def test_observe_atomic_load_store_free_functions():
+    @cl.kernel
+    def kernel(result):
+        first = result.get_element_pointer(0)
+        second = result.get_element_pointer(1)
+        cl.atomic_store(first, cl.int32(42))
+        cl.atomic_store(second, cl.atomic_load(first) + cl.int32(1))
+
+    result = torch.zeros(2, dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (result,))
+    assert result.cpu().tolist() == [42, 43]
+
+
 @pytest.mark.parametrize(
     "method,memory_order",
     (

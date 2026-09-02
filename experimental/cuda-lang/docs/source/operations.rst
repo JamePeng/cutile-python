@@ -39,6 +39,8 @@ Pointer Utilities
    :toctree: generated
    :nosignatures:
 
+   load
+   store
    is_pointer_dtype
    pointer_dtype
    opaque_pointer_dtype
@@ -108,6 +110,9 @@ Atomics
 .. autosummary::
    :toctree: generated
    :nosignatures:
+
+    atomic_load
+    atomic_store
 
     atomic_add
     atomic_sub
