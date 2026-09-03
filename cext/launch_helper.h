@@ -48,7 +48,7 @@ struct LaunchHelper {
     Vec<int64_t> constants;
     Vec<PyObject*> identity_constants;
     CUcontext cuda_context;
-    bool can_specialize_for_shape;
+    bool can_specialize_for_shape = true;
     LaunchHelper* next_free;
 
     LaunchHelper()

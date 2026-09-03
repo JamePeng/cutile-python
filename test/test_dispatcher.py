@@ -94,6 +94,19 @@ def test_multi_launch_single_compile():
             assert mock_compile_tile.call_count == 1
 
 
+def test_multi_launch_single_compile_shape_one_specialization():
+    shape = (1,)
+    tile = 1
+    with patch(
+        'cuda.tile._compile.compile_tile',
+        side_effect=cuda.tile._compile.compile_tile
+    ) as mock_compile_tile:
+        with clear_kernel_cache(array_inc_1d) as kernel:
+            launch_array_inc_1d(kernel, shape, tile)
+            launch_array_inc_1d(kernel, shape, tile)
+            assert mock_compile_tile.call_count == 1
+
+
 @pytest.mark.parametrize("annotation", ["ct.Constant[int]", "int"])
 def test_int_arg_compile_count(annotation, tmp_path):
     shape = (256,)
