@@ -15,10 +15,8 @@ import cuda.lang as cl
 
 
 def _make_a_plus_b_bitcode() -> bytes:
-    builder = BitcodeBuilder(target_triple="nvptx64-nvidia-cuda", data_layout=DATALAYOUT_PTX)
+    builder = _make_builder()
     tt = builder.type_table
-
-    builder.append_nvvm_version_metadata(2, 0)
 
     with builder.function("llvm.nvvm.read.ptx.sreg.tid.x",
                           tt.function(tt.I32, ())) as f:
@@ -33,8 +31,8 @@ def _make_a_plus_b_bitcode() -> bytes:
                                       (tt.P0, tt.I32, tt.I32,
                                        tt.P0, tt.I32, tt.I32,
                                        tt.P0, tt.I32, tt.I32)),
-                          calling_convention=CallingConvention.PTX_Kernel) as foobar:
-        aptr, asize, astride, bptr, bsize, bstride, cptr, csize, cstride = foobar.parameters
+                          calling_convention=CallingConvention.PTX_Kernel) as f:
+        aptr, asize, astride, bptr, bsize, bstride, cptr, csize, cstride = f.parameters
         tid = builder.call(tt.function(tt.I32, ()), tid_x, ())
         ap = builder.get_element_ptr(tt.F32, aptr, tid)
         a = builder.load(tt.F32, ap, alignment=4)
@@ -50,17 +48,7 @@ def _make_a_plus_b_bitcode() -> bytes:
 
 def test_a_plus_b():
     bitcode = _make_a_plus_b_bitcode()
-    cc = get_compute_capability()
-
-    # Compile bitcode to PTX using NVVM
-    nvvm, libdevice = get_nvvm_and_libdevice()
-    program = nvvm.create_program()
-    program.add_module(bitcode, "main")
-    program.add_module(libdevice, "libdevice")
-    ptx = program.compile(["-arch=" + cc.arch])
-
-    ptx_compiler: PtxCompiler = PtxCompiler.get()
-    cubin = ptx_compiler.compile(ptx, cc.gpu_name)
+    cubin = _bitcode_to_cubin(bitcode)
 
     kernel = _HackKernel(cubin, "aplusb", 3)
     a = torch.ones(32, dtype=torch.float32, device="cuda:0")
@@ -69,6 +57,74 @@ def test_a_plus_b():
     c = torch.zeros_like(a)
     cl.launch(torch.cuda.current_stream(), (1,), (32,), kernel, (a, b, c))
     assert_close(c, ref, rtol=0, atol=0)
+
+
+def _make_inline_ptx_bitcode() -> bytes:
+    builder = _make_builder()
+    tt = builder.type_table
+
+    with builder.function("aplusminusb",
+                          tt.function(tt.VOID,
+                                      (tt.P0, tt.I32, tt.I32,
+                                       tt.P0, tt.I32, tt.I32,
+                                       tt.P0, tt.I32, tt.I32)),
+                          calling_convention=CallingConvention.PTX_Kernel) as f:
+        aptr, asize, astride, bptr, bsize, bstride, cptr, csize, cstride = f.parameters
+        zero = builder.constants.integer_constant(0, tt.I32)
+        one = builder.constants.integer_constant(1, tt.I32)
+        ap = builder.get_element_ptr(tt.F32, aptr, zero)
+        a = builder.load(tt.F32, ap, alignment=4)
+        bp = builder.get_element_ptr(tt.F32, bptr, zero)
+        b = builder.load(tt.F32, bp, alignment=4)
+        cp0 = builder.get_element_ptr(tt.F32, cptr, zero)
+        cp1 = builder.get_element_ptr(tt.F32, cptr, one)
+
+        ptx_functy = tt.function(tt.struct_anonymous([tt.F32, tt.F32]), [tt.F32, tt.F32])
+        ptx_func = builder.constants.inline_asm(
+            ptx_functy,
+            "sub.f32 $3, $0, $2;\nadd.f32 $0, $0, $2;",
+            "=f,0,f,=f",
+            side_effects=False
+        )
+        r = builder.call(ptx_functy, ptx_func, [a, b])
+        radd = builder.extract_value(tt.F32, r, 0)
+        rsub = builder.extract_value(tt.F32, r, 1)
+        builder.store(cp0, radd, alignment=4)
+        builder.store(cp1, rsub, alignment=4)
+        builder.ret()
+    return builder.build()
+
+
+def test_inline_ptx():
+    bitcode = _make_inline_ptx_bitcode()
+    cubin = _bitcode_to_cubin(bitcode)
+
+    kernel = _HackKernel(cubin, "aplusminusb", 3)
+    a = torch.tensor([5], dtype=torch.float32, device="cuda")
+    b = torch.tensor([7], dtype=torch.float32, device="cuda")
+    c = torch.zeros(2, dtype=torch.float32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (a, b, c))
+    assert c.tolist() == [12.0, -2.0]
+
+
+def _make_builder() -> BitcodeBuilder:
+    builder = BitcodeBuilder(target_triple="nvptx64-nvidia-cuda", data_layout=DATALAYOUT_PTX)
+    builder.append_nvvm_version_metadata(2, 0)
+    return builder
+
+
+def _bitcode_to_cubin(bitcode: bytes) -> bytes:
+    cc = get_compute_capability()
+
+    # Compile bitcode to PTX using NVVM
+    nvvm, libdevice = get_nvvm_and_libdevice()
+    program = nvvm.create_program()
+    program.add_module(bitcode, "main")
+    program.add_module(libdevice, "libdevice")
+    ptx = program.compile(["-arch=" + cc.arch])
+    ptx_compiler: PtxCompiler = PtxCompiler.get()
+    cubin = ptx_compiler.compile(ptx, cc.gpu_name)
+    return cubin
 
 
 class _HackKernel(TileDispatcher):

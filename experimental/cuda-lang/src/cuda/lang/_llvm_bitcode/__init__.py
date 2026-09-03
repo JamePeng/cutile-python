@@ -8,7 +8,7 @@ import re
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable, Sequence, Any
+from typing import Callable, Sequence
 from . import _codes as codes
 
 from cuda.tile._cext import BitstreamWriter
@@ -29,6 +29,7 @@ class CallingConvention(enum.Enum):
 
 class Linkage(enum.Enum):
     External = 0
+    Internal = 3
 
 
 # Matches `enum BinaryOpcodes` in LLVMBitCodes.h
@@ -46,6 +47,53 @@ class Binop(enum.Enum):
     AND = 10
     OR = 11
     XOR = 12
+
+
+class CmpPredicate(enum.Enum):
+    FCMP_FALSE = 0
+    FCMP_OEQ = 1
+    FCMP_OGT = 2
+    FCMP_OGE = 3
+    FCMP_OLT = 4
+    FCMP_OLE = 5
+    FCMP_ONE = 6
+    FCMP_ORD = 7
+    FCMP_UNO = 8
+    FCMP_UEQ = 9
+    FCMP_UGT = 10
+    FCMP_UGE = 11
+    FCMP_ULT = 12
+    FCMP_ULE = 13
+    FCMP_UNE = 14
+    FCMP_TRUE = 15
+    ICMP_EQ = 32
+    ICMP_NE = 33
+    ICMP_UGT = 34
+    ICMP_UGE = 35
+    ICMP_ULT = 36
+    ICMP_ULE = 37
+    ICMP_SGT = 38
+    ICMP_SGE = 39
+    ICMP_SLT = 40
+    ICMP_SLE = 41
+
+
+# Matches `enum CastOpcodes` in LLVMBitCodes.h
+class Cast(enum.Enum):
+    TRUNC = 0
+    ZEXT = 1
+    SEXT = 2
+    FPTOUI = 3
+    FPTOSI = 4
+    UITOFP = 5
+    SITOFP = 6
+    FPTRUNC = 7
+    FPEXT = 8
+    PTRTOINT = 9
+    INTTOPTR = 10
+    BITCAST = 11
+    ADDRSPACECAST = 12
+    PTRTOADDR = 13
 
 
 class _BitcodeWriter(BitstreamWriter):
@@ -156,8 +204,23 @@ class TypeTable:
         return self._map[(codes.TYPE_CODE_VOID,)]
 
     @property
+    def F16(self) -> Type:
+        return self._map[(codes.TYPE_CODE_HALF,)]
+
+    @property
+    def BF16(self) -> Type:
+        return self._map[(codes.TYPE_CODE_BFLOAT,)]
+
+    @property
     def F32(self) -> Type:
         return self._map[(codes.TYPE_CODE_FLOAT,)]
+
+    @property
+    def F64(self) -> Type:
+        return self._map[(codes.TYPE_CODE_DOUBLE,)]
+
+    def vector(self, element_ty: Type, length: int) -> Type:
+        return self._map[(codes.TYPE_CODE_VECTOR, length, element_ty.type_id)]
 
     def function(self, return_type: Type, param_types: Sequence[Type]) -> FunctionType:
         key = (codes.TYPE_CODE_FUNCTION,
@@ -168,6 +231,12 @@ class TypeTable:
         if key not in self._map:
             self._map[key] = FunctionType(len(self._map), return_type, tuple(param_types))
         return self._map[key]
+
+    def struct_anonymous(self, fields: Sequence[Type], packed: bool = False):
+        return self._map[(codes.TYPE_CODE_STRUCT_ANON, int(packed), *(t.type_id for t in fields))]
+
+    def array(self, element_type: Type, length: int):
+        return self._map[(codes.TYPE_CODE_ARRAY, length, element_type.type_id)]
 
 
 class _StringTable(dict[bytes, tuple[int, int]]):
@@ -187,21 +256,45 @@ class _StringTable(dict[bytes, tuple[int, int]]):
 @dataclass(frozen=True)
 class _ConstantRecord:
     value: Value
-    record: tuple[int, ...]
+    record: tuple[int | str, ...]
 
 
-class _ConstantTable:
-    def __init__(self):
+class ConstantTable:
+    def __init__(self, type_table: TypeTable):
         self._table: dict[Type, list[_ConstantRecord]] = defaultdict(list)
+        self._type_table = type_table
 
-    def get(self, const_value: Any, ty: Type) -> Value:
+    def integer_constant(self, const_value: int, ty: Type) -> Value:
+        return self._append(ty, codes.CST_CODE_INTEGER, _transform_signed_int(const_value))
+
+    def float_constant(self, bits: int, ty: Type) -> Value:
+        assert isinstance(bits, int)
+        assert bits >= 0
+        return self._append(ty, codes.CST_CODE_FLOAT, bits)
+
+    def inline_asm(self,
+                   func_ty: FunctionType,
+                   asm_text: str,
+                   constraints: str,
+                   side_effects: bool) -> Value:
+        ptr_ty = self._type_table.pointer(0)
+        flags = int(side_effects)
+        asm_text = asm_text.encode()
+        constraints = constraints.encode()
+        return self._append(ptr_ty, codes.CST_CODE_INLINEASM,
+                            func_ty.type_id,
+                            flags,
+                            len(asm_text),
+                            *asm_text,
+                            len(constraints),
+                            *constraints)
+
+    def undef(self, ty: Type) -> Value:
+        return self._append(ty, codes.CST_CODE_UNDEF)
+
+    def _append(self, ty: Type, *rec: int | str) -> Value:
         ret = Value(ty)
-        if isinstance(const_value, int):
-            record = (codes.CST_CODE_INTEGER, _transform_signed_int(const_value))
-        else:
-            raise TypeError(f"Unsupported constant value type {type(const_value)}")
-
-        self._table[ty].append(_ConstantRecord(ret, record))
+        self._table[ty].append(_ConstantRecord(ret, rec))
         return ret
 
 
@@ -248,9 +341,9 @@ class Function:
     calling_convention: CallingConvention
     linkage: Linkage
     parameters: tuple[Value, ...]
+    local_constants: ConstantTable
     num_terminators: int = 0
     terminated: bool = False
-    local_constants: _ConstantTable = dataclasses.field(default_factory=_ConstantTable)
     local_metadata: MetadataTable = dataclasses.field(default_factory=MetadataTable)
     instruction_data: list[int | Value] = dataclasses.field(default_factory=list)
     instruction_formats: list[str] = dataclasses.field(default_factory=list)
@@ -267,16 +360,28 @@ class Function:
         return len(self.instruction_formats) == 0
 
 
+@dataclass
+class GlobalVariable:
+    name: str
+    value: Value
+    address_space: int
+    is_constant: bool
+    initializer: Value | None
+    linkage: Linkage
+    alignment: int | None
+
+
 class BitcodeBuilder:
     def __init__(self,
                  target_triple: str | None = None,
                  data_layout: str | None = None):
         self._target_triple = target_triple
         self._data_layout = data_layout
-        self._global_constants = _ConstantTable()
         self._global_metadata = MetadataTable()
         self._functions: list[Function] = []
+        self._global_variables: list[GlobalVariable] = []
         self._type_table = TypeTable()
+        self._global_constants = ConstantTable(type_table=self._type_table)
         self._cur_function: Function | None = None
         self._named_metadata: list[tuple[str, tuple[Metadata, ...]]] = []
 
@@ -286,6 +391,11 @@ class BitcodeBuilder:
     @property
     def type_table(self) -> TypeTable:
         return self._type_table
+
+    @property
+    def constants(self) -> ConstantTable:
+        return (self._global_constants if self._cur_function is None
+                else self._cur_function.local_constants)
 
     @property
     def metadata(self) -> MetadataTable:
@@ -298,12 +408,34 @@ class BitcodeBuilder:
 
     def append_nvvm_version_metadata(self, major: int, minor: int):
         i32 = self._type_table.I32
-        major = self.constant(major, i32)
-        minor = self.constant(minor, i32)
+        major = self.constants.integer_constant(major, i32)
+        minor = self.constants.integer_constant(minor, i32)
         major = self.metadata.value_as_metadata(major)
         minor = self.metadata.value_as_metadata(minor)
         version_node = self.metadata.node(major, minor)
         self.append_named_metadata("nvvmir.version", version_node)
+
+    def global_variable(self,
+                        name: str,
+                        type: Type,
+                        *,
+                        address_space: int = 0,
+                        is_constant: bool = False,
+                        initializer: Value | None = None,
+                        linkage: Linkage = Linkage.External,
+                        alignment: int | None = None) -> Value:
+        assert self._cur_function is None, "Global variables must be put at the global scope"
+        value = Value(type)
+        self._global_variables.append(GlobalVariable(
+            name=name,
+            value=value,
+            address_space=address_space,
+            is_constant=is_constant,
+            initializer=initializer,
+            linkage=linkage,
+            alignment=alignment
+        ))
+        return value
 
     @contextmanager
     def function(self,
@@ -320,7 +452,8 @@ class BitcodeBuilder:
                         value=func_value,
                         calling_convention=calling_convention,
                         linkage=linkage,
-                        parameters=parameters)
+                        parameters=parameters,
+                        local_constants=ConstantTable(self.type_table))
         assert self._cur_function is None, "Functions cannot be nested"
         self._cur_function = func
         try:
@@ -329,26 +462,41 @@ class BitcodeBuilder:
             self._cur_function = None
         self._functions.append(func)
 
-    def constant(self, value: Any, type: Type) -> Value:
-        table = (self._global_constants if self._cur_function is None
-                 else self._cur_function.local_constants)
-        return table.get(value, type)
+    @contextmanager
+    def global_scope(self):
+        old_func = self._cur_function
+        self._cur_function = None
+        try:
+            yield
+        finally:
+            self._cur_function = old_func
 
-    def binop(self, result_ty: Type, op: "Binop", lhs: Value, rhs: Value) -> Value:
+    def binop(self, result_ty: Type, op: Binop, lhs: Value, rhs: Value) -> Value:
         assert isinstance(op, Binop)
         return self._instruction(result_ty, codes.FUNC_CODE_INST_BINOP, "Vvi", lhs, rhs, op._value_)
 
-    def load(self, result_ty: Type, ptr: Value, alignment: int, volatile: bool = False) -> Value:
-        assert alignment & (alignment - 1) == 0
+    def cmp(self, result_ty: Type, predicate: CmpPredicate, lhs: Value, rhs: Value) -> Value:
+        assert isinstance(predicate, CmpPredicate)
+        return self._instruction(result_ty, codes.FUNC_CODE_INST_CMP2, "Vvi",
+                                 lhs, rhs, predicate._value_)
+
+    def cast(self, result_ty: Type, op: Cast, operand: Value) -> Value:
+        assert isinstance(op, Cast)
+        return self._instruction(result_ty, codes.FUNC_CODE_INST_CAST, "Vii",
+                                 operand, result_ty.type_id, op._value_)
+
+    def load(self, result_ty: Type, ptr: Value, alignment: int | None = None,
+             volatile: bool = False) -> Value:
+        alignment = _encode_alignment(alignment)
         return self._instruction(result_ty, codes.FUNC_CODE_INST_LOAD, "Viii", ptr,
-                                 result_ty.type_id, alignment.bit_length(), int(bool(volatile)))
+                                 result_ty.type_id, alignment, int(bool(volatile)))
 
-    def store(self, ptr: Value, value: Value, alignment: int, volatile: bool = False):
-        assert alignment & (alignment - 1) == 0
+    def store(self, ptr: Value, value: Value, alignment: int | None = None, volatile: bool = False):
+        alignment = _encode_alignment(alignment)
         self._instruction(None, codes.FUNC_CODE_INST_STORE, "VVii",
-                          ptr, value, alignment.bit_length(), int(bool(volatile)))
+                          ptr, value, alignment, int(bool(volatile)))
 
-    def call(self, func_ty: FunctionType, callee: Value, args: tuple[Value, ...]) -> Value:
+    def call(self, func_ty: FunctionType, callee: Value, args: Sequence[Value]) -> Value:
         return self._instruction(
             func_ty.return_ty, codes.FUNC_CODE_INST_CALL, "iiiV" + "v" * len(args),
             0,  # attribute list ID
@@ -367,6 +515,14 @@ class BitcodeBuilder:
             element_ty.type_id,
             ptr,
             *indices
+        )
+
+    def extract_value(self, result_ty: Type, src: Value, *indices: int):
+        return self._instruction(
+            result_ty,
+            codes.FUNC_CODE_INST_EXTRACTVAL,
+            "V" + "i" * len(indices),
+            src, *indices
         )
 
     def ret(self, *values: Value):
@@ -393,6 +549,13 @@ class BitcodeBuilder:
         if terminator:
             f.num_terminators += 1
         return result
+
+
+def _encode_alignment(alignment: int | None) -> int:
+    if alignment is None:
+        return 0
+    assert alignment > 0 and alignment & (alignment - 1) == 0
+    return alignment.bit_length()
 
 
 def _serialize_module(builder: BitcodeBuilder) -> bytes:
@@ -422,12 +585,17 @@ def _serialize_module(builder: BitcodeBuilder) -> bytes:
                 _write_metadata_table(builder._global_metadata, writer, assign_metadata_id)
                 _write_named_metadata(builder._named_metadata, writer)
 
-        # Write function declarations
+        # Global variables
+        for global_var in builder._global_variables:
+            assign_value_id(global_var.value)
+            _write_global_variable_record(global_var, writer, string_table)
+
+        # Function declarations
         for func in builder._functions:
             assign_value_id(func.value)
             _write_function_declaration_record(func, writer, string_table)
 
-        # Write the functions
+        # Function bodies
         for func in builder._functions:
             if func.is_declaration:
                 continue
@@ -451,7 +619,7 @@ def _serialize_module(builder: BitcodeBuilder) -> bytes:
     return writer.to_bytes()
 
 
-def _write_constant_table(constant_table: _ConstantTable, writer: _BitcodeWriter,
+def _write_constant_table(constant_table: ConstantTable, writer: _BitcodeWriter,
                           assign_value_id: "_IdMapper"):
     if len(constant_table._table) == 0:
         return
@@ -582,6 +750,20 @@ def _write_function_body(func: Function, first_instruction_id: int, writer: _Bit
             instruction_id += 1
 
     assert len(list(data_iter)) == 0
+
+
+def _write_global_variable_record(global_var: GlobalVariable, writer: _BitcodeWriter,
+                                  string_table: _StringTable):
+    writer.unabbrev_record(
+        codes.MODULE_CODE_GLOBALVAR,
+        *string_table[global_var.name.encode()],  # STRTAB offset & size
+        global_var.value.type.type_id,
+        (global_var.address_space << 2) | 2 | global_var.is_constant,
+        0 if global_var.initializer is None else global_var.initializer.id + 1,
+        global_var.linkage._value_,
+        _encode_alignment(global_var.alignment),
+        0,  # section
+    )
 
 
 def _write_function_declaration_record(func: Function, writer: _BitcodeWriter,
