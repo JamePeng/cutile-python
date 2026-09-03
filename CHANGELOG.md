@@ -5,7 +5,7 @@ Release Notes
 =============
 
 {#release-1-6-0}
-1.6.0 (2026-08-24)
+1.6.0 (2026-09-08)
 ------------------
 
 This release adds finer control over compilation and execution with static
