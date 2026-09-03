@@ -451,26 +451,16 @@ def vote_ballot_sync(predicate: bool, mask: int = FULL_MASK) -> int:
 
 
 @stub
-def _inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
+def _inline_ptx(ptx_code: str, /, *args: Scalar | Pointer | DType) -> tuple:
     """Execute inline PTX.
-
-    The API follows CUDA C++'s device-side `asm` statement:
-    `cl._inline_ptx(ptx_code, (constraint1, value1), (constraint2, value2), ...)`.
 
     Args:
         ptx_code (str):
-            The PTX source string.
-        *constraint_pairs:
-            Constraint/value pairs.
-            Constraints must be compile-time constant strings.
-
-            Read-only operands use constraints ``"h"``, ``"r"``, ``"l"``,
-            ``"f"``, ``"d"``, or ``"p"`` and are paired with runtime values.
-
-            Write-only operands use constraints ``"=h"``, ``"=r"``, ``"=l"``,
-            ``"=f"``, ``"=d"``, or ``"=p"`` and are paired with dtype specs.
-            Use a pointer dtype with ``"=p"``. The dtype determines the type
-            of the output.
+            The PTX source string. May include placeholders of the form "%N" (e.g., %0, %1, ...)
+            to refer to the registers specified by `args`.
+        *args:
+            For each used placeholder in `ptx_code`, either a scalar/pointer that represents
+            an input argument, or a DType that specifies an output.
 
     Returns:
 
@@ -490,12 +480,7 @@ def _inline_ptx(ptx_code: str, *constraint_pairs: tuple) -> tuple:
             # CUDA C++ would use:
             # asm("add.s32 %0, %1, %2;" : "=r"(result) : "r"(i), "r"(j));
 
-            (result,) = cl._inline_ptx(
-                "add.s32 %0, %1, %2;",
-                ("=r", cl.int32),
-                ("r", i),
-                ("r", j),
-            )
+            (result,) = cl._inline_ptx("add.s32 %0, %1, %2;", cl.int32, i, j)
             print(f"result: {result}")
 
         .. testoutput::

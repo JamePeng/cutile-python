@@ -141,10 +141,10 @@ def ptx_mma_m16n8k16_f32(a, b, c, is_bf16):
         + ab_tag
         + ".f32 {$0,$1,$2,$3}, "
         "{$4,$5,$6,$7}, {$8,$9}, {$10,$11,$12,$13};",
-        *tuple(("=f", cl.float32) for _ in cl.static_iter(range(4))),
-        *tuple(("r", a[item]) for item in cl.static_iter(range(4))),
-        *tuple(("r", b[item]) for item in cl.static_iter(range(2))),
-        *tuple(("f", c[item]) for item in cl.static_iter(range(4))),
+        *tuple(cl.float32 for _ in cl.static_iter(range(4))),
+        *tuple(a[item] for item in cl.static_iter(range(4))),
+        *tuple(b[item] for item in cl.static_iter(range(2))),
+        *tuple(c[item] for item in cl.static_iter(range(4))),
     )
     return cl.Vector(*result, dtype=cl.float32)
 

@@ -152,11 +152,7 @@ def _compute_p_fma_window(
 def _materialize_p_fma_window(p_fma, p_window_elems):
     """Force a P-FMA window into PTX at the current program point."""
     materialized = tuple(
-        cl._inline_ptx(
-            "mov.b32 %0, %1;",
-            ("=f", cl.float32),
-            ("f", p_fma[item]),
-        )[0]
+        cl._inline_ptx("mov.b32 %0, %1;", cl.float32, p_fma[item])[0]
         for item in cl.static_iter(range(p_window_elems))
     )
     return cl.Vector(*materialized, dtype=cl.float32)

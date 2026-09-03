@@ -4,9 +4,10 @@
 
 import pytest
 import cuda.lang as cl
-from cuda.lang._exception import TypeCheckingError, StaticAssertionError
+from cuda.lang._exception import StaticAssertionError
 import torch
 
+from cuda.tile._exception import InvalidValueError
 from .util import compile_kernel
 
 
@@ -18,31 +19,10 @@ def test_inline_ptx_multiple_outputs_runtime():
             add.u32 %0, %2, %3;
             sub.u32 %1, %2, %3;
             """,
-            ("=r", cl.int32),
-            ("=r", cl.int32),
-            ("r", 5),
-            ("r", 3),
-        )
-        out[0] = res0
-        out[1] = res1
-
-    out = torch.zeros(2, dtype=torch.int32, device="cuda:0")
-    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
-    assert out.cpu().tolist() == [8, 2]
-
-
-def test_inline_ptx_write_only_placeholders_runtime():
-    @cl.kernel
-    def kernel(out):
-        res0, res1 = cl._inline_ptx(
-            """
-            add.u32 %0, %2, %3;
-            sub.u32 %1, %2, %3;
-            """,
-            ("=r", cl.int32),
-            ("=r", cl.int32),
-            ("r", 5),
-            ("r", 3),
+            cl.uint32,
+            cl.uint32,
+            cl.uint32(5),
+            cl.uint32(3),
         )
         out[0] = res0
         out[1] = res1
@@ -58,8 +38,8 @@ def test_inline_ptx_pointer_load():
         inp_ptr = inp.pointer()
         (value,) = cl._inline_ptx(
             "ld.global.u32 %0, [%1];",
-            ("=r", cl.int32),
-            ("p", inp_ptr),
+            cl.int32,
+            inp_ptr,
         )
         out[0] = value
 
@@ -76,8 +56,8 @@ def test_inline_ptx_pointer_output():
         dtype = cl.pointer_dtype(cl.int32)
         (ptr,) = cl._inline_ptx(
             "mov.u64 %0, %1;",
-            ("=p", dtype),
-            ("p", inp_ptr),
+            dtype,
+            inp_ptr,
         )
         cl.static_assert(cl.dtype_of(ptr) == dtype)
         out[0] = ptr.load()
@@ -97,8 +77,8 @@ def test_inline_ptx_shared_pointer_output():
         dtype = cl.pointer_dtype(cl.int32, cl.MemorySpace.SHARED)
         (result,) = cl._inline_ptx(
             "mov.u32 %0, %1;",
-            ("=p", dtype),
-            ("p", shared_ptr),
+            dtype,
+            shared_ptr
         )
         cl.static_assert(cl.dtype_of(result) == dtype)
         out[0] = result.load()
@@ -114,8 +94,8 @@ def test_inline_ptx_special_register_operand():
         clock = cl._nvvm.read_ptx_sreg_clock()
         cl._inline_ptx(
             "mov.u32 %0, %1;",
-            ("=r", cl.int32),
-            ("r", clock),
+            cl.int32,
+            clock,
         )
 
     compile_kernel(kernel, assert_in_ptx="%clock")
@@ -128,7 +108,7 @@ def test_inline_ptx_special_register_operand():
 def test_inline_ptx_escaped_special_register():
     @cl.kernel
     def kernel():
-        cl._inline_ptx("mov.u32 %0, %%clock;", ("=r", cl.int32))
+        cl._inline_ptx("mov.u32 %0, %%clock;", cl.int32)
 
     compile_kernel(
         kernel,
@@ -139,76 +119,15 @@ def test_inline_ptx_escaped_special_register():
 
 class TestInlinePTXErrors:
 
-    def test_invalid_type_constraint(self):
-        def kernel():
-            cl._inline_ptx("add.u32 %0, %1, %1;", ("=x", cl.int32), ("r", 2))
-
-        compile_kernel(
-            kernel,
-            raises=pytest.raises(
-                TypeCheckingError, match="Unknown constraint dtype 'x'"
-            ),
-        )
-
-    def test_cuda_c_constraint_is_not_supported(self):
-        def kernel():
-            cl._inline_ptx("// no operation", ("C", 0))
-
-        compile_kernel(
-            kernel,
-            raises=pytest.raises(
-                TypeCheckingError, match="Unknown constraint dtype 'C'"
-            ),
-        )
-
-    def test_pointer_output_requires_pointer_dtype(self):
-        def kernel():
-            cl._inline_ptx("mov.u64 %0, 0;", ("=p", cl.int64))
-
-        compile_kernel(
-            kernel,
-            raises=pytest.raises(
-                TypeCheckingError,
-                match="Expected a pointer dtype for constraint =p, got int64",
-            ),
-        )
-
-    def test_read_write_constraint_is_not_supported(self):
-        def kernel():
-            cl._inline_ptx("add.u32 %0, %0, 1;", ("+r", 2))
-
-        compile_kernel(
-            kernel,
-            raises=pytest.raises(
-                TypeCheckingError,
-                match="Read-write inline_ptx constraints are not supported",
-            ),
-        )
-
     def test_special_register_is_not_supported(self):
         def kernel():
-            cl._inline_ptx("mov.u32 %0, %clock;", ("=r", cl.int32))
+            cl._inline_ptx("mov.u32 %0, %clock;", cl.int32)
 
         compile_kernel(
             kernel,
             raises=pytest.raises(
-                TypeCheckingError,
-                match="Literal percent signs in inline_ptx must be escaped",
-            ),
-        )
-
-    def test_invalid_rmw_constraint(self):
-        def kernel():
-            cl._inline_ptx(
-                "add.u32 %0, %1, %1;",
-                ("@r", cl.int32),
-                ("r", 2),
-            )
-
-        compile_kernel(
-            kernel,
-            raises=pytest.raises(
-                TypeCheckingError, match="Unknown constraint rmw modifier '@'"
+                InvalidValueError,
+                match="Literal percent signs in inline PTX must be escaped",
             ),
         )
 

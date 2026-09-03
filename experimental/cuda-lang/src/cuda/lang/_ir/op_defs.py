@@ -4,7 +4,6 @@
 
 from dataclasses import dataclass
 from typing import Optional
-from enum import Enum, auto
 
 from cuda.lang._enums import (
     CTAGroup,
@@ -19,7 +18,6 @@ from cuda.lang._enums import (
 )
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.ir import MemoryEffect
-import cuda.lang._datatype as datatype
 from cuda.lang._enums import VectorReduction
 from .ir import Operation, Var, attribute, operand
 from .type import VectorTy, ScalarTy
@@ -103,17 +101,23 @@ class Tcgen05Copy(
     source_format: Tcgen05CopySourceFormat | None = attribute(default=None)
 
 
+@dataclass(frozen=True)
+class InlineAsmInput:
+    index: int
+
+
+@dataclass(frozen=True)
+class InlineAsmOutput:
+    index: int
+
+
+InlineAsmPiece = str | InlineAsmInput | InlineAsmOutput
+
+
 @dataclass(eq=False)
 class InlinePTX(Operation, opcode="inline_ptx", memory_effect=MemoryEffect.STORE):
-    ptx_code: str = attribute()
-    read_only_operands: tuple[Var, ...] = operand()
-    write_only_operands: tuple[datatype.DType, ...] = attribute()
-    read_write_operands: tuple[Var, ...] = operand()
-
-    class RMWMode(Enum):
-        READ_ONLY = auto()
-        WRITE_ONLY = auto()
-        READ_WRITE = auto()
+    text: tuple[InlineAsmPiece, ...] = attribute()
+    inputs: tuple[Var, ...] = operand()
 
 
 @dataclass(eq=False)

@@ -4,8 +4,9 @@
 
 from cuda.lang._enums import CachePolicy
 from cuda.lang._exception import InvalidValueError, TypeCheckingError
-from cuda.lang._ir.op_defs import RawLLVMIntrinsic, BitCast, InlinePTX
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic, BitCast
 from cuda.tile import MemoryScope
+from .inline_ptx_impl import inline_ptx
 from ..type import (
     DTypeConstructor,
     MemorySpace,
@@ -221,27 +222,13 @@ def map_shared_to_leader_block(pointer: Var):
 @impl(core_api.setmaxregister_decrease)
 def impl_setmaxregister_decrease(number_of_registers: Var[ScalarTy]):
     value = require_constant_int(number_of_registers)
-    add_operation_variadic(
-        InlinePTX,
-        (),
-        ptx_code=f"setmaxnreg.dec.sync.aligned.u32 {value};",
-        read_only_operands=(),
-        write_only_operands=(),
-        read_write_operands=(),
-    )
+    inline_ptx(f"setmaxnreg.dec.sync.aligned.u32 {value};")
 
 
 @impl(core_api.setmaxregister_increase)
 def impl_setmaxregister_increase(number_of_registers: Var[ScalarTy]):
     value = require_constant_int(number_of_registers)
-    add_operation_variadic(
-        InlinePTX,
-        (),
-        ptx_code=f"setmaxnreg.inc.sync.aligned.u32 {value};",
-        read_only_operands=(),
-        write_only_operands=(),
-        read_write_operands=(),
-    )
+    inline_ptx(f"setmaxnreg.inc.sync.aligned.u32 {value};",)
 
 
 @impl(cache_policy.create_range_cache_policy)
@@ -264,30 +251,11 @@ def impl_create_range_cache_policy(
         raise InvalidValueError(
             "Secondary cache policy may only be " + " or ".join(str(i) for i in valid)
         )
-    code = (
-        "createpolicy.range."
-        + primary_policy.value
-        + "."
-        + secondary_policy.value
-        + ".b64"
-        + "  {$w0}"
-        + ", [{$r0}]"
-        + ", {$r1}"
-        + ", {$r2};"
-    )
-    results = add_operation_variadic(
-        InlinePTX,
-        (ScalarTy(datatype.int64),),
-        ptx_code=code,
-        read_only_operands=(
-            base_address,
-            primary_size,
-            total_size,
-        ),
-        write_only_operands=(datatype.int64,),
-        read_write_operands=(),
-    )
-    return results[0]
+    return inline_ptx(
+        f"createpolicy.range.{primary_policy.value}.{secondary_policy.value}.b64"
+        f" %0, [%1], %2, %3;",
+        datatype.int64, base_address, primary_size, total_size
+    )[0]
 
 
 @impl(cache_policy.create_fractional_cache_policy)
@@ -305,24 +273,10 @@ def impl_create_fractional_cache_policy(
         raise InvalidValueError(
             "Secondary cache policy may only be " + " or ".join(str(i) for i in valid)
         )
-    code = (
-        "createpolicy.fractional."
-        + primary_policy.value
-        + "."
-        + secondary_policy.value
-        + ".b64"
-        + "  {$w0}"
-        + ", {$r0};"
-    )
-    results = add_operation_variadic(
-        InlinePTX,
-        (ScalarTy(datatype.int64),),
-        ptx_code=code,
-        read_only_operands=(fraction,),
-        write_only_operands=(datatype.int64,),
-        read_write_operands=(),
-    )
-    return results[0]
+    return inline_ptx(
+        f"createpolicy.fractional.{primary_policy.value}.{secondary_policy.value}.b64 %0, %1;",
+        datatype.int64, fraction
+    )[0]
 
 
 @impl(core_api.memory_barrier)

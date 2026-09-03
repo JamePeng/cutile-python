@@ -34,7 +34,7 @@ from .type_conversion import (
     dtype_to_mlir_type,
 )
 from .location import ir_loc_to_mlir_location
-
+from ..._ir.op_defs import InlineAsmInput, InlineAsmOutput
 
 _NVVM_ROUNDING_MODES = {
     RoundingMode.RM: mlir.nvvm.FPRoundingMode.RM,
@@ -1517,17 +1517,28 @@ def lower_tensor_map_as_opaque_ptr(
 def lower_inline_ptx(
     context: DeviceLoweringContext, operation: ops.InlinePTX
 ) -> Sequence[mlir.Value]:
-    ptx_code = operation.ptx_code
-    ro_args = tuple(context.get_var(arg) for arg in operation.read_only_operands)
-    rw_args = tuple(context.get_var(arg) for arg in operation.read_write_operands)
-    wo_args = tuple(dtype_to_mlir_type(arg) for arg in operation.write_only_operands)
-    results = mlir.nvvm.add_InlinePtxOp(
+    ro_args = [context.get_var(x) for x in operation.inputs]
+    wo_types = [dtype_to_mlir_type(x.get_type().tensor_dtype())
+                for x in operation.result_vars]
+
+    processed_pieces = []
+    for piece in operation.text:
+        if isinstance(piece, str):
+            processed_pieces.append(piece)
+        elif isinstance(piece, InlineAsmInput):
+            processed_pieces.append(f"{{$r{piece.index}}}")
+        elif isinstance(piece, InlineAsmOutput):
+            processed_pieces.append(f"{{$w{piece.index}}}")
+        else:
+            assert False, piece
+
+    ptx_code = "".join(processed_pieces)
+    return mlir.nvvm.add_InlinePtxOp(
         ptxCode=ptx_code,
         readOnlyArgs=ro_args,
-        readWriteArgs=rw_args,
-        writeOnlyArgs_types=wo_args,
+        readWriteArgs=(),
+        writeOnlyArgs_types=wo_types,
     )
-    return tuple(results)
 
 
 def _lower_intrinsic_operand(context: MLIRLoweringContext, operand: ir.Var) -> mlir.Value:

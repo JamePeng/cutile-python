@@ -55,8 +55,8 @@ def tcgen05_load16_scalars(address):
         "tcgen05.ld.sync.aligned.32x32b.x16.b32 "
         "{%0, %1, %2, %3, %4, %5, %6, %7, "
         "%8, %9, %10, %11, %12, %13, %14, %15}, [%16];",
-        *tuple(("=f", cl.float32) for _ in cl.static_iter(range(16))),
-        ("r", cl.bitcast(address, cl.int32)),
+        *tuple(cl.float32 for _ in cl.static_iter(range(16))),
+        cl.bitcast(address, cl.int32),
     )
 
 
