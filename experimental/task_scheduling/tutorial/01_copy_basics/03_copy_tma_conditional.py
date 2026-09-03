@@ -96,11 +96,11 @@ class SmemResource(ts.MemoryResource):
         """Create the real typed view into the manager-owned SMEM allocation."""
         smem_base = stage_info.context.smem_base
         smem_pointer = smem_base.pointer() + SMEM_VIEW_OFFSET_BYTES
-        return cl.reinterpret_pointer_as_array(
+        typed_pointer = cl.bitcast(
             smem_pointer,
-            cl.float16,
-            SMEM_VIEW_ELEMENTS,
+            cl.pointer_dtype(cl.float16, smem_pointer.memory_space),
         )
+        return cl.Array.from_parts(typed_pointer, SMEM_VIEW_ELEMENTS)
 
     @ts.producer_work(
         work_attrs=ts.WorkAttr.AUXILIARY,

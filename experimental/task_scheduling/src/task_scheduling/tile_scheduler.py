@@ -351,11 +351,12 @@ class DeviceClcDynamicPersistentTileSchedulerConfig:
     response_count: int
 
     def create(self, smem_base):
-        response_tokens = cl.reinterpret_pointer_as_array(
-            smem_base.pointer() + self.response_offset,
-            cl.cluster_launch_control_token,
-            (self.response_count,),
+        pointer = smem_base.pointer() + self.response_offset
+        typed_pointer = cl.bitcast(
+            pointer,
+            cl.pointer_dtype(cl.cluster_launch_control_token, pointer.memory_space),
         )
+        response_tokens = cl.Array.from_parts(typed_pointer, self.response_count)
         return ClcDynamicPersistentTileScheduler.create(
             self.tile_scheduler_params,
             response_tokens,

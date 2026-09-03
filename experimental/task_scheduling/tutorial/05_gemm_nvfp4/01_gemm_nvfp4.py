@@ -108,11 +108,7 @@ def _block_tile():
 
 def _smem_array(stage_info, offset, stage_bytes):
     base = stage_info.context.smem_base.pointer()
-    return cl.reinterpret_pointer_as_array(
-        base + offset,
-        cl.uint8,
-        (AB_STAGES, stage_bytes),
-    )
+    return cl.Array.from_parts(base + offset, (AB_STAGES, stage_bytes))
 
 
 def _mma_descriptor(smem_values, stage):

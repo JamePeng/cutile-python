@@ -55,10 +55,8 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
         shape=(HISTOGRAM64_THREADBLOCK_SIZE * HISTOGRAM64_BIN_COUNT,),
         dtype=cl.uint8,
     )
-    s_ThreadBase = cl.reinterpret_pointer_as_array(
-        s_Hist.pointer((threadPos,)),
-        cl.uint8,
-        1,
+    s_ThreadBase = cl.Array.from_parts(
+        s_Hist.pointer(threadPos), 1
     )
 
     for i in cl.static_iter(range(HISTOGRAM64_BIN_COUNT)):
@@ -76,10 +74,8 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
     cl.barrier_sync_block()
 
     if tx < HISTOGRAM64_BIN_COUNT:
-        s_HistBase = cl.reinterpret_pointer_as_array(
-            s_Hist.pointer((tx * HISTOGRAM64_THREADBLOCK_SIZE,)),
-            cl.uint8,
-            1,
+        s_HistBase = cl.Array.from_parts(
+            s_Hist.pointer(tx * HISTOGRAM64_THREADBLOCK_SIZE), 1
         )
         sum = cl.uint32(0)
         pos = 4 * (tx & (SHARED_MEMORY_BANKS - 1))

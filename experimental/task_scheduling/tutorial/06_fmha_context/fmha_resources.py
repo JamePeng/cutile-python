@@ -175,11 +175,11 @@ def pack_to_i32(src, dtype):
 
 def _make_smem_view(stage_info, offset, tile_elements):
     base = stage_info.context.smem_base.pointer()
-    return cl.reinterpret_pointer_as_array(
+    pointer = cl.bitcast(
         base + offset,
-        cl.uint16,
-        (tile_elements,),
+        cl.pointer_dtype(cl.uint16, base.memory_space),
     )
+    return cl.Array.from_parts(pointer, tile_elements)
 
 
 @dataclass(kw_only=True, eq=False)

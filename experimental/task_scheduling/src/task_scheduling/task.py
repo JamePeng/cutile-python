@@ -1154,11 +1154,12 @@ class DeviceSmemAllocator:
         return _named_device_offset(self.allocations, name)
 
     def get(self, name: str, dtype: object, shape: tuple[int, ...] = (1,)):
-        return cl.reinterpret_pointer_as_array(
-            self.base.pointer() + self.offset_of(name),
-            dtype,
-            shape,
+        pointer = self.base.pointer() + self.offset_of(name)
+        typed_pointer = cl.bitcast(
+            pointer,
+            cl.pointer_dtype(dtype, pointer.memory_space),
         )
+        return cl.Array.from_parts(typed_pointer, shape)
 
 
 @dataclass(frozen=True)
@@ -1238,10 +1239,8 @@ class DeviceTaskManager:
                 cluster_smem_address,
                 cl.pointer_dtype(cl.uint8, cl.MemorySpace.SHARED_CLUSTER),
             )
-            cluster_smem_base = cl.reinterpret_pointer_as_array(
-                cluster_smem_pointer,
-                cl.uint8,
-                (self.smem_size_bytes,),
+            cluster_smem_base = cl.Array.from_parts(
+                cluster_smem_pointer, self.smem_size_bytes
             )
         barrier_arena = (
             _create_barrier_storage(

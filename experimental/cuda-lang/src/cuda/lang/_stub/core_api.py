@@ -34,6 +34,47 @@ class Array(TileArray, Generic[T]):
     N-dimensional array type.
     """
 
+    @staticmethod
+    @stub
+    def from_parts(
+        pointer: Pointer[T],
+        shape: int | tuple[int, ...],
+        strides: int | tuple[int, ...] | None = None,
+    ) -> "Array[T]":
+        """Create an array from a pointer, shape, and optional strides.
+
+        The pointer sets the array data type, so the pointer must be typed.
+        If ``strides`` is ``None``, the array uses contiguous row-major strides.
+
+        Args:
+            pointer: Typed pointer to the first array element.
+            shape: Number of elements in each array dimension.
+            strides: Step in elements for each dimension.
+
+        Returns:
+            Array that refers to the memory at ``pointer``.
+
+        Examples:
+
+        .. testcode::
+            :template: kernel_wrapper.py
+
+            smem_array = cl.shared_array(1, cl.int32)
+            smem_array[0] = 5
+
+            smem_ptr = smem_array.pointer()
+            smem_array_2 = cl.Array.from_parts(smem_ptr, 1)
+
+            # Assignment through the new array changes memory referenced by the
+            # original array.
+            smem_array_2[0] = 7
+            print(smem_array[0])
+
+        .. testoutput::
+
+            7
+        """
+
     @stub
     @property
     def dtype(self): ...
@@ -1074,46 +1115,6 @@ def map_shared_to_leader_block(pointer: Pointer[T]) -> Pointer[T]:
     Args:
         pointer: Address in shared memory to be mapped into the leader-block's
             shared memory.
-    """
-
-
-@stub
-def reinterpret_pointer_as_array(
-    pointer: Pointer[T],
-    dtype: DType,
-    shape: tuple[int, ...],
-    strides: tuple[int, ...] | None = None,
-) -> Array[T]:
-    """
-    Args:
-        pointer: Pointer[T]
-        dtype: DType
-        shape: tuple[int, ...]
-        strides: tuple[int, ...] | None = None
-
-    Returns:
-        Array with the specified base pointer, dtype, shape, and strides.
-
-    Examples:
-
-    .. testcode::
-        :template: kernel_wrapper.py
-
-        smem_array = cl.shared_array(1, cl.int32)
-        smem_array[0] = 5
-
-        smem_ptr = smem_array.pointer()
-        smem_array_2 = cl.reinterpret_pointer_as_array(smem_ptr, shape=1, dtype=cl.int32)
-
-        # Assignment through the reconstructed array is equivalent
-        # to assignment through the original.
-        smem_array_2[0] = 7
-        print(smem_array[0])
-
-    .. testoutput::
-
-        7
-
     """
 
 

@@ -7,7 +7,8 @@ from cuda.lang._ir import ir
 from cuda.lang._ir._host_program import HostProgram, host_program_to_ir
 from cuda.lang._ir.ops import AllocDynSharedMemory, GetDynSharedMemoryBasePtr, \
     get_dyn_shared_memory_base_ptr
-from cuda.lang._ir.op_impl.pointer_impl import reinterpret_pointer, pointer_with_offset
+from cuda.lang._ir.op_impl.pointer_impl import pointer_with_offset
+from cuda.tile._ir.cast_ops import reinterpret_pointer
 from cuda.lang._datatype import int32
 from cuda.lang._exception import TypeCheckingError
 from cuda.lang._ir.type import PointerTy, ScalarTy

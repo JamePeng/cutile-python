@@ -205,11 +205,6 @@ class AtomicLoad(Operation, opcode="atomic_load", memory_effect=MemoryEffect.LOA
         return self.mmio or self.memory_order is MemoryOrder.ACQUIRE
 
 
-@dataclass(eq=False)
-class ReinterpretPointerAsArray(Operation, opcode="reinterpret_ptr_as_array"):
-    pointer: Var = operand()
-
-
 @dataclass
 class TensorMapAsOpaquePtr(Operation, opcode="tensor_map_as_opaque_ptr"):
     tensor_map: Var = operand()

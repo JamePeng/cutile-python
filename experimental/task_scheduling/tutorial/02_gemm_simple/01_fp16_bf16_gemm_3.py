@@ -86,16 +86,17 @@ class SmemAbResource(ts.MemoryResource):
     def _init_smem_state(stage_info):
         """Create the real A/B views into the manager-owned SMEM arena."""
         smem_base = stage_info.context.smem_base.pointer()
-        a_smem = cl.reinterpret_pointer_as_array(
+        pointer_dtype = cl.pointer_dtype(cl.uint16, smem_base.memory_space)
+        a_pointer = cl.bitcast(
             smem_base + A_SMEM_OFFSET_BYTES,
-            cl.uint16,
-            (AB_STAGES, A_STAGE_ELEMS),
+            pointer_dtype,
         )
-        b_smem = cl.reinterpret_pointer_as_array(
+        b_pointer = cl.bitcast(
             smem_base + B_SMEM_OFFSET_BYTES,
-            cl.uint16,
-            (AB_STAGES, B_STAGE_ELEMS),
+            pointer_dtype,
         )
+        a_smem = cl.Array.from_parts(a_pointer, (AB_STAGES, A_STAGE_ELEMS))
+        b_smem = cl.Array.from_parts(b_pointer, (AB_STAGES, B_STAGE_ELEMS))
         return a_smem, b_smem
 
     @ts.producer_work(

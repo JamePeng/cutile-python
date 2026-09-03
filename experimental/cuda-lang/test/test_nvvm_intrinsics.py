@@ -76,7 +76,8 @@ def test_smem_pointer_arg_intrinsic():
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
         p = cl._nvvm.mapa_shared_cluster(smem.pointer(), 0)
-        a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
+        p = cl.bitcast(p, cl.pointer_dtype(cl.int32, p.memory_space))
+        a = cl.Array.from_parts(p, 1)
         a[0] = 13
         y[0] = smem[0]
 
@@ -91,7 +92,8 @@ def test_generic_pointer_arg_intrinsic():
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
         p = cl._nvvm.mapa(smem.pointer(), 0)
-        a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
+        p = cl.bitcast(p, cl.pointer_dtype(cl.int32, p.memory_space))
+        a = cl.Array.from_parts(p, 1)
         a[0] = 13
         y[0] = smem[0]
 

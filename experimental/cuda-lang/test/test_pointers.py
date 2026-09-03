@@ -382,7 +382,7 @@ def test_ptr_roundtrip():
     def kernel(A):
         B = cl.shared_array(shape=(3, 3), dtype=cl.int32)
         smem = B.pointer()
-        B2 = cl.reinterpret_pointer_as_array(smem, cl.int32, 1)
+        B2 = cl.Array.from_parts(smem, 1)
         B2[0] = 1
         A[0] = B[0, 0]
         B2[0] = 2
@@ -391,6 +391,68 @@ def test_ptr_roundtrip():
     A = torch.zeros(2, dtype=torch.int32, device="cuda:0")
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (A,))
     assert A.cpu().tolist() == [1, 2]
+
+
+def test_array_from_parts_with_strides():
+    @cl.kernel
+    def kernel(array):
+        view = cl.Array.from_parts(array.pointer(), (2, 2), (3, 1))
+        cl.static_assert(view.shape == (2, 2))
+        cl.static_assert(view.strides == (3, 1))
+        cl.static_assert(view.dtype == cl.int32)
+        view[0, 0] = 10
+        view[0, 1] = 11
+        view[1, 0] = 12
+        view[1, 1] = 13
+
+    array = torch.zeros(5, dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (array,))
+    assert array.cpu().tolist() == [10, 11, 0, 12, 13]
+
+
+def test_array_from_parts_uses_pointer_dtype():
+    @cl.kernel
+    def kernel(array):
+        pointer = cl.bitcast(
+            array.pointer(),
+            cl.pointer_dtype(cl.float32, cl.MemorySpace.GLOBAL),
+        )
+        view = cl.Array.from_parts(pointer, 1)
+        cl.static_assert(view.dtype == cl.float32)
+        view[0] = 1.5
+
+    array = torch.zeros(1, dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (array,))
+    assert array.cpu().item() == 0x3FC00000
+
+
+def test_array_from_parts_rejects_stride_rank_mismatch():
+    def kernel(array):
+        cl.Array.from_parts(array.pointer(), (2, 2), (1,))
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(4, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match="Shape and strides must have the same rank, got 2 and 1",
+        ),
+    )
+
+
+def test_array_from_parts_rejects_opaque_pointer():
+    def kernel(array):
+        pointer = cl.bitcast(array.pointer(), cl.opaque_pointer_dtype())
+        cl.Array.from_parts(pointer, 1)
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(1, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match="Expected concrete pointer type but got opaque_pointer",
+        ),
+    )
 
 
 def test_pointer_smem():

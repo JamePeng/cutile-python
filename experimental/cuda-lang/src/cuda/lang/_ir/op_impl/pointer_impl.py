@@ -25,7 +25,6 @@ from cuda.lang._ir.op_defs import (
     AtomicLoad,
     AtomicStore,
     LoadPointer,
-    ReinterpretPointerAsArray,
     StorePointer,
 )
 from cuda.lang._ir.type_checking_helpers import (
@@ -44,9 +43,9 @@ from cuda.tile._datatype import (
     uint64,
 )
 from cuda.tile._ir.arithmetic_ops import astype, binary_arithmetic_tensorlike_raw
-from cuda.tile._ir.cast_ops import address_space_cast, implicit_cast, reinterpret_pointer
+from cuda.tile._ir.cast_ops import address_space_cast, implicit_cast
 from cuda.tile._ir.core_ops import bind_method, loosely_typed_const, strictly_typed_const
-from cuda.tile._ir.ir import add_operation_variadic
+from cuda.tile._ir.ir import add_operation_variadic, make_aggregate
 from cuda.tile._ir.op_impl import (
     ImplRegistry,
     WILDCARD,
@@ -460,39 +459,29 @@ def address_space_cast_impl(value: Var, memory_space: Var) -> Var:
     return address_space_cast(value, memory_space)
 
 
-@impl(core_api.reinterpret_pointer_as_array)
-def reinterpret_pointer_as_array_impl(pointer: Var, dtype: Var, shape: Var, strides: Var) -> Var:
-    if not strides.is_constant() or strides.get_constant() is not None:
-        raise TypeCheckingError(
-            "Reinterpreting a pointer as an array with "
-            "non-default strides is not yet implemented."
-        )
-    pointer_ty = require_pointer_type(pointer)
+@impl(Array.from_parts)
+def array_from_parts_impl(pointer: Var, shape: Var, strides: Var) -> Var:
+    pointer_ty = require_concrete_pointer_type(pointer)
     shape = require_constant_int_tuple(shape, allow_single_int=True)
-    dtype = require_dtype_spec(dtype)
-    strides = contiguous_strides_from_shape(shape)
-    memory_space = pointer_ty.memory_space
-
-    typed_pointer_ty = PointerTy(pointer_dtype(dtype, memory_space))
-    if pointer.get_type() != typed_pointer_ty:
-        pointer = reinterpret_pointer(pointer, typed_pointer_ty.pointer_dtype)
+    if strides.is_constant() and strides.get_constant() is None:
+        strides = contiguous_strides_from_shape(shape)
+    else:
+        strides = require_constant_int_tuple(strides, allow_single_int=True)
+        if len(strides) != len(shape):
+            raise TypeCheckingError(
+                f"Shape and strides must have the same rank, got {len(shape)} and {len(strides)}"
+            )
     index_dtype = datatype.int32
     array_ty = ArrayTy(
-        dtype,
+        pointer_ty.pointee_dtype,
         shape=shape,
         strides=strides,
         typing_hooks=pointer.ctx.typing_hooks,
         index_dtype=index_dtype,
-        memory_space=memory_space,
+        memory_space=pointer_ty.memory_space,
     )
-    result = add_operation(
-        ReinterpretPointerAsArray,
-        array_ty,
-        pointer=pointer,
-    )
-    # FIXME: it seems that the index dtype should be derived from the dtype of shape/strides instead
+    # FIXME: Derive the index dtype from the shape and stride dtypes.
     size_ty = ScalarTy(index_dtype)
     shape_vars = tuple(strictly_typed_const(extent, size_ty) for extent in shape)
     stride_vars = tuple(strictly_typed_const(extent, size_ty) for extent in strides)
-    result.set_aggregate(ArrayValue(pointer, shape_vars, stride_vars))
-    return result
+    return make_aggregate(ArrayValue(pointer, shape_vars, stride_vars), array_ty)

@@ -161,11 +161,11 @@ class SmemAbResource(ts.MemoryResource):
             stage_info, operand_is_a
         )
         base = stage_info.context.smem_base.pointer()
-        shared_smem = cl.reinterpret_pointer_as_array(
+        pointer = cl.bitcast(
             base + smem_offset,
-            cl.uint16,
-            (ab_stages, stage_elems),
+            cl.pointer_dtype(cl.uint16, base.memory_space),
         )
+        shared_smem = cl.Array.from_parts(pointer, (ab_stages, stage_elems))
         return shared_smem, rank_in_pair
 
     @ts.producer_work

@@ -105,7 +105,6 @@ from .op_defs import (  # noqa: F401
     VectorReduce,
     StorePointer,
     LoadPointer,
-    ReinterpretPointerAsArray,
     BitCast,
     FmaOperation,
 )
@@ -958,7 +957,6 @@ __all__ = (
     "PointerOffset",
     "LoadPointer",
     "ReinterpretPointer",
-    "ReinterpretPointerAsArray",
     "StorePointer",
     "RawWhereOperation",
     "Unary",

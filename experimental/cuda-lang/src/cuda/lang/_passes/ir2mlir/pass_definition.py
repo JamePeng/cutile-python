@@ -353,13 +353,6 @@ def _get_mlir_comparison_op(
                 return None
 
 
-# These operations have aggregate results. The RHS's elements are stored to
-# the LHS's when lowering Assign operations and are no-ops at the MLIR level.
-_NOOP_LOWERINGS = frozenset([
-    ops.ReinterpretPointerAsArray,
-])
-
-
 @dataclass(kw_only=True)
 class MLIRLoweringContext:
     """Mutable data shared by host and device MLIR operation lowering."""
@@ -944,9 +937,6 @@ class DeviceIR2MLIR:
         with mlir_block.append_here():
             for operation in ir_block.operations:
                 context.current_op = operation
-
-                if isinstance(operation, tuple(_NOOP_LOWERINGS)):
-                    continue
 
                 operation_loc = None
                 if self.compiler_options.debug_info == "line":
