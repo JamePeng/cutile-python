@@ -289,12 +289,12 @@ def _kernel(
         num_bytes_b * num_ab_stages, cl.int8, alignment=1024
     )
 
-    ab_full_base = ab_full.get_base_pointer()
-    ab_empty_base = ab_empty.get_base_pointer()
-    acc_full_ptr = acc_full.get_base_pointer()
-    tmem_storage_ptr = tmem_storage.get_base_pointer()
-    a_smem_base = a_smem.get_base_pointer()
-    b_smem_base = b_smem.get_base_pointer()
+    ab_full_base = ab_full.pointer()
+    ab_empty_base = ab_empty.pointer()
+    acc_full_ptr = acc_full.pointer()
+    tmem_storage_ptr = tmem_storage.pointer()
+    a_smem_base = a_smem.pointer()
+    b_smem_base = b_smem.pointer()
     s_c_base = a_smem_base
 
     k_tile_count = cl.cdiv(k, TILE_K)
@@ -312,15 +312,15 @@ def _kernel(
 
     if warp < EPILOGUE_WARPS:
         if warp == 0 and lane < num_ab_stages:
-            cl.mbarrier_initialize(ab_full.get_element_pointer(lane), 1)
+            cl.mbarrier_initialize(ab_full.pointer(lane), 1)
         if warp == 1 and lane < num_ab_stages:
-            cl.mbarrier_initialize(ab_empty.get_element_pointer(lane), 1)
+            cl.mbarrier_initialize(ab_empty.pointer(lane), 1)
         if warp == 2 and cluster_size > 1 and lane < REDUCTION_STAGES:
             cl.mbarrier_initialize(
-                y_reduce_full.get_element_pointer(lane), 1
+                y_reduce_full.pointer(lane), 1
             )
             cl.mbarrier_initialize(
-                y_reduce_empty.get_element_pointer(lane), cluster_size - 1
+                y_reduce_empty.pointer(lane), cluster_size - 1
             )
         if warp == 3 and cl.elect_sync():
             cl.mbarrier_initialize(acc_full_ptr, 1)
@@ -348,8 +348,8 @@ def _kernel(
         peek_empty = cl.mbarrier_test_wait_parity(ab_empty_base, empty_phase)
 
         for _ in range(local_k_count):
-            empty_stage = ab_empty.get_element_pointer(stage)
-            full_stage = ab_full.get_element_pointer(stage)
+            empty_stage = ab_empty.pointer(stage)
+            full_stage = ab_full.pointer(stage)
             if not peek_empty:
                 cl.mbarrier_wait_parity(empty_stage, empty_phase)
 
@@ -381,7 +381,7 @@ def _kernel(
             peek_empty = True
             if remaining_after_tile != 0:
                 peek_empty = cl.mbarrier_test_wait_parity(
-                    ab_empty.get_element_pointer(next_stage), next_phase
+                    ab_empty.pointer(next_stage), next_phase
                 )
             stage = next_stage
             empty_phase = next_phase
@@ -427,7 +427,7 @@ def _kernel(
         peek_full = cl.mbarrier_test_wait_parity(ab_full_base, full_phase)
 
         for _ in range(local_k_count):
-            full_stage = ab_full.get_element_pointer(stage)
+            full_stage = ab_full.pointer(stage)
             if not peek_full:
                 cl.mbarrier_wait_parity(full_stage, full_phase)
 
@@ -452,7 +452,7 @@ def _kernel(
                 accumulate = True
 
             if cl.elect_sync():
-                cl.tcgen05_commit(ab_empty.get_element_pointer(stage))
+                cl.tcgen05_commit(ab_empty.pointer(stage))
 
             next_stage = stage + 1
             next_phase = full_phase
@@ -462,7 +462,7 @@ def _kernel(
             peek_full = True
             if remaining_after_tile != 0:
                 peek_full = cl.mbarrier_test_wait_parity(
-                    ab_full.get_element_pointer(next_stage), next_phase
+                    ab_full.pointer(next_stage), next_phase
                 )
             stage = next_stage
             full_phase = next_phase
@@ -555,7 +555,7 @@ def _kernel(
                 warp_base = warp * 2 * store_groups * group_elems
             else:
                 warp_base = warp * store_groups * group_elems
-            y_accum_base = y_accum.get_base_pointer()
+            y_accum_base = y_accum.pointer()
 
             for batch_idx in range(num_batches):
                 batch_start = batch_idx * cluster_size
@@ -568,7 +568,7 @@ def _kernel(
 
                 if batch_idx >= REDUCTION_STAGES:
                     cl.mbarrier_wait_parity(
-                        y_reduce_empty.get_element_pointer(buffer_idx),
+                        y_reduce_empty.pointer(buffer_idx),
                         empty_phase,
                     )
 
@@ -597,7 +597,7 @@ def _kernel(
                             y_accum_base, owner
                         )
                         remote_full = cl.map_shared_to_cluster(
-                            y_reduce_full.get_element_pointer(buffer_idx), owner
+                            y_reduce_full.pointer(buffer_idx), owner
                         )
 
                         for pass_idx in cl.static_iter(
@@ -642,11 +642,11 @@ def _kernel(
 
                     if warp == 0 and cl.elect_sync():
                         cl.mbarrier_arrive_expect_transaction(
-                            y_reduce_full.get_element_pointer(buffer_idx),
+                            y_reduce_full.pointer(buffer_idx),
                             peer_count * reduction_chunk_elems * 4,
                         )
                     cl.mbarrier_wait_parity(
-                        y_reduce_full.get_element_pointer(buffer_idx),
+                        y_reduce_full.pointer(buffer_idx),
                         full_phase,
                     )
 
@@ -727,7 +727,7 @@ def _kernel(
                         if warp == 0 and lane < peer_count:
                             target = lane if lane < cta_rank else lane + 1
                             peer_empty = cl.map_shared_to_cluster(
-                                y_reduce_empty.get_element_pointer(buffer_idx),
+                                y_reduce_empty.pointer(buffer_idx),
                                 target,
                             )
                             cl.mbarrier_arrive(peer_empty)

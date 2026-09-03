@@ -295,10 +295,10 @@ def make_fmha_kernel(task_manager, cfg: FmhaConfig):
         allocators = task_manager.setup_resources_and_tasks()
         task_manager.run(
             TasksInputs(
-                q.get_base_pointer(),
+                q.pointer(),
                 tma_k_desc,
                 tma_v_desc,
-                o.get_base_pointer(),
+                o.pointer(),
                 seqlen_q,
                 seqlen_k,
                 num_heads_q,

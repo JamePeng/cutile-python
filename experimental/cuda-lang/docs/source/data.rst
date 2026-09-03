@@ -101,9 +101,11 @@ Pointers
 --------
 
 A :class:`Pointer` is a typed address into a CUDA memory space. Pointers provide
-low-level load and store operations, including vector loads and stores, and can
-be created from arrays with :meth:`Array.get_base_pointer` or
-:meth:`Array.get_element_pointer`.
+low-level load and store operations, including vector loads and stores. Use
+:meth:`Array.pointer` to create a pointer to an element of an array.
+With no argument, ``array.pointer()`` returns a pointer to the first element.
+A scalar index or tuple of scalar indices returns a pointer to an element,
+as in ``array.pointer(i)`` or ``array.pointer((i, j))``.
 
 Pointer dtypes encode both the pointee type and the memory space. Use
 :func:`pointer_dtype` to construct typed pointer dtypes, use
@@ -127,7 +129,7 @@ vectorized load:
        cl.barrier_sync_block()
 
        if tx == 0:
-           ptr = values.get_base_pointer()
+           ptr = values.pointer()
            vec = ptr.load(count=4, alignment=16)
            out[0] = vec[0] + vec[1] + vec[2] + vec[3]
 

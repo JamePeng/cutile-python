@@ -82,9 +82,9 @@ def _kernel(
     b_smem = cl.shared_array(BLOCK_N * BLOCK_K, cl.float16, alignment=128)
 
     if warp == 0 and cl.elect_sync():
-        cl.mbarrier_initialize(ab_full.get_base_pointer(), 1)
-        cl.mbarrier_initialize(ab_empty.get_base_pointer(), 1)
-        cl.mbarrier_initialize(acc_full.get_base_pointer(), 1)
+        cl.mbarrier_initialize(ab_full.pointer(), 1)
+        cl.mbarrier_initialize(ab_empty.pointer(), 1)
+        cl.mbarrier_initialize(acc_full.pointer(), 1)
     cl.fence(
         cl.MemoryOrder.RELEASE,
         cl.MemoryScope.CLUSTER,
@@ -95,7 +95,7 @@ def _kernel(
     # Match the source tutorial's full TMEM allocation.
     if warp == 0:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(), 512, cta_group=cl.CTAGroup.CTA_1
+            tmem_storage.pointer(), 512, cta_group=cl.CTAGroup.CTA_1
         )
     cl.barrier_sync_block()
     tmem_base = tmem_storage[0]
@@ -112,31 +112,31 @@ def _kernel(
         ab_full_phase = 0
         scale_d = False
         for k_tile in range(cl.cdiv(k, BLOCK_K)):
-            cl.mbarrier_wait_parity(ab_empty.get_base_pointer(), ab_empty_phase)
+            cl.mbarrier_wait_parity(ab_empty.pointer(), ab_empty_phase)
             ab_empty_phase = ab_empty_phase ^ 1
 
             # The elected lane issues both TMA loads and contributes the single
             # expected arrival. TMA completes the transaction bytes.
             if cl.elect_sync():
                 cl.mbarrier_arrive_expect_transaction(
-                    ab_full.get_base_pointer(),
+                    ab_full.pointer(),
                     (BLOCK_M + BLOCK_N) * BLOCK_K * 2,
                     scope=cl.MbarrierScope.BLOCK,
                 )
                 cl.copy_async_bulk_tensor_global_to_shared(
                     a_tmap,
                     (k_tile * BLOCK_K, off_m),
-                    a_smem.get_base_pointer(),
-                    ab_full.get_base_pointer(),
+                    a_smem.pointer(),
+                    ab_full.pointer(),
                 )
                 cl.copy_async_bulk_tensor_global_to_shared(
                     b_tmap,
                     (k_tile * BLOCK_K, off_n),
-                    b_smem.get_base_pointer(),
-                    ab_full.get_base_pointer(),
+                    b_smem.pointer(),
+                    ab_full.pointer(),
                 )
 
-            cl.mbarrier_wait_parity(ab_full.get_base_pointer(), ab_full_phase)
+            cl.mbarrier_wait_parity(ab_full.pointer(), ab_full_phase)
             ab_full_phase = ab_full_phase ^ 1
 
             a_desc = cl.Tcgen05SharedMemoryDescriptor(
@@ -167,17 +167,17 @@ def _kernel(
 
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    ab_empty.get_base_pointer(), cta_group=cl.CTAGroup.CTA_1
+                    ab_empty.pointer(), cta_group=cl.CTAGroup.CTA_1
                 )
 
         if cl.elect_sync():
             cl.tcgen05_commit(
-                acc_full.get_base_pointer(), cta_group=cl.CTAGroup.CTA_1
+                acc_full.pointer(), cta_group=cl.CTAGroup.CTA_1
             )
 
         cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_1)
 
-    cl.mbarrier_wait_parity(acc_full.get_base_pointer(), 0)
+    cl.mbarrier_wait_parity(acc_full.pointer(), 0)
 
     # Each thread owns one row. Match the source's four 32-column TMEM loads.
     # This epilogue has no partial-vector store fallback, so the host requires
@@ -206,7 +206,7 @@ def _kernel(
                 col_j = off_n + column + j * vsize
                 if col_j + vsize <= n:
                     packed = _to_float16_vector(accumulators, j * vsize, vsize)
-                    dst = c.get_element_pointer((row, col_j))
+                    dst = c.pointer((row, col_j))
                     dst.store(packed, alignment=VEC_BYTES)
 
     cl.barrier_sync_block()

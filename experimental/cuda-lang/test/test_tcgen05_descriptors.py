@@ -173,7 +173,7 @@ def test_tcgen05_shared_memory_descriptor_pointer_encoding():
     def kernel(out):
         mat = cl.shared_array(16, cl.int8)
         descriptor = cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=mat.get_base_pointer(),
+            matrix_start_address=mat.pointer(),
             leading_dimension_byte_offset=0,
             stride_dimension_byte_offset=0,
         )
@@ -208,7 +208,7 @@ def test_tcgen05_shared_memory_descriptor_int_encoding(dtype):
     @cl.kernel
     def kernel(out):
         mat = cl.shared_array(16, cl.int8)
-        ptr = mat.get_base_pointer()
+        ptr = mat.pointer()
         intval = cast(ptr, dtype)
         descriptor = cl.Tcgen05SharedMemoryDescriptor(
             matrix_start_address=intval,

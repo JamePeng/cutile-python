@@ -104,7 +104,7 @@ def scale_vector16(values, scale):
 
 def store_output_pairs(o_smem, values, inv_norm, row, column):
     out_ptr = cl.bitcast(
-        o_smem.get_base_pointer(),
+        o_smem.pointer(),
         cl.pointer_dtype(cl.uint32, cl.MemorySpace.SHARED),
     )
     for i in cl.static_iter(range(len(values) // 2)):
@@ -214,20 +214,20 @@ def flash_attention_fwd_kernel(
         cl.prefetch_tensor_map(v_tmap)
         cl.prefetch_tensor_map(o_tmap)
         for qid in cl.static_iter(range(2)):
-            cl.mbarrier_initialize(q_arrived.get_element_pointer(qid), 1)
-            cl.mbarrier_initialize(q_finished.get_element_pointer(qid), 1)
-            cl.mbarrier_initialize(scores_arrived.get_element_pointer(qid), 1)
-            cl.mbarrier_initialize(norm_scores_arrived.get_element_pointer(qid), 10)
+            cl.mbarrier_initialize(q_arrived.pointer(qid), 1)
+            cl.mbarrier_initialize(q_finished.pointer(qid), 1)
+            cl.mbarrier_initialize(scores_arrived.pointer(qid), 1)
+            cl.mbarrier_initialize(norm_scores_arrived.pointer(qid), 10)
             for quarter in cl.static_iter(range(3)):
                 cl.mbarrier_initialize(
-                    norm_quarter_arrived.get_element_pointer((quarter, qid)), 8
+                    norm_quarter_arrived.pointer((quarter, qid)), 8
                 )
-            cl.mbarrier_initialize(corr_arrived.get_element_pointer(qid), 4)
-            cl.mbarrier_initialize(tile_arrived.get_element_pointer(qid), 1)
-            cl.mbarrier_initialize(rescale_finished.get_element_pointer(qid), 1)
+            cl.mbarrier_initialize(corr_arrived.pointer(qid), 4)
+            cl.mbarrier_initialize(tile_arrived.pointer(qid), 1)
+            cl.mbarrier_initialize(rescale_finished.pointer(qid), 1)
         for stage in cl.static_iter(range(LOAD_STAGES)):
-            cl.mbarrier_initialize(kv_arrived.get_element_pointer(stage), 1)
-            cl.mbarrier_initialize(kv_finished.get_element_pointer(stage), 2)
+            cl.mbarrier_initialize(kv_arrived.pointer(stage), 1)
+            cl.mbarrier_initialize(kv_finished.pointer(stage), 2)
         cl.fence(
             cl.MemoryOrder.RELEASE,
             cl.MemoryScope.CLUSTER,
@@ -236,7 +236,7 @@ def flash_attention_fwd_kernel(
 
     if warp == 0:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(), 512, cta_group=cl.CTAGroup.CTA_2
+            tmem_storage.pointer(), 512, cta_group=cl.CTAGroup.CTA_2
         )
     cl.tcgen05_fence_before_thread_sync()
     cl.barrier_sync_block()
@@ -266,11 +266,11 @@ def flash_attention_fwd_kernel(
             m_base = (rem - head_idx * clusters_m) * 4
 
             for qid in cl.static_iter(range(2)):
-                cl.mbarrier_wait_parity(q_finished.get_element_pointer(qid), q_phase)
+                cl.mbarrier_wait_parity(q_finished.pointer(qid), q_phase)
                 q_dst = cl.map_shared_to_cluster(
-                    q_smem.get_element_pointer((qid, 0)), rank
+                    q_smem.pointer((qid, 0)), rank
                 )
-                q_bar = q_arrived.get_element_pointer(qid)
+                q_bar = q_arrived.pointer(qid)
                 cl.copy_async_bulk_tensor_global_to_shared(
                     q_tmap,
                     (0, (m_base + rank * 2 + qid) * BLOCK_M, 0, head_idx, batch_idx),
@@ -282,12 +282,12 @@ def flash_attention_fwd_kernel(
 
             for key_block in range(iterations):
                 cl.mbarrier_wait_parity(
-                    kv_finished.get_element_pointer(kv_index), kv_phase
+                    kv_finished.pointer(kv_index), kv_phase
                 )
                 k_dst = cl.map_shared_to_cluster(
-                    kv_smem.get_element_pointer((kv_index, 0)), rank
+                    kv_smem.pointer((kv_index, 0)), rank
                 )
-                k_bar = kv_arrived.get_element_pointer(kv_index)
+                k_bar = kv_arrived.pointer(kv_index)
                 cl.copy_async_bulk_tensor_global_to_shared(
                     k_tmap,
                     (
@@ -308,12 +308,12 @@ def flash_attention_fwd_kernel(
                     kv_phase ^= 1
 
                 cl.mbarrier_wait_parity(
-                    kv_finished.get_element_pointer(kv_index), kv_phase
+                    kv_finished.pointer(kv_index), kv_phase
                 )
                 v_dst = cl.map_shared_to_cluster(
-                    kv_smem.get_element_pointer((kv_index, 0)), rank
+                    kv_smem.pointer((kv_index, 0)), rank
                 )
-                v_bar = kv_arrived.get_element_pointer(kv_index)
+                v_bar = kv_arrived.pointer(kv_index)
                 cl.copy_async_bulk_tensor_global_to_shared(
                     v_tmap,
                     (0, key_block * BLOCK_N, rank, head_idx, batch_idx),
@@ -356,19 +356,19 @@ def flash_attention_fwd_kernel(
             norm_phase = (task_number * iterations) & 1
             for qid in cl.static_iter(range(2)):
                 cl.mbarrier_arrive_expect_transaction(
-                    q_arrived.get_element_pointer(qid),
+                    q_arrived.pointer(qid),
                     CLUSTER_SIZE * Q_TILE_ELEMENTS * 2,
                     scope=cl.MbarrierScope.BLOCK,
                 )
-                cl.mbarrier_wait_parity(q_arrived.get_element_pointer(qid), q_phase)
+                cl.mbarrier_wait_parity(q_arrived.pointer(qid), q_phase)
 
             k_stage = kv_index
             cl.mbarrier_arrive_expect_transaction(
-                kv_arrived.get_element_pointer(k_stage),
+                kv_arrived.pointer(k_stage),
                 CLUSTER_SIZE * KV_TILE_ELEMENTS * 2,
                 scope=cl.MbarrierScope.BLOCK,
             )
-            cl.mbarrier_wait_parity(kv_arrived.get_element_pointer(k_stage), kv_phase)
+            cl.mbarrier_wait_parity(kv_arrived.pointer(k_stage), kv_phase)
             cl.tcgen05_fence_after_thread_sync()
             for qid in cl.static_iter(range(2)):
                 score_tmem = cl.tcgen05_tmem_offset(
@@ -379,10 +379,10 @@ def flash_attention_fwd_kernel(
                         cl.Tcgen05MMAKind.F16,
                         score_tmem,
                         qk_descriptor(
-                            q_smem.get_element_pointer((qid, 0)), BLOCK_M, chunk
+                            q_smem.pointer((qid, 0)), BLOCK_M, chunk
                         ),
                         qk_descriptor(
-                            kv_smem.get_element_pointer((k_stage, 0)),
+                            kv_smem.pointer((k_stage, 0)),
                             BLOCK_N // 2,
                             chunk,
                         ),
@@ -391,19 +391,19 @@ def flash_attention_fwd_kernel(
                         cta_group=cl.CTAGroup.CTA_2,
                     )
                 cl.tcgen05_commit(
-                    kv_finished.get_element_pointer(k_stage),
+                    kv_finished.pointer(k_stage),
                     multicast_mask=0b11,
                     cta_group=cl.CTAGroup.CTA_2,
                 )
                 cl.tcgen05_commit(
-                    scores_arrived.get_element_pointer(qid),
+                    scores_arrived.pointer(qid),
                     multicast_mask=0b11,
                     cta_group=cl.CTAGroup.CTA_2,
                 )
             if iterations == 1:
                 for qid in cl.static_iter(range(2)):
                     cl.tcgen05_commit(
-                        q_finished.get_element_pointer(qid),
+                        q_finished.pointer(qid),
                         multicast_mask=0b11,
                         cta_group=cl.CTAGroup.CTA_2,
                     )
@@ -415,17 +415,17 @@ def flash_attention_fwd_kernel(
             for key_block in range(iterations):
                 v_stage = kv_index
                 cl.mbarrier_arrive_expect_transaction(
-                    kv_arrived.get_element_pointer(v_stage),
+                    kv_arrived.pointer(v_stage),
                     CLUSTER_SIZE * BLOCK_N * (HEAD_DIM_V // 2) * 2,
                     scope=cl.MbarrierScope.BLOCK,
                 )
                 cl.mbarrier_wait_parity(
-                    kv_arrived.get_element_pointer(v_stage), kv_phase
+                    kv_arrived.pointer(v_stage), kv_phase
                 )
 
                 for qid in cl.static_iter(range(2)):
                     cl.mbarrier_wait_parity(
-                        norm_scores_arrived.get_element_pointer(qid), norm_phase
+                        norm_scores_arrived.pointer(qid), norm_phase
                     )
                     output_tmem = cl.tcgen05_tmem_offset(
                         tmem_storage[0], column_offset=qid * 256 + 128
@@ -433,12 +433,12 @@ def flash_attention_fwd_kernel(
                     for quarter in cl.static_iter(range(4)):
                         if quarter > 0:
                             cl.mbarrier_wait_parity(
-                                norm_quarter_arrived.get_element_pointer(
+                                norm_quarter_arrived.pointer(
                                     (quarter - 1, qid)
                                 ),
                                 norm_phase,
                             )
-                        v_ptr = kv_smem.get_element_pointer(
+                        v_ptr = kv_smem.pointer(
                             (v_stage, quarter * 32 * 64)
                         )
                         for chunk in cl.static_iter(range(2)):
@@ -457,7 +457,7 @@ def flash_attention_fwd_kernel(
                                 cta_group=cl.CTAGroup.CTA_2,
                             )
                     cl.tcgen05_commit(
-                        kv_finished.get_element_pointer(v_stage),
+                        kv_finished.pointer(v_stage),
                         multicast_mask=0b11,
                         cta_group=cl.CTAGroup.CTA_2,
                     )
@@ -470,12 +470,12 @@ def flash_attention_fwd_kernel(
                 if key_block + 1 < iterations:
                     k_stage = kv_index
                     cl.mbarrier_arrive_expect_transaction(
-                        kv_arrived.get_element_pointer(k_stage),
+                        kv_arrived.pointer(k_stage),
                         CLUSTER_SIZE * KV_TILE_ELEMENTS * 2,
                         scope=cl.MbarrierScope.BLOCK,
                     )
                     cl.mbarrier_wait_parity(
-                        kv_arrived.get_element_pointer(k_stage), kv_phase
+                        kv_arrived.pointer(k_stage), kv_phase
                     )
                     cl.tcgen05_fence_after_thread_sync()
                     for qid in cl.static_iter(range(2)):
@@ -487,12 +487,12 @@ def flash_attention_fwd_kernel(
                                 cl.Tcgen05MMAKind.F16,
                                 score_tmem,
                                 qk_descriptor(
-                                    q_smem.get_element_pointer((qid, 0)),
+                                    q_smem.pointer((qid, 0)),
                                     BLOCK_M,
                                     chunk,
                                 ),
                                 qk_descriptor(
-                                    kv_smem.get_element_pointer((k_stage, 0)),
+                                    kv_smem.pointer((k_stage, 0)),
                                     BLOCK_N // 2,
                                     chunk,
                                 ),
@@ -501,19 +501,19 @@ def flash_attention_fwd_kernel(
                                 cta_group=cl.CTAGroup.CTA_2,
                             )
                         cl.tcgen05_commit(
-                            kv_finished.get_element_pointer(k_stage),
+                            kv_finished.pointer(k_stage),
                             multicast_mask=0b11,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
                         cl.tcgen05_commit(
-                            scores_arrived.get_element_pointer(qid),
+                            scores_arrived.pointer(qid),
                             multicast_mask=0b11,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
                     if key_block + 2 == iterations:
                         for qid in cl.static_iter(range(2)):
                             cl.tcgen05_commit(
-                                q_finished.get_element_pointer(qid),
+                                q_finished.pointer(qid),
                                 multicast_mask=0b11,
                                 cta_group=cl.CTAGroup.CTA_2,
                             )
@@ -525,7 +525,7 @@ def flash_attention_fwd_kernel(
                 else:
                     for qid in cl.static_iter(range(2)):
                         cl.tcgen05_commit(
-                            tile_arrived.get_element_pointer(qid),
+                            tile_arrived.pointer(qid),
                             multicast_mask=0b11,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
@@ -544,13 +544,13 @@ def flash_attention_fwd_kernel(
             row_sum = cl.float32(0.0)
             row_max = cl.float32(-float("inf"))
             cl.mbarrier_wait_parity(
-                rescale_finished.get_element_pointer(qid), rescale_phase
+                rescale_finished.pointer(qid), rescale_phase
             )
             rescale_phase ^= 1
 
             for key_block in range(iterations):
                 cl.mbarrier_wait_parity(
-                    scores_arrived.get_element_pointer(qid), score_phase
+                    scores_arrived.pointer(qid), score_phase
                 )
                 row_tmem = cl.tcgen05_tmem_offset(
                     tmem_storage[0],
@@ -581,7 +581,7 @@ def flash_attention_fwd_kernel(
                     max_vec[qid, lane_in_group] = correction
                 cl.barrier_sync_warp()
                 if cl.elect_sync():
-                    cl.mbarrier_arrive(corr_arrived.get_element_pointer(qid))
+                    cl.mbarrier_arrive(corr_arrived.pointer(qid))
 
                 scale = cl.float32(SCALE_LOG2)
                 offset = -row_max * scale
@@ -604,13 +604,13 @@ def flash_attention_fwd_kernel(
                         if cl.elect_sync():
                             cl.mbarrier_arrive(
                                 cl.map_shared_to_cluster(
-                                    norm_scores_arrived.get_element_pointer(qid), 0
+                                    norm_scores_arrived.pointer(qid), 0
                                 )
                             )
                     elif cl.elect_sync():
                         cl.mbarrier_arrive(
                             cl.map_shared_to_cluster(
-                                norm_quarter_arrived.get_element_pointer(
+                                norm_quarter_arrived.pointer(
                                     (quarter - 1, qid)
                                 ),
                                 0,
@@ -618,7 +618,7 @@ def flash_attention_fwd_kernel(
                         )
 
                 cl.mbarrier_wait_parity(
-                    rescale_finished.get_element_pointer(qid), rescale_phase
+                    rescale_finished.pointer(qid), rescale_phase
                 )
                 rescale_phase ^= 1
                 row_sum = row_sum * correction + block_sum
@@ -628,7 +628,7 @@ def flash_attention_fwd_kernel(
             max_vec[qid, lane_in_group] = row_sum
             cl.barrier_sync_warp()
             if cl.elect_sync():
-                cl.mbarrier_arrive(corr_arrived.get_element_pointer(qid))
+                cl.mbarrier_arrive(corr_arrived.pointer(qid))
             current_bid += NUM_SMS
 
     elif warpgroup == 2:
@@ -639,7 +639,7 @@ def flash_attention_fwd_kernel(
             for qid in cl.static_iter(range(2)):
                 cl.mbarrier_arrive(
                     cl.map_shared_to_cluster(
-                        norm_scores_arrived.get_element_pointer(qid), 0
+                        norm_scores_arrived.pointer(qid), 0
                     )
                 )
 
@@ -647,16 +647,16 @@ def flash_attention_fwd_kernel(
         while current_bid < total_bids:
             for qid in cl.static_iter(range(2)):
                 cl.mbarrier_wait_parity(
-                    corr_arrived.get_element_pointer(qid), correction_phase
+                    corr_arrived.pointer(qid), correction_phase
                 )
                 if warp == 8 and cl.elect_sync():
-                    cl.mbarrier_arrive(rescale_finished.get_element_pointer(qid))
+                    cl.mbarrier_arrive(rescale_finished.pointer(qid))
             correction_phase ^= 1
 
             for key_block in range(1, iterations):
                 for qid in cl.static_iter(range(2)):
                     cl.mbarrier_wait_parity(
-                        corr_arrived.get_element_pointer(qid), correction_phase
+                        corr_arrived.pointer(qid), correction_phase
                     )
                     correction = max_vec[qid, lane_in_group]
                     needs_rescale = cl.vote_any_sync(
@@ -683,10 +683,10 @@ def flash_attention_fwd_kernel(
                     if warp == 8 and cl.elect_sync():
                         cl.mbarrier_arrive(
                             cl.map_shared_to_cluster(
-                                norm_scores_arrived.get_element_pointer(qid), 0
+                                norm_scores_arrived.pointer(qid), 0
                             )
                         )
-                        cl.mbarrier_arrive(rescale_finished.get_element_pointer(qid))
+                        cl.mbarrier_arrive(rescale_finished.pointer(qid))
                 correction_phase ^= 1
 
             cluster_linear = current_bid // CLUSTER_SIZE
@@ -699,12 +699,12 @@ def flash_attention_fwd_kernel(
 
             for qid in cl.static_iter(range(2)):
                 cl.mbarrier_wait_parity(
-                    corr_arrived.get_element_pointer(qid), correction_phase
+                    corr_arrived.pointer(qid), correction_phase
                 )
                 row_sum = max_vec[qid, lane_in_group]
                 row_max = lse_vec[qid, lane_in_group]
                 if warp == 8 and cl.elect_sync():
-                    cl.mbarrier_arrive(rescale_finished.get_element_pointer(qid))
+                    cl.mbarrier_arrive(rescale_finished.pointer(qid))
                 invalid = row_sum == cl.float32(0.0) or row_sum != row_sum
                 inv_norm = cl.truediv(
                     cl.float32(1.0),
@@ -712,7 +712,7 @@ def flash_attention_fwd_kernel(
                     approx=True,
                 )
                 cl.mbarrier_wait_parity(
-                    tile_arrived.get_element_pointer(qid), end_phase
+                    tile_arrived.pointer(qid), end_phase
                 )
                 cl.copy_async_bulk_wait_group(0, read=True)
                 cl.barrier_sync_block(number_of_threads=WARPGROUP_SIZE, barrier_id=1)
@@ -736,7 +736,7 @@ def flash_attention_fwd_kernel(
                         cl.CachePolicy.L2_EVICT_FIRST
                     )
                     cl.copy_async_bulk_tensor_shared_to_global(
-                        o_smem.get_base_pointer(),
+                        o_smem.pointer(),
                         o_tmap,
                         (0, m_tile * BLOCK_M, 0, head_idx, batch_idx),
                         l2_cache_hint=cache_hint,
@@ -744,7 +744,7 @@ def flash_attention_fwd_kernel(
                     cl.copy_async_bulk_commit_group()
                     cl.mbarrier_arrive(
                         cl.map_shared_to_cluster(
-                            norm_scores_arrived.get_element_pointer(qid), 0
+                            norm_scores_arrived.pointer(qid), 0
                         )
                     )
 

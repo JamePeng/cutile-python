@@ -669,7 +669,7 @@ from ._libdevice import (
 def sincosf(x: float32) -> tuple[float32, float32]:
     """Compute both ``sin(x)`` and ``cos(x)`` and return them as a tuple."""
     with local_array(shape=2, dtype=float32) as arr:
-        __nv_sincosf(x, arr.get_element_pointer(0), arr.get_element_pointer(1))
+        __nv_sincosf(x, arr.pointer(0), arr.pointer(1))
         return arr[0], arr[1]
 
 
@@ -677,7 +677,7 @@ def sincosf(x: float32) -> tuple[float32, float32]:
 def sincos(x: float64) -> tuple[float64, float64]:
     """Compute both ``sin(x)`` and ``cos(x)`` and return them as a tuple."""
     with local_array(shape=2, dtype=float64) as arr:
-        __nv_sincos(x, arr.get_element_pointer(0), arr.get_element_pointer(1))
+        __nv_sincos(x, arr.pointer(0), arr.pointer(1))
         return arr[0], arr[1]
 
 
@@ -685,7 +685,7 @@ def sincos(x: float64) -> tuple[float64, float64]:
 def sincospif(x: float32) -> tuple[float32, float32]:
     """Compute both ``sin(pi * x)`` and ``cos(pi * x)`` and return them as a tuple."""
     with local_array(shape=2, dtype=float32) as arr:
-        __nv_sincospif(x, arr.get_element_pointer(0), arr.get_element_pointer(1))
+        __nv_sincospif(x, arr.pointer(0), arr.pointer(1))
         return arr[0], arr[1]
 
 
@@ -693,7 +693,7 @@ def sincospif(x: float32) -> tuple[float32, float32]:
 def sincospi(x: float64) -> tuple[float64, float64]:
     """Compute both ``sin(pi * x)`` and ``cos(pi * x)`` and return them as a tuple."""
     with local_array(shape=2, dtype=float64) as arr:
-        __nv_sincospi(x, arr.get_element_pointer(0), arr.get_element_pointer(1))
+        __nv_sincospi(x, arr.pointer(0), arr.pointer(1))
         return arr[0], arr[1]
 
 
@@ -701,7 +701,7 @@ def sincospi(x: float64) -> tuple[float64, float64]:
 def fast_sincosf(x: float32) -> tuple[float32, float32]:
     """Compute both ``sin(x)`` and ``cos(x)`` with the fast libdevice variant."""
     with local_array(shape=2, dtype=float32) as arr:
-        __nv_fast_sincosf(x, arr.get_element_pointer(0), arr.get_element_pointer(1))
+        __nv_fast_sincosf(x, arr.pointer(0), arr.pointer(1))
         return arr[0], arr[1]
 
 
@@ -709,7 +709,7 @@ def fast_sincosf(x: float32) -> tuple[float32, float32]:
 def frexpf(x: float32) -> tuple[float32, int32]:
     """Decompose ``x`` into a normalized fraction and an integral exponent."""
     with local_array(shape=1, dtype=int32) as exp:
-        frac = __nv_frexpf(x, exp.get_element_pointer(0))
+        frac = __nv_frexpf(x, exp.pointer(0))
     return frac, exp[0]
 
 
@@ -717,7 +717,7 @@ def frexpf(x: float32) -> tuple[float32, int32]:
 def frexp(x: float64) -> tuple[float64, int32]:
     """Decompose ``x`` into a normalized fraction and an integral exponent."""
     with local_array(shape=1, dtype=int32) as exp:
-        frac = __nv_frexp(x, exp.get_element_pointer(0))
+        frac = __nv_frexp(x, exp.pointer(0))
         return frac, exp[0]
 
 
@@ -725,7 +725,7 @@ def frexp(x: float64) -> tuple[float64, int32]:
 def modf(a: float64) -> tuple[float64, float64]:
     """Split ``a`` into its fractional and integral parts and return both."""
     with local_array(shape=1, dtype=float64) as b:
-        c = __nv_modf(a, b.get_element_pointer(0))
+        c = __nv_modf(a, b.pointer(0))
         return c, b[0]
 
 
@@ -733,7 +733,7 @@ def modf(a: float64) -> tuple[float64, float64]:
 def modff(a: float32) -> tuple[float32, float32]:
     """Split ``a`` into its fractional and integral parts and return both."""
     with local_array(shape=1, dtype=float32) as b:
-        c = __nv_modff(a, b.get_element_pointer(0))
+        c = __nv_modff(a, b.pointer(0))
         return c, b[0]
 
 
@@ -741,7 +741,7 @@ def modff(a: float32) -> tuple[float32, float32]:
 def remquo(x: float64, y: float64) -> tuple[float64, int32]:
     """Compute a floating-point remainder in the same way as the remainder() function."""
     with local_array(shape=(1,), dtype=int32) as c:
-        z = __nv_remquo(x, y, c.get_element_pointer(0))
+        z = __nv_remquo(x, y, c.pointer(0))
         return z, c[0]
 
 
@@ -749,7 +749,7 @@ def remquo(x: float64, y: float64) -> tuple[float64, int32]:
 def remquof(x: float32, y: float32) -> tuple[float32, int32]:
     """Compute a floating-point remainder in the same way as the remainder() function."""
     with local_array(shape=1, dtype=int32) as c:
-        z = __nv_remquof(x, y, c.get_element_pointer(0))
+        z = __nv_remquof(x, y, c.pointer(0))
         return z, c[0]
 
 

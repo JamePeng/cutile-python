@@ -59,7 +59,7 @@ def test_any_pointer_arg_intrinsic():
         smem[cl.thread_index(0)] = x[cl.thread_index(0)]
         smem[cl.thread_index(0) + 32] = x[cl.thread_index(0) + 32]
         r = cl._nvvm.ldmatrix_sync_aligned_m8n8_x1_b16(
-            smem.get_element_pointer(cl.thread_index(0) * 8))
+            smem.pointer(cl.thread_index(0) * 8))
         y[cl.thread_index(0)] = r
 
     x = torch.arange(64, dtype=torch.int16, device="cuda:0")
@@ -75,7 +75,7 @@ def test_smem_pointer_arg_intrinsic():
     @cl.kernel
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
-        p = cl._nvvm.mapa_shared_cluster(smem.get_base_pointer(), 0)
+        p = cl._nvvm.mapa_shared_cluster(smem.pointer(), 0)
         a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
         a[0] = 13
         y[0] = smem[0]
@@ -90,7 +90,7 @@ def test_generic_pointer_arg_intrinsic():
     @cl.kernel
     def kern(y):
         smem = cl.shared_array(1, dtype=cl.int32)
-        p = cl._nvvm.mapa(smem.get_base_pointer(), 0)
+        p = cl._nvvm.mapa(smem.pointer(), 0)
         a = cl.reinterpret_pointer_as_array(p, cl.int32, (1,))
         a[0] = 13
         y[0] = smem[0]

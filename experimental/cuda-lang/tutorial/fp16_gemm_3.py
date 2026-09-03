@@ -202,17 +202,17 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
         alignment=128,
     )
 
-    tmem_dealloc_ptr = tmem_dealloc.get_base_pointer()
-    tmem_storage_ptr = tmem_storage.get_base_pointer()
+    tmem_dealloc_ptr = tmem_dealloc.pointer()
+    tmem_storage_ptr = tmem_storage.pointer()
 
     if warp == 0 and cl.elect_sync():
         cl.mbarrier_initialize(tmem_dealloc_ptr, WARP_SIZE)
         for stage in cl.static_iter(range(ACC_STAGES)):
-            cl.mbarrier_initialize(acc_empty.get_element_pointer(stage), 8)
-            cl.mbarrier_initialize(acc_full.get_element_pointer(stage), 1)
+            cl.mbarrier_initialize(acc_empty.pointer(stage), 8)
+            cl.mbarrier_initialize(acc_full.pointer(stage), 1)
         for stage in cl.static_iter(range(AB_STAGES)):
-            cl.mbarrier_initialize(ab_full.get_element_pointer(stage), 1)
-            cl.mbarrier_initialize(ab_empty.get_element_pointer(stage), 1)
+            cl.mbarrier_initialize(ab_full.pointer(stage), 1)
+            cl.mbarrier_initialize(ab_empty.pointer(stage), 1)
 
     cl.fence(
         cl.MemoryOrder.RELEASE,
@@ -244,8 +244,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
 
             for k_tile in range(cl.cdiv(k, BLOCK_K)):
                 current_ab_stage = ab_stage_idx
-                ab_full_stage = ab_full.get_element_pointer(current_ab_stage)
-                ab_empty_stage = ab_empty.get_element_pointer(current_ab_stage)
+                ab_full_stage = ab_full.pointer(current_ab_stage)
+                ab_empty_stage = ab_empty.pointer(current_ab_stage)
                 current_ab_empty_phase = ab_empty_phase
 
                 ab_stage_idx += 1
@@ -253,8 +253,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                     ab_stage_idx = 0
                     ab_empty_phase = ab_empty_phase ^ 1
 
-                a_stage = a_smem.get_element_pointer((current_ab_stage, 0))
-                b_stage = b_smem.get_element_pointer((current_ab_stage, 0))
+                a_stage = a_smem.pointer((current_ab_stage, 0))
+                b_stage = b_smem.pointer((current_ab_stage, 0))
                 coord_k = k_tile * BLOCK_K
                 coord_m = mma_tile_m * TILE_M + rank * CTA_M
                 coord_n = mma_tile_n * TILE_N + rank * CTA_N
@@ -309,7 +309,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                 tail_phase = tail_phase ^ 1
         if cl.elect_sync():
             cl.mbarrier_wait_parity(
-                ab_empty.get_element_pointer(tail_stage), tail_phase
+                ab_empty.pointer(tail_stage), tail_phase
             )
 
     elif warp == MMA_WARP:
@@ -327,8 +327,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
 
         while _TILE_SCHEDULER.is_valid(work_idx, m, n):
             current_acc_stage = acc_stage_idx
-            acc_empty_stage = acc_empty.get_element_pointer(current_acc_stage)
-            acc_full_stage = acc_full.get_element_pointer(current_acc_stage)
+            acc_empty_stage = acc_empty.pointer(current_acc_stage)
+            acc_full_stage = acc_full.pointer(current_acc_stage)
             current_acc_empty_phase = acc_empty_phase
 
             acc_stage_idx += 1
@@ -348,8 +348,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                 scale_d = False
                 for k_tile in range(cl.cdiv(k, BLOCK_K)):
                     current_ab_stage = ab_stage_idx
-                    ab_full_stage = ab_full.get_element_pointer(current_ab_stage)
-                    ab_empty_stage = ab_empty.get_element_pointer(current_ab_stage)
+                    ab_full_stage = ab_full.pointer(current_ab_stage)
+                    ab_empty_stage = ab_empty.pointer(current_ab_stage)
                     current_ab_full_phase = ab_full_phase
 
                     ab_stage_idx += 1
@@ -361,8 +361,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                         ab_full_stage, current_ab_full_phase
                     )
 
-                    a_stage = a_smem.get_element_pointer((current_ab_stage, 0))
-                    b_stage = b_smem.get_element_pointer((current_ab_stage, 0))
+                    a_stage = a_smem.pointer((current_ab_stage, 0))
+                    b_stage = b_smem.pointer((current_ab_stage, 0))
                     a_desc = cl.Tcgen05SharedMemoryDescriptor(
                         matrix_start_address=a_stage,
                         leading_dimension_byte_offset=16,
@@ -415,7 +415,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                     tail_phase = tail_phase ^ 1
             if cl.elect_sync():
                 cl.mbarrier_wait_parity(
-                    acc_empty.get_element_pointer(tail_stage), tail_phase
+                    acc_empty.pointer(tail_stage), tail_phase
                 )
 
     elif warp < MMA_WARP:
@@ -442,8 +442,8 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
 
         while _TILE_SCHEDULER.is_valid(work_idx, m, n):
             current_acc_stage = acc_stage_idx
-            acc_full_stage = acc_full.get_element_pointer(current_acc_stage)
-            acc_empty_stage = acc_empty.get_element_pointer(current_acc_stage)
+            acc_full_stage = acc_full.pointer(current_acc_stage)
+            acc_empty_stage = acc_empty.pointer(current_acc_stage)
             current_acc_full_phase = acc_full_phase
 
             acc_stage_idx += 1
@@ -485,7 +485,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                             packed = _to_float16_vector(
                                 accumulators, j * vsize, vsize
                             )
-                            dst = c.get_element_pointer((row, col_j))
+                            dst = c.pointer((row, col_j))
                             dst.store(packed, alignment=VEC_BYTES)
 
             if cl.elect_sync():

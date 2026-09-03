@@ -141,7 +141,7 @@ def test_math_fpclass(dtype, device_op, host_op, input, vector):
     @cl.kernel
     def kernel(out, inp):
         if vector:
-            v = device_op(inp.get_base_pointer().load(count=2))
+            v = device_op(inp.pointer().load(count=2))
             out[0] = v[0]
         else:
             out[0] = device_op(inp[0])
@@ -195,8 +195,8 @@ def test_math_unary_approx_fastmath(
 ):
     def kernel(inp, out):
         if vector:
-            value = inp.get_base_pointer().load(count=2)
-            out.get_base_pointer().store(device_op(value, approx=approx))
+            value = inp.pointer().load(count=2)
+            out.pointer().store(device_op(value, approx=approx))
         else:
             out[0] = device_op(inp[0], approx=approx)
 
@@ -245,10 +245,10 @@ def test_math_sincos_approx_fastmath(approx):
 def test_math_truediv_approx(approx, vector):
     def kernel(lhs, rhs, out):
         if vector:
-            lhs_value = lhs.get_base_pointer().load(count=2)
-            rhs_value = rhs.get_base_pointer().load(count=2)
+            lhs_value = lhs.pointer().load(count=2)
+            rhs_value = rhs.pointer().load(count=2)
             value = device_math.truediv(lhs_value, rhs_value, approx=approx)
-            out.get_base_pointer().store(value)
+            out.pointer().store(value)
         else:
             out[0] = device_math.truediv(lhs[0], rhs[0], approx=approx)
 
@@ -299,8 +299,8 @@ def test_pow(lhs_dt, rhs_dt, result_dt, vector):
     @cl.kernel
     def kernel(lhs, rhs, out, operator_out):
         if vector:
-            lhs_v = lhs.get_base_pointer().load(count=4)
-            rhs_v = rhs.get_base_pointer().load(count=4)
+            lhs_v = lhs.pointer().load(count=4)
+            rhs_v = rhs.pointer().load(count=4)
             v = device_math.pow(lhs_v, rhs_v)
             operator_v = lhs_v**rhs_v
             for i in range(4):
@@ -354,13 +354,13 @@ def test_pow_scalar_vector_broadcast(lhs_dt, rhs_dt, result_dt, vector_side):
     @cl.kernel
     def kernel(lhs, rhs, out, operator_out):
         if lhs_vector:
-            lhs_value = lhs.get_base_pointer().load(count=4)
+            lhs_value = lhs.pointer().load(count=4)
             rhs_value = rhs[0]
         else:
             lhs_value = lhs[0]
-            rhs_value = rhs.get_base_pointer().load(count=4)
-        out.get_base_pointer().store(device_math.pow(lhs_value, rhs_value))
-        operator_out.get_base_pointer().store(lhs_value**rhs_value)
+            rhs_value = rhs.pointer().load(count=4)
+        out.pointer().store(device_math.pow(lhs_value, rhs_value))
+        operator_out.pointer().store(lhs_value**rhs_value)
 
     lhs_count = 4 if lhs_vector else 1
     rhs_count = 1 if lhs_vector else 4
@@ -463,7 +463,7 @@ def test_math_exp2(dtype):
 def test_math_exp2_ptx(flush_to_zero, vector):
     def kernel():
         arr = cl.shared_array(1, cl.float32)
-        ptr = arr.get_base_pointer()
+        ptr = arr.pointer()
         if vector:
             value = ptr.load(count=2)
             result = device_math.exp2(value, flush_to_zero=flush_to_zero)
@@ -512,9 +512,9 @@ def test_math_vector_splat():
             arr[1] = 1.5
             arr[2] = 2.5
             arr[3] = 3.5
-            v = arr.get_base_pointer().load(count=4)
+            v = arr.pointer().load(count=4)
             v = device_math.atan2(v, scalar_dtype(inp[0]))
-            out.get_base_pointer().store(v)
+            out.pointer().store(v)
 
     scalar_torch_dt = datatype.to_torch_dtype(scalar_dtype)
     out_torch_dt = datatype.to_torch_dtype(scalar_dtype)
@@ -571,10 +571,10 @@ def test_math_binary_float_promotion():
 def test_math_fma_ir(vector):
     def kernel(x, y, z, out):
         if vector:
-            xv = x.get_base_pointer().load(count=2)
-            yv = y.get_base_pointer().load(count=2)
-            zv = z.get_base_pointer().load(count=2)
-            out.get_base_pointer().store(cl.fma(xv, yv, zv))
+            xv = x.pointer().load(count=2)
+            yv = y.pointer().load(count=2)
+            zv = z.pointer().load(count=2)
+            out.pointer().store(cl.fma(xv, yv, zv))
         else:
             out[0] = cl.fma(x[0], y[0], z[0])
 
@@ -608,10 +608,10 @@ def test_math_fma(dtype, vector):
     @cl.kernel
     def kernel(x, y, z, out):
         if vector:
-            xv = x.get_base_pointer().load(count=vector)
-            yv = y.get_base_pointer().load(count=vector)
-            zv = z.get_base_pointer().load(count=vector)
-            out.get_base_pointer().store(cl.fma(xv, yv, zv))
+            xv = x.pointer().load(count=vector)
+            yv = y.pointer().load(count=vector)
+            zv = z.pointer().load(count=vector)
+            out.pointer().store(cl.fma(xv, yv, zv))
         else:
             out[0] = cl.fma(x[0], y[0], z[0])
 
@@ -767,7 +767,7 @@ def _compile_math_fma_mode(
 ):
     def kernel(values, out):
         if vector:
-            value = values.get_base_pointer().load(count=2)
+            value = values.pointer().load(count=2)
             value = cl.fma(
                 value,
                 value,
@@ -778,7 +778,7 @@ def _compile_math_fma_mode(
                 relu=relu,
                 oob=oob,
             )
-            out.get_base_pointer().store(value)
+            out.pointer().store(value)
         else:
             value = values[0]
             out[0] = cl.fma(
@@ -916,10 +916,10 @@ def test_operator_alias_binary_math(device_op, python_op, dtype, vector):
     @cl.kernel
     def kernel(lhs, rhs, out, operator_out):
         if vector:
-            lhs_value = lhs.get_base_pointer().load(count=4)
-            rhs_value = rhs.get_base_pointer().load(count=4)
-            out.get_base_pointer().store(device_op(lhs_value, rhs_value))
-            operator_out.get_base_pointer().store(python_op(lhs_value, rhs_value))
+            lhs_value = lhs.pointer().load(count=4)
+            rhs_value = rhs.pointer().load(count=4)
+            out.pointer().store(device_op(lhs_value, rhs_value))
+            operator_out.pointer().store(python_op(lhs_value, rhs_value))
         else:
             out[0] = device_op(lhs[0], rhs[0])
             operator_out[0] = python_op(lhs[0], rhs[0])
@@ -1020,14 +1020,14 @@ def test_float_division_edge_cases(operation, lhs_values, rhs_values, expected):
 
     @cl.kernel
     def kernel(lhs, rhs, out, operator_out):
-        lhs_value = lhs.get_base_pointer().load(count=count)
-        rhs_value = rhs.get_base_pointer().load(count=count)
+        lhs_value = lhs.pointer().load(count=count)
+        rhs_value = rhs.pointer().load(count=count)
         if operation == "floordiv":
-            out.get_base_pointer().store(device_math.floordiv(lhs_value, rhs_value))
-            operator_out.get_base_pointer().store(lhs_value // rhs_value)
+            out.pointer().store(device_math.floordiv(lhs_value, rhs_value))
+            operator_out.pointer().store(lhs_value // rhs_value)
         else:
-            out.get_base_pointer().store(device_math.mod(lhs_value, rhs_value))
-            operator_out.get_base_pointer().store(lhs_value % rhs_value)
+            out.pointer().store(device_math.mod(lhs_value, rhs_value))
+            operator_out.pointer().store(lhs_value % rhs_value)
 
     lhs = torch.tensor(lhs_values, dtype=torch.float64, device="cuda:0")
     rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda:0")
@@ -1061,13 +1061,13 @@ def test_float_division_scalar_vector_broadcast(device_op, python_op, vector_sid
     @cl.kernel
     def kernel(lhs, rhs, out, operator_out):
         if lhs_vector:
-            lhs_value = lhs.get_base_pointer().load(count=4)
+            lhs_value = lhs.pointer().load(count=4)
             rhs_value = rhs[0]
         else:
             lhs_value = lhs[0]
-            rhs_value = rhs.get_base_pointer().load(count=4)
-        out.get_base_pointer().store(device_op(lhs_value, rhs_value))
-        operator_out.get_base_pointer().store(python_op(lhs_value, rhs_value))
+            rhs_value = rhs.pointer().load(count=4)
+        out.pointer().store(device_op(lhs_value, rhs_value))
+        operator_out.pointer().store(python_op(lhs_value, rhs_value))
 
     lhs = torch.tensor(lhs_values, dtype=torch.float32, device="cuda:0")
     rhs = torch.tensor(rhs_values, dtype=torch.float64, device="cuda:0")
@@ -1114,11 +1114,11 @@ def test_cdiv(dtype, lhs_values, rhs_values, mode):
         if mode == "scalar":
             out[0] = cl.cdiv(lhs[0], rhs[0])
         else:
-            lhs_value = lhs.get_base_pointer().load(count=4)
+            lhs_value = lhs.pointer().load(count=4)
             rhs_value = (
-                rhs.get_base_pointer().load(count=4) if mode == "vector" else rhs[0]
+                rhs.pointer().load(count=4) if mode == "vector" else rhs[0]
             )
-            out.get_base_pointer().store(cl.cdiv(lhs_value, rhs_value))
+            out.pointer().store(cl.cdiv(lhs_value, rhs_value))
 
     torch_dtype = datatype.to_torch_dtype(dtype)
     lhs = torch.tensor(lhs_values[:count], dtype=torch_dtype, device="cuda:0")
@@ -1160,9 +1160,9 @@ def test_integer_remainder(dtype, lhs_values, rhs_values, expected, vector):
     @cl.kernel
     def kernel(lhs, rhs, out):
         if vector:
-            lhs_value = lhs.get_base_pointer().load(count=4)
-            rhs_value = rhs.get_base_pointer().load(count=4)
-            out.get_base_pointer().store(
+            lhs_value = lhs.pointer().load(count=4)
+            rhs_value = rhs.pointer().load(count=4)
+            out.pointer().store(
                 cl.integer_remainder(lhs_value, rhs_value)
             )
         else:
@@ -1187,11 +1187,11 @@ def test_integer_remainder_broadcast(vector_side):
 
     @cl.kernel
     def kernel(lhs, rhs, out):
-        lhsp, rhsp = lhs.get_base_pointer(), rhs.get_base_pointer()
+        lhsp, rhsp = lhs.pointer(), rhs.pointer()
         lhs_value = lhsp.load(count=4) if lhs_vector else lhs[0]
         rhs_value = rhs[0] if lhs_vector else rhsp.load(count=4)
         result = cl.integer_remainder(lhs_value, rhs_value)
-        out.get_base_pointer().store(result)
+        out.pointer().store(result)
 
     lhs = torch.tensor(lhs_values, dtype=torch.int32, device="cuda:0")
     rhs = torch.tensor(rhs_values, dtype=torch.int32, device="cuda:0")
@@ -1267,9 +1267,9 @@ def test_operator_alias_negative(dtype, vector):
     @cl.kernel
     def kernel(inp, out, operator_out):
         if vector:
-            value = inp.get_base_pointer().load(count=4)
-            out.get_base_pointer().store(device_math.negative(value))
-            operator_out.get_base_pointer().store(-value)
+            value = inp.pointer().load(count=4)
+            out.pointer().store(device_math.negative(value))
+            operator_out.pointer().store(-value)
         else:
             out[0] = device_math.negative(inp[0])
             operator_out[0] = -inp[0]
@@ -1324,9 +1324,9 @@ def test_vector():
             arr[1] = 1.5
             arr[2] = 2.5
             arr[3] = 3.5
-            v = arr.get_base_pointer().load(count=4)
+            v = arr.pointer().load(count=4)
             v = device_math.floor(v)
-            out.get_base_pointer().store(v)
+            out.pointer().store(v)
 
     out = torch.zeros(4, dtype=torch.float32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -1365,9 +1365,9 @@ def test_minmax_basic(dtype, device_op, host_op, vector):
     @cl.kernel
     def kernel(lhs, rhs, out):
         if vector:
-            lhs_v = lhs.get_base_pointer().load(count=4)
-            rhs_v = rhs.get_base_pointer().load(count=4)
-            out.get_base_pointer().store(device_op(lhs_v, rhs_v))
+            lhs_v = lhs.pointer().load(count=4)
+            rhs_v = rhs.pointer().load(count=4)
+            out.pointer().store(device_op(lhs_v, rhs_v))
         else:
             out[0] = device_op(lhs[0], rhs[0])
 
@@ -1437,7 +1437,7 @@ def test_divmod(divmod_func):
 def test_fma_f32x2_target_lowering(vector_length):
     def kernel():
         values = cl.shared_array(vector_length * 2, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=vector_length * 2)
         ptr.store(
             cl.fma(
@@ -1476,7 +1476,7 @@ def test_fma_f32x2_target_lowering(vector_length):
 def test_add_f32x2_target_lowering(vector_length):
     def kernel():
         values = cl.shared_array(vector_length, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=vector_length)
         ptr.store(value + value)
 
@@ -1512,7 +1512,7 @@ def test_add_f32x2_target_lowering(vector_length):
 def test_arith_f32x2_modes(op_name, device_op, rounding_mode, flush_to_zero):
     def kernel():
         values = cl.shared_array(2, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=2)
         ptr.store(device_op(
             value,
@@ -1557,7 +1557,7 @@ def test_arith_f32_scalar_modes(
 ):
     def kernel():
         values = cl.shared_array(1, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load()
         ptr.store(device_op(
             value,
@@ -1597,7 +1597,7 @@ def test_arith_f32x2_nvvm_toolchain_packing(
 
     def kernel():
         values = cl.shared_array(2, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=2)
         ptr.store(device_op(
             value,
@@ -1625,7 +1625,7 @@ def test_add_f32x2_odd_vector_fallback():
 
     def kernel():
         values = cl.shared_array(vector_length, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=vector_length)
         ptr.store(cl.add(value, value))
 
@@ -1651,7 +1651,7 @@ def test_add_f32x2_odd_vector_fallback():
 def test_fma_long_vector_pair_lowering(dtype, ptx_type, vector_length):
     def kernel():
         values = cl.shared_array(vector_length, dtype)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=vector_length)
         ptr.store(cl.fma(value, value, value))
 
@@ -1679,7 +1679,7 @@ def test_fma_f32x2_odd_vector_fallback():
 
     def kernel():
         values = cl.shared_array(vector_length, cl.float32)
-        ptr = values.get_base_pointer()
+        ptr = values.pointer()
         value = ptr.load(count=vector_length)
         ptr.store(cl.fma(value, value, value))
 

@@ -40,7 +40,7 @@ def epilogue_store_tile(c_ptr, tmem_base, warp, base_col, g_row, g_col, n):
         hi = values[pair_idx * 2 + 1]
         packed = cl._nvvm.ff2bf16x2_rn(hi, lo)
         offset = g_row * n + g_col + pair_idx * 2
-        c_ptr.get_element_pointer(offset).store(packed, alignment=4)
+        c_ptr.pointer(offset).store(packed, alignment=4)
 
 
 def make_mma_kernel(
@@ -99,13 +99,13 @@ def make_mma_kernel(
 
         if warp_id == 0 and cl.elect_sync():
             for stage in cl.static_iter(range(num_stages)):
-                cl.mbarrier_initialize(tma_mbars.get_element_pointer(stage), cta_group)
-                cl.mbarrier_initialize(mma_mbars.get_element_pointer(stage), 1)
+                cl.mbarrier_initialize(tma_mbars.pointer(stage), cta_group)
+                cl.mbarrier_initialize(mma_mbars.pointer(stage), 1)
 
             for stage in cl.static_iter(range(2)):
-                cl.mbarrier_initialize(mainloop_mbars.get_element_pointer(stage), 1)
+                cl.mbarrier_initialize(mainloop_mbars.pointer(stage), 1)
                 cl.mbarrier_initialize(
-                    epilogue_mbars.get_element_pointer(stage),
+                    epilogue_mbars.pointer(stage),
                     4 * cta_group * WARP_SIZE,
                 )
 
@@ -133,15 +133,15 @@ def make_mma_kernel(
                     off_n = bid_n * block_n + cta_rank * (block_n // cta_group)
 
                     for iter_k in range(num_iters):
-                        a_stage_ptr = a_smem.get_element_pointer((tma_stage, 0))
-                        b_stage_ptr = b_smem.get_element_pointer((tma_stage, 0))
+                        a_stage_ptr = a_smem.pointer((tma_stage, 0))
+                        b_stage_ptr = b_smem.pointer((tma_stage, 0))
                         a_tma_dst = a_stage_ptr
                         b_tma_dst = b_stage_ptr
                         if cta_group > 1:
                             a_tma_dst = cl.map_shared_to_cluster(a_stage_ptr, cta_rank)
                             b_tma_dst = cl.map_shared_to_cluster(b_stage_ptr, cta_rank)
-                        tma_mbar = tma_mbars.get_element_pointer(tma_stage)
-                        mma_mbar = mma_mbars.get_element_pointer(tma_stage)
+                        tma_mbar = tma_mbars.pointer(tma_stage)
+                        mma_mbar = mma_mbars.pointer(tma_stage)
                         tma_arrive_mbar = tma_mbar
                         tma_expect_mbar = tma_mbar
                         if cta_group > 1:
@@ -196,7 +196,7 @@ def make_mma_kernel(
 
         elif warp_id == NUM_WARPS - 1:
             cl.tcgen05_allocate(
-                tmem_storage.get_base_pointer(),
+                tmem_storage.pointer(),
                 block_n * 2,
                 cta_group=cta_group_kind,
             )
@@ -220,13 +220,13 @@ def make_mma_kernel(
                 this_bid = bid
                 while this_bid < num_tiles:
                     cl.mbarrier_wait_parity(
-                        epilogue_mbars.get_element_pointer(mainloop_stage),
+                        epilogue_mbars.pointer(mainloop_stage),
                         epilogue_phase,
                     )
 
                     for iter_k in range(num_iters):
-                        a_stage_ptr = a_smem.get_element_pointer((tma_stage, 0))
-                        b_stage_ptr = b_smem.get_element_pointer((tma_stage, 0))
+                        a_stage_ptr = a_smem.pointer((tma_stage, 0))
+                        b_stage_ptr = b_smem.pointer((tma_stage, 0))
                         tensor_memory_address = mainloop_stage * block_n
 
                         a_desc = cl.Tcgen05SharedMemoryDescriptor(
@@ -243,7 +243,7 @@ def make_mma_kernel(
                         ).encode()
 
                         cl.mbarrier_wait_parity(
-                            tma_mbars.get_element_pointer(tma_stage), tma_phase
+                            tma_mbars.pointer(tma_stage), tma_phase
                         )
                         cl.tcgen05_fence_after_thread_sync()
 
@@ -269,13 +269,13 @@ def make_mma_kernel(
 
                         if cta_group > 1:
                             cl.tcgen05_commit(
-                                mma_mbars.get_element_pointer(tma_stage),
+                                mma_mbars.pointer(tma_stage),
                                 multicast_mask=cta_mask,
                                 cta_group=cta_group_kind,
                             )
                         else:
                             cl.tcgen05_commit(
-                                mma_mbars.get_element_pointer(tma_stage),
+                                mma_mbars.pointer(tma_stage),
                                 cta_group=cta_group_kind,
                             )
 
@@ -285,13 +285,13 @@ def make_mma_kernel(
 
                     if cta_group > 1:
                         cl.tcgen05_commit(
-                            mainloop_mbars.get_element_pointer(mainloop_stage),
+                            mainloop_mbars.pointer(mainloop_stage),
                             multicast_mask=cta_mask,
                             cta_group=cta_group_kind,
                         )
                     else:
                         cl.tcgen05_commit(
-                            mainloop_mbars.get_element_pointer(mainloop_stage),
+                            mainloop_mbars.pointer(mainloop_stage),
                             cta_group=cta_group_kind,
                         )
 
@@ -312,7 +312,7 @@ def make_mma_kernel(
 
                 if warp_id == 0:
                     cl.mbarrier_wait_parity(
-                        mainloop_mbars.get_element_pointer(mainloop_stage),
+                        mainloop_mbars.pointer(mainloop_stage),
                         mainloop_phase,
                     )
 
@@ -334,7 +334,7 @@ def make_mma_kernel(
                         n,
                     )
 
-                epilogue_mbar = epilogue_mbars.get_element_pointer(mainloop_stage)
+                epilogue_mbar = epilogue_mbars.pointer(mainloop_stage)
                 if cta_group > 1:
                     epilogue_mbar = cl.map_shared_to_cluster(epilogue_mbar, 0)
                 cl.mbarrier_arrive(epilogue_mbar, scope=cl.MbarrierScope.BLOCK)

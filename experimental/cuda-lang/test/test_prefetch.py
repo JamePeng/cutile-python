@@ -31,7 +31,7 @@ SIG_I32 = KernelSignature([make_symbolic_tensor((16,), cl.int32)])
 def test_prefetch(memory_space, level, eviction_priority):
     def kernel():
         address = cl.address_space_cast(
-            cl.shared_array(1, cl.int8).get_base_pointer(),
+            cl.shared_array(1, cl.int8).pointer(),
             memory_space,
         )
         cl.prefetch(
@@ -86,7 +86,7 @@ def test_prefetch(memory_space, level, eviction_priority):
 def test_prefetch_uniform():
     def kernel():
         generic = cl.address_space_cast(
-            cl.shared_array(1, cl.int8).get_base_pointer(),
+            cl.shared_array(1, cl.int8).pointer(),
             cl.MemorySpace.GENERIC,
         )
         cl.prefetch_uniform(generic)

@@ -41,10 +41,10 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = smem.get_base_pointer()
+            smem = smem.pointer()
             if cluster:
                 smem = cl.map_shared_to_cluster(smem, 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(tensor_map, (i, j), smem, mbar)
 
@@ -65,7 +65,7 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
             cache_hint = cl.create_fractional_cache_policy(
                 cl.CachePolicy.L2_EVICT_FIRST
             )
@@ -73,7 +73,7 @@ class TestG2S(CopyAsyncPtxTestBase):
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
                 (i, j),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
                 l2_cache_hint=cache_hint,
             )
@@ -97,8 +97,8 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            smem = cl.map_shared_to_cluster(smem.pointer(), 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
@@ -123,8 +123,8 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            smem = cl.map_shared_to_cluster(smem.pointer(), 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
@@ -151,8 +151,8 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            smem = cl.map_shared_to_cluster(smem.pointer(), 0)
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
             mbar = cl.map_shared_to_cluster(mbar, 0)
 
             cl.copy_async_bulk_tensor_global_to_shared(
@@ -177,12 +177,12 @@ class TestG2S(CopyAsyncPtxTestBase):
     def k1(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
         tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
         smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
         cl.copy_async_bulk_tensor_global_to_shared(
             tensor_map,
             (i, j),
-            smem.get_base_pointer(),
+            smem.pointer(),
             mbar,
             predicate=pred,
         )
@@ -190,12 +190,12 @@ class TestG2S(CopyAsyncPtxTestBase):
     def k2(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
         tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
         smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
         cl.copy_async_bulk_tensor_global_to_shared(
             tensor_map,
             (i, j),
-            smem.get_base_pointer(),
+            smem.pointer(),
             mbar,
             multicast_mask=0xFF,
         )
@@ -203,12 +203,12 @@ class TestG2S(CopyAsyncPtxTestBase):
     def k3(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
         tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
         smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
         cl.copy_async_bulk_tensor_global_to_shared(
             tensor_map,
             (i, j),
-            smem.get_base_pointer(),
+            smem.pointer(),
             mbar,
             cta_group=cl.CTAGroup.CTA_1,
         )
@@ -234,10 +234,10 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = smem.get_base_pointer()
+            smem = smem.pointer()
             if cluster:
                 smem = cl.map_shared_to_cluster(smem, 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map, (i, j), smem, mbar, im2col_offsets=(0, 1)
@@ -257,10 +257,10 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            smem = smem.get_base_pointer()
+            smem = smem.pointer()
             if cluster:
                 smem = cl.map_shared_to_cluster(smem, 0)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
@@ -291,12 +291,12 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
                 (i, j),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
                 mode=mode,
             )
@@ -324,12 +324,12 @@ class TestG2S(CopyAsyncPtxTestBase):
         ):
             tensor_map = cl.tensor_map_tiled(x, (D, H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
                 (i, j, k),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
                 im2col_offsets=(0,),
                 mode=cl.TMALoadMode.IM2COL,
@@ -358,12 +358,12 @@ class TestG2S(CopyAsyncPtxTestBase):
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             tensor_map = cl.tensor_map_tiled(x, (H, W)).as_opaque_ptr()
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
                 (i, j),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
                 im2col_offsets=(0, 1),
                 mode=cl.TMALoadMode.TILE_GATHER4,
@@ -382,12 +382,12 @@ class TestG2S(CopyAsyncPtxTestBase):
         @cl.kernel
         def kernel(x, pred, i, j, H: cl.Constant[int], W: cl.Constant[int]):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
-            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+            mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
             cl.copy_async_bulk_tensor_global_to_shared(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 (i, j),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
             )
 
@@ -409,7 +409,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j),
             )
@@ -431,7 +431,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             )
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j),
                 l2_cache_hint=cache_hint,
@@ -451,7 +451,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j),
                 predicate=pred,
@@ -471,7 +471,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j, 0, 0, 0),
                 mode=cl.TMAStoreMode.TILE_SCATTER4,
@@ -493,7 +493,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j),
                 mode=cl.TMAStoreMode.IM2COL,
@@ -522,7 +522,7 @@ class TestS2G(CopyAsyncPtxTestBase):
             smem = cl.shared_array(shape=(H * W,), dtype=cl.int32, alignment=512)
 
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(),
+                smem.pointer(),
                 tensor_map,
                 (i, j, k),
                 mode=cl.TMAStoreMode.IM2COL,

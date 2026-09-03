@@ -154,13 +154,13 @@ class DevicePipelineBinding:
 
     def full_barrier(self, barrier_arena, index):
         """Return the full barrier for one stage in the shared arena."""
-        return barrier_arena.get_element_pointer(
+        return barrier_arena.pointer(
             self.full_barrier_offset + index
         )
 
     def empty_barrier(self, barrier_arena, index):
         """Return the empty barrier for one stage in the shared arena."""
-        return barrier_arena.get_element_pointer(
+        return barrier_arena.pointer(
             self.empty_barrier_offset + index
         )
 

@@ -208,7 +208,7 @@ def tma_load(context):
         cl.copy_async_bulk_tensor_global_to_shared(
             context.tensor_map,
             (context.gmem_idx, context.loop_offset),
-            context.shared_memory.get_element_pointer((context.stage_index(), 0)),
+            context.shared_memory.pointer((context.stage_index(), 0)),
             full_mbarrier,
         )
     return context
@@ -424,11 +424,11 @@ def tma_copy_kernel(input_tensor, output_tensor):
         cl.prefetch_tensor_map(tensor_map)
         for stage_idx in cl.static_iter(range(NUM_STAGES)):
             cl.mbarrier_initialize(
-                full_mbarriers.get_element_pointer(stage_idx),
+                full_mbarriers.pointer(stage_idx),
                 1,
             )
             cl.mbarrier_initialize(
-                empty_mbarriers.get_element_pointer(stage_idx),
+                empty_mbarriers.pointer(stage_idx),
                 STORE_WARP_COUNT * WARP_SIZE,
             )
         cl.fence(
@@ -443,8 +443,8 @@ def tma_copy_kernel(input_tensor, output_tensor):
         tensor_map=tensor_map,
         output=output_tensor,
         shared_memory=shared_memory,
-        full_mbarrier=full_mbarriers.get_base_pointer(),
-        empty_mbarrier=empty_mbarriers.get_base_pointer(),
+        full_mbarrier=full_mbarriers.pointer(),
+        empty_mbarrier=empty_mbarriers.pointer(),
         num_rows=input_tensor.shape[0],
         loop_offset=cl.int32(0),
         gmem_idx=cl.int32(0),

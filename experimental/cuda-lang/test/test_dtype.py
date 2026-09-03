@@ -12,7 +12,7 @@ from test.util import compile_kernel
 def test_dtype_of():
     @cl.kernel
     def kern(x: cl.Array):
-        ptr = x.get_base_pointer()
+        ptr = x.pointer()
         cl.static_assert(cl.dtype_of(ptr) == cl.pointer_dtype(cl.int32))
         ptr_dtype = cl.dtype_of(ptr)
         cl.static_assert(ptr_dtype == cl.pointer_dtype(cl.int32))
@@ -57,7 +57,7 @@ def test_dtype_of():
 )
 def test_pointer_dtype_bitwidth(memory_space, bitwidth):
     def kernel():
-        p = cl.shared_array(1, cl.int8).get_base_pointer()
+        p = cl.shared_array(1, cl.int8).pointer()
         p = cl.address_space_cast(p, memory_space)
         dtype = cl.dtype_of(p)
         cl.static_assert(dtype.bitwidth == bitwidth)

@@ -95,7 +95,7 @@ class SmemResource(ts.MemoryResource):
     def _init_smem_state(stage_info):
         """Create the real typed view into the manager-owned SMEM allocation."""
         smem_base = stage_info.context.smem_base
-        smem_pointer = smem_base.get_base_pointer() + SMEM_VIEW_OFFSET_BYTES
+        smem_pointer = smem_base.pointer() + SMEM_VIEW_OFFSET_BYTES
         return cl.reinterpret_pointer_as_array(
             smem_pointer,
             cl.float16,
@@ -123,7 +123,7 @@ class SmemResource(ts.MemoryResource):
     def tma_load(stage_info, smem_view, gmem_idx):
         values = stage_info.context.tasks_inputs
         tensor_map = values.tensor_map
-        smem_stage = smem_view.get_element_pointer(
+        smem_stage = smem_view.pointer(
             stage_info.stage_idx * TILE_SIZE
         )
         if cl.lane_index() == 0:

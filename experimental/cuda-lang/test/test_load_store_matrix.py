@@ -19,7 +19,7 @@ SIG_I32 = KernelSignature([make_symbolic_tensor((4,), cl.int32)])
 def test_load_matrix_scalar():
     def kernel(output):
         smem = cl.shared_array(64, cl.int16, alignment=16)
-        address = smem.get_element_pointer(cl.thread_index(0) * 8)
+        address = smem.pointer(cl.thread_index(0) * 8)
         value = cl.load_matrix(address, shape=cl.MatrixLoadShape.M8N8)
         output[0] = value
 
@@ -34,7 +34,7 @@ def test_load_matrix_scalar():
 def test_load_matrix_vector():
     def kernel(output):
         smem = cl.shared_array(128, cl.int16, alignment=16)
-        address = smem.get_element_pointer(cl.thread_index(0) * 8)
+        address = smem.pointer(cl.thread_index(0) * 8)
         value = cl.load_matrix(
             address,
             shape=cl.MatrixLoadShape.M8N8,
@@ -55,7 +55,7 @@ def test_load_matrix_vector():
 def test_load_matrix_packed_m16n16():
     def kernel(output):
         smem = cl.shared_array(256, cl.int8, alignment=16)
-        address = smem.get_element_pointer(cl.thread_index(0) * 16)
+        address = smem.pointer(cl.thread_index(0) * 16)
         value = cl.load_matrix(
             address,
             shape=cl.MatrixLoadShape.M16N16,
@@ -79,7 +79,7 @@ def test_store_matrix_vector(trans):
         smem = cl.shared_array(128, cl.int16, alignment=16)
         values = cl.Vector(cl.uint32(1), cl.uint32(2))
         cl.store_matrix(
-            smem.get_base_pointer(),
+            smem.pointer(),
             values,
             shape=cl.MatrixStoreShape.M8N8,
             transpose=trans,
@@ -101,7 +101,7 @@ def test_store_matrix_m16n8():
     def kernel():
         smem = cl.shared_array(128, cl.int8, alignment=16)
         cl.store_matrix(
-            smem.get_base_pointer(),
+            smem.pointer(),
             cl.Vector(cl.int32(1), cl.int32(2)),
             shape=cl.MatrixStoreShape.M16N8,
             transpose=True,
@@ -118,7 +118,7 @@ def test_load_matrix_rejects_invalid_count():
     def kernel():
         smem = cl.shared_array(128, cl.int8, alignment=16)
         cl.load_matrix(
-            smem.get_base_pointer(),
+            smem.pointer(),
             shape=cl.MatrixLoadShape.M8N8,
             count=3,
         )
@@ -134,7 +134,7 @@ def test_store_matrix_rejects_invalid_register_count():
         smem = cl.shared_array(128, cl.int16, alignment=16)
         values = cl.Vector(cl.int32(1), cl.int32(2), cl.int32(3))
         cl.store_matrix(
-            smem.get_base_pointer(),
+            smem.pointer(),
             values,
             shape=cl.MatrixStoreShape.M8N8,
         )

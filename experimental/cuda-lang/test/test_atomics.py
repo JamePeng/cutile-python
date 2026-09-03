@@ -86,7 +86,7 @@ def test_atomic_rmw_supported_types(op, dtype, initial, update, expected_new):
 
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = atomic(ptr, _scalar(dtype, update))
 
     A = torch.tensor([initial], dtype=torch_dtype, device="cuda:0")
@@ -102,7 +102,7 @@ def test_atomic_xchg_supported_types(dtype):
 
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = cl.atomic_xchg(ptr, _scalar(dtype, 11))
 
     A = torch.tensor([7], dtype=torch_dtype, device="cuda:0")
@@ -118,7 +118,7 @@ def test_atomic_cas_supported_types(dtype):
 
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = cl.atomic_cas(ptr, _scalar(dtype, 7), _scalar(dtype, 11))
 
     A = torch.tensor([7], dtype=torch_dtype, device="cuda:0")
@@ -131,7 +131,7 @@ def test_atomic_cas_supported_types(dtype):
 def test_atomic_cas_failure():
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = cl.atomic_cas(ptr, cl.int32(8), cl.int32(11))
 
     A = torch.tensor([7], dtype=torch.int32, device="cuda:0")
@@ -144,7 +144,7 @@ def test_atomic_cas_failure():
 def test_atomic_inc_wrap():
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = cl.atomic_inc(ptr, cl.uint32(7))
 
     A = torch.tensor([7], dtype=torch.uint32, device="cuda:0")
@@ -157,7 +157,7 @@ def test_atomic_inc_wrap():
 def test_atomic_dec_wrap():
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         out[0] = cl.atomic_dec(ptr, cl.uint32(7))
 
     A = torch.tensor([0], dtype=torch.uint32, device="cuda:0")
@@ -170,7 +170,7 @@ def test_atomic_dec_wrap():
 def test_atomic_tuple_index():
     @cl.kernel
     def kernel(A, out):
-        ptr = A.get_element_pointer((0, 1))
+        ptr = A.pointer((0, 1))
         out[0] = cl.atomic_add(ptr, cl.int32(5))
 
     A = torch.tensor([[1, 2], [3, 4]], dtype=torch.int32, device="cuda:0")
@@ -186,7 +186,7 @@ def test_atomic_unsupported_dtypes(op, dtype):
     cl_dtype = _cl_dtype(dtype)
 
     def kernel(A):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         if op == "atomic_cas":
             atomic(ptr, A[0], A[0])
         else:
@@ -208,7 +208,7 @@ def test_atomic_unsupported_dtypes(op, dtype):
                           (cl.MemoryOrder.RELEASE, cl.MemoryScope.NONE, "Invalid memory scope")])
 def test_atomic_unsupported_memory_order_scope(order, scope, msg):
     def kernel(A):
-        ptr = A.get_element_pointer(0)
+        ptr = A.pointer(0)
         cl.atomic_add(ptr, A[0], memory_order=order, memory_scope=scope)
 
     with pytest.raises(TypeCheckingError, match=msg):

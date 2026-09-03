@@ -198,7 +198,7 @@ def store_persistent_partition(
     row = local_warp * WARP_SIZE + lane
     for subtile in cl.static_iter(range(epilogue_stages)):
         stage = subtile % num_d_tiles
-        stage_smem = c_smem.get_element_pointer((consumer, stage, 0))
+        stage_smem = c_smem.pointer((consumer, stage, 0))
         if local_warp == 0 and cl.elect_sync():
             cl.copy_async_bulk_wait_group(num_d_tiles - 1, read=True)
         sync_consumer_warpgroup(consumer)
@@ -294,7 +294,7 @@ def fp8_b200_gemm_kernel(
     c_smem = cl.shared_array(cta_m * tile_n, cl.bfloat16, alignment=128)
     load_ready = cl.shared_array(stages, cl.mbarrier, alignment=8)
     load_empty = cl.shared_array(stages, cl.mbarrier, alignment=8)
-    acc_ready = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+    acc_ready = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
     tmem_storage = cl.shared_array(
         1,
         cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR),
@@ -303,8 +303,8 @@ def fp8_b200_gemm_kernel(
 
     if warp == 0 and cl.elect_sync():
         for stage in cl.static_iter(range(stages)):
-            cl.mbarrier_initialize(load_ready.get_element_pointer(stage), 2)
-            cl.mbarrier_initialize(load_empty.get_element_pointer(stage), 1)
+            cl.mbarrier_initialize(load_ready.pointer(stage), 2)
+            cl.mbarrier_initialize(load_empty.pointer(stage), 1)
         cl.mbarrier_initialize(acc_ready, 1)
         cl.fence(
             cl.MemoryOrder.RELEASE,
@@ -315,7 +315,7 @@ def fp8_b200_gemm_kernel(
 
     if warp == 2:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(),
+            tmem_storage.pointer(),
             tile_n,
             cta_group=cl.CTAGroup.CTA_2,
         )
@@ -327,14 +327,14 @@ def fp8_b200_gemm_kernel(
             phase = (k_tile // stages) & 1
             if k_tile >= stages:
                 cl.mbarrier_wait_parity(
-                    load_empty.get_element_pointer(stage), phase ^ 1
+                    load_empty.pointer(stage), phase ^ 1
                 )
             if cl.elect_sync():
-                a_stage = a_smem.get_element_pointer((stage, 0))
-                b_stage = b_smem.get_element_pointer((stage, 0))
+                a_stage = a_smem.pointer((stage, 0))
+                b_stage = b_smem.pointer((stage, 0))
                 a_dst = cl.map_shared_to_cluster(a_stage, rank)
                 b_dst = cl.map_shared_to_cluster(b_stage, rank)
-                ready = load_ready.get_element_pointer(stage)
+                ready = load_ready.pointer(stage)
                 arrive_bar = cl.map_shared_to_leader_block(ready)
                 expect_bar = cl.map_shared_to_cluster(ready, 0)
                 cl.copy_async_bulk_tensor_global_to_shared(
@@ -369,16 +369,16 @@ def fp8_b200_gemm_kernel(
             stage = k_tile % stages
             phase = (k_tile // stages) & 1
             if rank == 0 and cl.elect_sync():
-                cl.mbarrier_wait_parity(load_ready.get_element_pointer(stage), phase)
+                cl.mbarrier_wait_parity(load_ready.pointer(stage), phase)
                 cl.tcgen05_fence_after_thread_sync()
                 a_desc = cl.Tcgen05SharedMemoryDescriptor(
-                    matrix_start_address=a_smem.get_element_pointer((stage, 0)),
+                    matrix_start_address=a_smem.pointer((stage, 0)),
                     leading_dimension_byte_offset=16,
                     stride_dimension_byte_offset=8 * 128,
                     swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
                 ).encode()
                 b_desc = cl.Tcgen05SharedMemoryDescriptor(
-                    matrix_start_address=b_smem.get_element_pointer((stage, 0)),
+                    matrix_start_address=b_smem.pointer((stage, 0)),
                     leading_dimension_byte_offset=16,
                     stride_dimension_byte_offset=8 * 128,
                     swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -394,7 +394,7 @@ def fp8_b200_gemm_kernel(
                         cta_group=cl.CTAGroup.CTA_2,
                     )
                 cl.tcgen05_commit(
-                    load_empty.get_element_pointer(stage),
+                    load_empty.pointer(stage),
                     multicast_mask=0b11,
                     cta_group=cl.CTAGroup.CTA_2,
                 )
@@ -410,7 +410,7 @@ def fp8_b200_gemm_kernel(
     row = tid
     for column in cl.static_iter(range(0, tile_n, 16)):
         store_bf16_tmem_tile(
-            c_smem.get_base_pointer(),
+            c_smem.pointer(),
             tmem_storage[0],
             rank * num_warps + warp,
             column,
@@ -426,7 +426,7 @@ def fp8_b200_gemm_kernel(
             restriction=cl.FenceRestriction.shared_block(),
         )
         cl.copy_async_bulk_tensor_shared_to_global(
-            c_smem.get_base_pointer(),
+            c_smem.pointer(),
             c_tmap,
             (pid_n * tile_n, pid_m * tile_m + rank * cta_m),
         )
@@ -516,18 +516,18 @@ def _fp8_b200_gemm_persistent_kernel(
         cl.mbarrier,
         alignment=8,
     )
-    clc_bar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
-    schedule_ready = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+    clc_bar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
+    schedule_ready = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
     schedule_consumed = cl.shared_array(
         1,
         cl.mbarrier,
         alignment=8,
-    ).get_base_pointer()
+    ).pointer()
     clc_token = cl.shared_array(
         1,
         cl.cluster_launch_control_token,
         alignment=16,
-    ).get_base_pointer()
+    ).pointer()
     next_tile = cl.shared_array(1, cl.int32)
     next_has_work = cl.shared_array(1, cl.int32)
     tmem_storage = cl.shared_array(
@@ -538,14 +538,14 @@ def _fp8_b200_gemm_persistent_kernel(
 
     if warp == 0 and cl.elect_sync():
         for stage in cl.static_iter(range(load_stages)):
-            cl.mbarrier_initialize(load_ready.get_element_pointer(stage), 2)
+            cl.mbarrier_initialize(load_ready.pointer(stage), 2)
             cl.mbarrier_initialize(
-                load_empty.get_element_pointer(stage),
+                load_empty.pointer(stage),
                 num_consumers,
             )
         for stage in cl.static_iter(range(acc_stages * num_consumers)):
-            cl.mbarrier_initialize(acc_ready.get_element_pointer(stage), 1)
-            cl.mbarrier_initialize(acc_empty.get_element_pointer(stage), 8)
+            cl.mbarrier_initialize(acc_ready.pointer(stage), 1)
+            cl.mbarrier_initialize(acc_empty.pointer(stage), 8)
         cl.mbarrier_initialize(clc_bar, 1)
         cl.mbarrier_initialize(schedule_ready, 1)
         cl.mbarrier_initialize(schedule_consumed, 1 + 2 * num_consumers)
@@ -564,7 +564,7 @@ def _fp8_b200_gemm_persistent_kernel(
     tmem_columns = tile_n * num_consumers * acc_stages
     if warp == producer_base:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(),
+            tmem_storage.pointer(),
             tmem_columns,
             cta_group=cl.CTAGroup.CTA_2,
         )
@@ -626,15 +626,15 @@ def _fp8_b200_gemm_persistent_kernel(
                 phase = (load_index // load_stages) & 1
                 if load_index >= load_stages:
                     cl.mbarrier_wait_parity(
-                        load_empty.get_element_pointer(stage),
+                        load_empty.pointer(stage),
                         phase ^ 1,
                     )
                 if cl.elect_sync():
-                    ready = load_ready.get_element_pointer(stage)
+                    ready = load_ready.pointer(stage)
                     arrive_bar = cl.map_shared_to_leader_block(ready)
                     expect_bar = cl.map_shared_to_cluster(ready, 0)
                     for consumer in cl.static_iter(range(num_consumers)):
-                        a_stage = a_smem.get_element_pointer((stage, consumer, 0))
+                        a_stage = a_smem.pointer((stage, consumer, 0))
                         a_dst = cl.map_shared_to_cluster(a_stage, rank)
                         cl.copy_async_bulk_tensor_global_to_shared(
                             a_tmap,
@@ -648,7 +648,7 @@ def _fp8_b200_gemm_persistent_kernel(
                             arrive_bar,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
-                    b_stage = b_smem.get_element_pointer((stage, 0))
+                    b_stage = b_smem.pointer((stage, 0))
                     b_dst = cl.map_shared_to_cluster(b_stage, rank)
                     cl.copy_async_bulk_tensor_global_to_shared(
                         b_tmap,
@@ -670,8 +670,8 @@ def _fp8_b200_gemm_persistent_kernel(
             tile, has_work = consume_scheduled_tile(
                 schedule_ready,
                 schedule_consumed,
-                next_tile.get_base_pointer(),
-                next_has_work.get_base_pointer(),
+                next_tile.pointer(),
+                next_has_work.pointer(),
                 task & 1,
             )
             task += 1
@@ -693,8 +693,8 @@ def _fp8_b200_gemm_persistent_kernel(
             scheduled_tile, scheduled_work = consume_scheduled_tile(
                 schedule_ready,
                 schedule_consumed,
-                next_tile.get_base_pointer(),
-                next_has_work.get_base_pointer(),
+                next_tile.pointer(),
+                next_has_work.pointer(),
                 task & 1,
             )
             acc_slot = task % acc_stages
@@ -706,7 +706,7 @@ def _fp8_b200_gemm_persistent_kernel(
             )
             if task >= acc_stages and rank == 0 and cl.elect_sync():
                 cl.mbarrier_wait_parity(
-                    acc_empty.get_element_pointer(acc_index),
+                    acc_empty.pointer(acc_index),
                     acc_phase ^ 1,
                 )
             for k_tile in range(k // tile_k):
@@ -714,11 +714,11 @@ def _fp8_b200_gemm_persistent_kernel(
                 phase = (load_index // load_stages) & 1
                 if rank == 0 and cl.elect_sync():
                     cl.mbarrier_wait_parity(
-                        load_ready.get_element_pointer(stage), phase
+                        load_ready.pointer(stage), phase
                     )
                     cl.tcgen05_fence_after_thread_sync()
                     a_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=a_smem.get_element_pointer(
+                        matrix_start_address=a_smem.pointer(
                             (stage, consumer, 0)
                         ),
                         leading_dimension_byte_offset=16,
@@ -726,7 +726,7 @@ def _fp8_b200_gemm_persistent_kernel(
                         swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
                     ).encode()
                     b_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=b_smem.get_element_pointer((stage, 0)),
+                        matrix_start_address=b_smem.pointer((stage, 0)),
                         leading_dimension_byte_offset=16,
                         stride_dimension_byte_offset=8 * 128,
                         swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -745,14 +745,14 @@ def _fp8_b200_gemm_persistent_kernel(
                                 cta_group=cl.CTAGroup.CTA_2,
                             )
                     cl.tcgen05_commit(
-                        load_empty.get_element_pointer(stage),
+                        load_empty.pointer(stage),
                         multicast_mask=0b11,
                         cta_group=cl.CTAGroup.CTA_2,
                     )
                 load_index += 1
             if rank == 0 and cl.elect_sync():
                 cl.tcgen05_commit(
-                    acc_ready.get_element_pointer(acc_index),
+                    acc_ready.pointer(acc_index),
                     multicast_mask=0b11,
                     cta_group=cl.CTAGroup.CTA_2,
                 )
@@ -790,8 +790,8 @@ def _fp8_b200_gemm_persistent_kernel(
                 c_tmap,
                 c_smem,
                 acc_tmem,
-                acc_ready.get_element_pointer(acc_index),
-                acc_empty.get_element_pointer(acc_index),
+                acc_ready.pointer(acc_index),
+                acc_empty.pointer(acc_index),
                 acc_phase,
                 pid_m,
                 pid_n,

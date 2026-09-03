@@ -59,7 +59,7 @@ def test_fractional_cache_policy(primary, fraction, secondary):
 @pytest.mark.parametrize("total_size", (20, 10.0, True))
 def test_range_cache_policy(primary, secondary, base_size, total_size):
     def kernel():
-        base = cl.shared_array(1, cl.int32).get_base_pointer()
+        base = cl.shared_array(1, cl.int32).pointer()
         cl.create_range_cache_policy(
             base,
             base_size,

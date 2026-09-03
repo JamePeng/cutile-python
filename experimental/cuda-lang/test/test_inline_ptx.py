@@ -55,7 +55,7 @@ def test_inline_ptx_write_only_placeholders_runtime():
 def test_inline_ptx_pointer_load():
     @cl.kernel
     def kernel(inp, out):
-        inp_ptr = inp.get_base_pointer()
+        inp_ptr = inp.pointer()
         (value,) = cl._inline_ptx(
             "ld.global.u32 %0, [%1];",
             ("=r", cl.int32),
@@ -72,7 +72,7 @@ def test_inline_ptx_pointer_load():
 def test_inline_ptx_pointer_output():
     @cl.kernel
     def kernel(inp, out):
-        inp_ptr = inp.get_base_pointer()
+        inp_ptr = inp.pointer()
         dtype = cl.pointer_dtype(cl.int32)
         (ptr,) = cl._inline_ptx(
             "mov.u64 %0, %1;",
@@ -93,7 +93,7 @@ def test_inline_ptx_shared_pointer_output():
     def kernel(out):
         shared = cl.shared_array(1, cl.int32)
         shared[0] = 42
-        shared_ptr = shared.get_base_pointer()
+        shared_ptr = shared.pointer()
         dtype = cl.pointer_dtype(cl.int32, cl.MemorySpace.SHARED)
         (result,) = cl._inline_ptx(
             "mov.u32 %0, %1;",

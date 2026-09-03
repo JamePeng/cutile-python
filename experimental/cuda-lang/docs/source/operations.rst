@@ -35,6 +35,9 @@ Array Creation
 
 Pointer Utilities
 -----------------
+Use :meth:`Array.pointer` to get the base pointer or a pointer to a specified
+array element.
+
 .. autosummary::
    :toctree: generated
    :nosignatures:

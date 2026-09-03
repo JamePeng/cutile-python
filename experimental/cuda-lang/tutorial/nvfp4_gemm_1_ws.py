@@ -139,10 +139,10 @@ def _kernel(
 
     if warp == 0 and cl.elect_sync():
         for stage in cl.static_iter(range(AB_STAGES)):
-            cl.mbarrier_initialize(ab_full.get_element_pointer(stage), 1)
-            cl.mbarrier_initialize(ab_empty.get_element_pointer(stage), 1)
-        cl.mbarrier_initialize(acc_full.get_base_pointer(), 1)
-        cl.mbarrier_initialize(tmem_dealloc.get_base_pointer(), WARP_SIZE)
+            cl.mbarrier_initialize(ab_full.pointer(stage), 1)
+            cl.mbarrier_initialize(ab_empty.pointer(stage), 1)
+        cl.mbarrier_initialize(acc_full.pointer(), 1)
+        cl.mbarrier_initialize(tmem_dealloc.pointer(), WARP_SIZE)
     cl.fence(
         cl.MemoryOrder.RELEASE,
         cl.MemoryScope.CLUSTER,
@@ -158,7 +158,7 @@ def _kernel(
     # making the independent TMA producer wait.
     if warp == MMA_WARP:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(),
+            tmem_storage.pointer(),
             TMEM_COLUMNS,
             cta_group=cl.CTAGroup.CTA_2,
         )
@@ -173,7 +173,7 @@ def _kernel(
         local_mask = cl.int16(1 << rank)
         sfb_mask = cl.int16(0b11)
         leader_barrier_base = cl.map_shared_to_leader_block(
-            ab_full.get_base_pointer()
+            ab_full.pointer()
         )
 
         for k_tile in range(cl.int32(k_tiles)):
@@ -181,8 +181,8 @@ def _kernel(
             if stage == 0 and k_tile != 0:
                 empty_phase = empty_phase ^ 1
 
-            empty_bar = ab_empty.get_element_pointer(stage)
-            full_bar = ab_full.get_element_pointer(stage)
+            empty_bar = ab_empty.pointer(stage)
+            full_bar = ab_full.pointer(stage)
             if cl.elect_sync():
                 cl.mbarrier_wait_parity(empty_bar, empty_phase)
                 if is_leader:
@@ -194,19 +194,19 @@ def _kernel(
 
             arrive_bar = leader_barrier_base + stage
             a_stage = cl.address_space_cast(
-                a_smem.get_element_pointer((stage, 0)),
+                a_smem.pointer((stage, 0)),
                 cl.MemorySpace.SHARED_CLUSTER,
             )
             b_stage = cl.address_space_cast(
-                b_smem.get_element_pointer((stage, 0)),
+                b_smem.pointer((stage, 0)),
                 cl.MemorySpace.SHARED_CLUSTER,
             )
             sfa_stage = cl.address_space_cast(
-                sfa_smem.get_element_pointer((stage, 0)),
+                sfa_smem.pointer((stage, 0)),
                 cl.MemorySpace.SHARED_CLUSTER,
             )
             sfb_stage = cl.address_space_cast(
-                sfb_smem.get_element_pointer(
+                sfb_smem.pointer(
                     (stage, rank * SFB_CTA_BYTES)
                 ),
                 cl.MemorySpace.SHARED_CLUSTER,
@@ -264,14 +264,14 @@ def _kernel(
             if stage == 0 and k_tile != 0:
                 full_phase = full_phase ^ 1
 
-            full_bar = ab_full.get_element_pointer(stage)
-            empty_bar = ab_empty.get_element_pointer(stage)
+            full_bar = ab_full.pointer(stage)
+            empty_bar = ab_empty.pointer(stage)
             cl.mbarrier_wait_parity(full_bar, full_phase)
 
-            a_stage = a_smem.get_element_pointer((stage, 0))
-            b_stage = b_smem.get_element_pointer((stage, 0))
-            sfa_stage = sfa_smem.get_element_pointer((stage, 0))
-            sfb_stage = sfb_smem.get_element_pointer((stage, 0))
+            a_stage = a_smem.pointer((stage, 0))
+            b_stage = b_smem.pointer((stage, 0))
+            sfa_stage = sfa_smem.pointer((stage, 0))
+            sfb_stage = sfb_smem.pointer((stage, 0))
 
             sfa_desc = cl.Tcgen05SharedMemoryDescriptor(
                 matrix_start_address=sfa_stage,
@@ -365,7 +365,7 @@ def _kernel(
                 )
         if cl.elect_sync():
             cl.tcgen05_commit(
-                acc_full.get_base_pointer(),
+                acc_full.pointer(),
                 multicast_mask=0b11,
                 cta_group=cl.CTAGroup.CTA_2,
             )
@@ -376,13 +376,13 @@ def _kernel(
             barrier_id=TMEM_BARRIER_ID,
         )
         tmem_base = tmem_storage[0]
-        cl.mbarrier_wait_parity(acc_full.get_base_pointer(), 0)
+        cl.mbarrier_wait_parity(acc_full.pointer(), 0)
         row = coord_m + tid
         vsize = VEC_BYTES // 2
         # c.shape metadata is i32; explicit i64 dimensions let NVVM fuse the
         # linear output index into one 64-bit MAD.
         output_base = (
-            c.get_base_pointer()
+            c.pointer()
             + row * problem_n
             + coord_n_c
             + batch * problem_m * problem_n
@@ -416,10 +416,10 @@ def _kernel(
     if warp == 0:
         peer_rank = rank ^ 1
         peer_mbar = cl.map_shared_to_cluster(
-            tmem_dealloc.get_base_pointer(), peer_rank
+            tmem_dealloc.pointer(), peer_rank
         )
         cl.mbarrier_arrive(peer_mbar, scope=cl.MbarrierScope.BLOCK)
-        cl.mbarrier_wait_parity(tmem_dealloc.get_base_pointer(), 0)
+        cl.mbarrier_wait_parity(tmem_dealloc.pointer(), 0)
         cl.tcgen05_deallocate(
             tmem_storage[0], TMEM_COLUMNS, cta_group=cl.CTAGroup.CTA_2
         )

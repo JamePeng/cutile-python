@@ -120,7 +120,7 @@ def test_tensor_map_byte_types_l2_promotion_launch(cl_dtype):
             cl.uint8,
             alignment=128,
         )
-        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
         if cl.thread_index(0) == 0:
             cl.mbarrier_initialize(mbar, cl.thread_count(0))
@@ -135,7 +135,7 @@ def test_tensor_map_byte_types_l2_promotion_launch(cl_dtype):
             cl.copy_async_bulk_tensor_global_to_shared(
                 tmap,
                 (column, row),
-                smem.get_base_pointer(),
+                smem.pointer(),
                 mbar,
             )
             token = cl.mbarrier_arrive_expect_transaction(
@@ -198,7 +198,7 @@ def test_transaction_bytes_with_oob_fill(row, column):
         )
         mbar = cl.shared_array(
             1, cl.mbarrier, alignment=mbarrier_alignment
-        ).get_base_pointer()
+        ).pointer()
 
         if cl.thread_index(0) == 0:
             cl.mbarrier_initialize(mbar, cl.thread_count(0))
@@ -211,7 +211,7 @@ def test_transaction_bytes_with_oob_fill(row, column):
         cl.barrier_sync_block()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
-                tensor_map, (column, row), smem.get_base_pointer(), mbar
+                tensor_map, (column, row), smem.pointer(), mbar
             )
             token = cl.mbarrier_arrive_expect_transaction(
                 mbar, tensor_map.get_transaction_bytes()
@@ -256,7 +256,7 @@ def test_transaction_bytes_with_multicast():
         )
         mbar = cl.shared_array(
             1, cl.mbarrier, alignment=mbarrier_alignment
-        ).get_base_pointer()
+        ).pointer()
 
         if cl.thread_index(0) == 0:
             cl.mbarrier_initialize(mbar, cl.thread_count(0))
@@ -280,7 +280,7 @@ def test_transaction_bytes_with_multicast():
 
         cl.barrier_sync_cluster()
         if rank == 0 and cl.elect_sync():
-            destination = cl.map_shared_to_cluster(smem.get_base_pointer(), 0)
+            destination = cl.map_shared_to_cluster(smem.pointer(), 0)
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map,
                 (0, 0),
@@ -336,7 +336,7 @@ def test_transaction_bytes_with_128b_swizzle():
         )
         mbar = cl.shared_array(
             1, cl.mbarrier, alignment=mbarrier_alignment
-        ).get_base_pointer()
+        ).pointer()
 
         if cl.thread_index(0) == 0:
             cl.mbarrier_initialize(mbar, cl.thread_count(0))
@@ -349,7 +349,7 @@ def test_transaction_bytes_with_128b_swizzle():
         cl.barrier_sync_block()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
-                src_map, (0, 0), smem.get_base_pointer(), mbar
+                src_map, (0, 0), smem.pointer(), mbar
             )
 
             token = cl.mbarrier_arrive_expect_transaction(
@@ -364,7 +364,7 @@ def test_transaction_bytes_with_128b_swizzle():
         # without assuming that it is linearly addressable by threads.
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_shared_to_global(
-                smem.get_base_pointer(), dst_map, (0, 0)
+                smem.pointer(), dst_map, (0, 0)
             )
             cl.copy_async_bulk_commit_group()
             cl.copy_async_bulk_wait_group(0)

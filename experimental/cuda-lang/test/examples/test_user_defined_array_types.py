@@ -391,7 +391,7 @@ class NegativeIndexedBoundsCheckedArray:
 def test_boundschecked_array():
     @cl.kernel
     def kernel(tensor, output):
-        array = BoundsCheckedArray(tensor.get_base_pointer(), (2, 3, 4))
+        array = BoundsCheckedArray(tensor.pointer(), (2, 3, 4))
 
         output[0] = array[1, 2, 3]
         output[1] = array[1, 0, 1]
@@ -435,7 +435,7 @@ def test_python_boundschecked_array():
     @cl.kernel
     def kernel(tensor, output):
         array = NegativeIndexedBoundsCheckedArray(
-            tensor.get_base_pointer(),
+            tensor.pointer(),
             (2, 3, 4),
         )
 
@@ -481,7 +481,7 @@ def test_python_boundschecked_array_slice():
     @cl.kernel
     def kernel(tensor, output):
         array = NegativeIndexedBoundsCheckedArray(
-            tensor.get_base_pointer(),
+            tensor.pointer(),
             (3, 6, 12),
         )
         view = array[:, 1:5, 10]
@@ -510,7 +510,7 @@ def test_python_boundschecked_array_negative_step_slice():
     @cl.kernel
     def kernel(tensor, output):
         array = NegativeIndexedBoundsCheckedArray(
-            tensor.get_base_pointer(),
+            tensor.pointer(),
             (3, 6, 12),
         )
         view = array[-1::-1, 4:0:-2, -1]
@@ -536,7 +536,7 @@ def test_python_boundschecked_array_negative_step_slice():
 def test_custom_strides():
     @cl.kernel
     def kernel(tensor, output):
-        array = BoundsCheckedArray(tensor.get_base_pointer(), (2, 3), (1, 2))
+        array = BoundsCheckedArray(tensor.pointer(), (2, 3), (1, 2))
 
         output[0] = array[1, 2]
         array[0, 1] = 101
@@ -553,13 +553,13 @@ def test_custom_callback_is_not_called_for_valid_indices():
     @cl.kernel
     def kernel(tensor, output):
         array = BoundsCheckedArray(
-            tensor.get_base_pointer(),
+            tensor.pointer(),
             (2, 3),
             None,
             custom_invalid_access,
         )
         python_array = NegativeIndexedBoundsCheckedArray(
-            tensor.get_base_pointer(),
+            tensor.pointer(),
             (2, 3),
             None,
             custom_invalid_access,
@@ -580,7 +580,7 @@ def test_custom_callback_is_not_called_for_valid_indices():
 
 def test_indices_must_be_a_tuple():
     def kernel():
-        pointer = cl.shared_array(1, cl.int8).get_base_pointer()
+        pointer = cl.shared_array(1, cl.int8).pointer()
         array = BoundsCheckedArray(pointer, (4,))
         array[0]
 
@@ -595,7 +595,7 @@ def test_indices_must_be_a_tuple():
 
 def test_index_tuple_must_match_rank():
     def kernel():
-        pointer = cl.shared_array(1, cl.int8).get_base_pointer()
+        pointer = cl.shared_array(1, cl.int8).pointer()
         array = BoundsCheckedArray(pointer, (2, 2))
         array[0,]
 
@@ -610,7 +610,7 @@ def test_index_tuple_must_match_rank():
 
 def test_slice_assignment_is_not_supported():
     def kernel():
-        pointer = cl.shared_array(1, cl.int8).get_base_pointer()
+        pointer = cl.shared_array(1, cl.int8).pointer()
         array = NegativeIndexedBoundsCheckedArray(pointer, (2, 2))
         array[:, 1:] = 0
 
@@ -625,7 +625,7 @@ def test_slice_assignment_is_not_supported():
 
 def test_zero_slice_step_is_not_supported():
     def kernel():
-        pointer = cl.shared_array(1, cl.int8).get_base_pointer()
+        pointer = cl.shared_array(1, cl.int8).pointer()
         array = NegativeIndexedBoundsCheckedArray(pointer, (2, 2))
         array[::0, 0]
 
@@ -649,7 +649,7 @@ def crashes_with(*expected_messages):
 @crashes_with("store index is less than zero")
 @cl.kernel
 def negative_indexed_array_store_below_extent(tensor):
-    array = NegativeIndexedBoundsCheckedArray(tensor.get_base_pointer(), (2,))
+    array = NegativeIndexedBoundsCheckedArray(tensor.pointer(), (2,))
     array[-3,] = 0
 
 
@@ -660,7 +660,7 @@ def negative_indexed_array_store_below_extent(tensor):
 @cl.kernel
 def bounds_checked_array_custom_callback_load_above_extent(tensor):
     array = BoundsCheckedArray(
-        tensor.get_base_pointer(),
+        tensor.pointer(),
         (2,),
         None,
         custom_invalid_access,
@@ -675,7 +675,7 @@ def bounds_checked_array_custom_callback_load_above_extent(tensor):
 @cl.kernel
 def bounds_checked_array_returning_callback_load_above_extent(tensor):
     array = BoundsCheckedArray(
-        tensor.get_base_pointer(),
+        tensor.pointer(),
         (2,),
         None,
         returning_invalid_access,

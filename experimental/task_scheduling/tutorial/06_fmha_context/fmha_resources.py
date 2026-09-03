@@ -174,7 +174,7 @@ def pack_to_i32(src, dtype):
 
 
 def _make_smem_view(stage_info, offset, tile_elements):
-    base = stage_info.context.smem_base.get_base_pointer()
+    base = stage_info.context.smem_base.pointer()
     return cl.reinterpret_pointer_as_array(
         base + offset,
         cl.uint16,
@@ -310,7 +310,7 @@ class SmemKResource(ts.MemoryResource):
             cl.copy_async_bulk_tensor_global_to_shared(
                 inputs.tma_k_desc,
                 (0, kv_sequence, 0, head_coord, batch_coord),
-                k_smem.get_base_pointer(),
+                k_smem.pointer(),
                 stage_info.barrier,
             )
 
@@ -401,7 +401,7 @@ class SmemKResource(ts.MemoryResource):
                 k_chunk = k_column // chunk_elements
                 k_column_in_chunk = k_column % chunk_elements
                 physical_row = k_chunk * kv_tile + k_row
-                pointer = k_smem.get_element_pointer(
+                pointer = k_smem.pointer(
                     physical_row * chunk_elements
                     + get_swizzled_col(
                         physical_row,
@@ -508,7 +508,7 @@ class SmemVResource(ts.MemoryResource):
             cl.copy_async_bulk_tensor_global_to_shared(
                 inputs.tma_v_desc,
                 (0, kv_sequence, 0, head_coord, batch_coord),
-                v_smem.get_base_pointer(),
+                v_smem.pointer(),
                 stage_info.barrier,
             )
 
@@ -653,7 +653,7 @@ class SmemVResource(ts.MemoryResource):
                 v_chunk = v_column // chunk_elements
                 v_column_in_chunk = v_column % chunk_elements
                 physical_row = v_chunk * kv_tile + v_row
-                pointer = v_smem.get_element_pointer(
+                pointer = v_smem.pointer(
                     physical_row * chunk_elements
                     + get_swizzled_col(
                         physical_row,
@@ -856,7 +856,7 @@ class GmemOResource(ts.MemoryResource):
                 packed = scaled.astype(cl.bfloat16).reinterpret_as_vector(cl.int32, 4)
             else:
                 packed = scaled.astype(cl.float16).reinterpret_as_vector(cl.int32, 4)
-            shared_pointer = k_smem.get_element_pointer(
+            shared_pointer = k_smem.pointer(
                 (warp * d_fragment_pairs + d_pair) * (16 * 16) + lane * 8
             )
             cl.store_matrix(
@@ -882,7 +882,7 @@ class GmemOResource(ts.MemoryResource):
         for d_pair in cl.static_iter(range(d_fragment_pairs)):
             global_column = d_pair * 16 + store_column
             if global_row < inputs.seqlen_q and global_column < head_dim:
-                shared_pointer = k_smem.get_element_pointer(
+                shared_pointer = k_smem.pointer(
                     (warp * d_fragment_pairs + d_pair) * (16 * 16) + lane * 8
                 )
                 output = shared_pointer.load(count=8, alignment=16)

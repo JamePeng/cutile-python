@@ -91,12 +91,12 @@ def _kernel(a, b, c, bias, has_bias: cl.Constant[bool]):
         CTA_N * BLOCK_K, cl.float16, alignment=128, dynamic=True
     )
 
-    ab_full_ptr = ab_full.get_base_pointer()
-    ab_empty_ptr = ab_empty.get_base_pointer()
-    acc_full_ptr = acc_full.get_base_pointer()
-    tmem_storage_ptr = tmem_storage.get_base_pointer()
-    a_smem_ptr = a_smem.get_base_pointer()
-    b_smem_ptr = b_smem.get_base_pointer()
+    ab_full_ptr = ab_full.pointer()
+    ab_empty_ptr = ab_empty.pointer()
+    acc_full_ptr = acc_full.pointer()
+    tmem_storage_ptr = tmem_storage.pointer()
+    a_smem_ptr = a_smem.pointer()
+    b_smem_ptr = b_smem.pointer()
 
     if warp == 0 and cl.elect_sync():
         cl.mbarrier_initialize(ab_full_ptr, 1)
@@ -250,7 +250,7 @@ def _kernel(a, b, c, bias, has_bias: cl.Constant[bool]):
                 col_j = off_n_c + column + j * vsize
                 if col_j + vsize <= n:
                     packed = _slice_float32_vector(accumulators, j * vsize, vsize)
-                    dst = c.get_element_pointer((row, col_j))
+                    dst = c.pointer((row, col_j))
                     dst.store(packed, alignment=VEC_BYTES)
 
     cl.barrier_sync_block()

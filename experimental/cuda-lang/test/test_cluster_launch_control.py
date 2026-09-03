@@ -16,21 +16,21 @@ clc_bytes = cl.cluster_launch_control_token.bitwidth // 8
 
 @cl.kernel
 def bad_clc_memspace_1():
-    smem = cl.shared_array(1, cl.mbarrier).get_base_pointer()
+    smem = cl.shared_array(1, cl.mbarrier).pointer()
     with cl.local_array(1, cl.cluster_launch_control_token) as larr:
-        cl.cluster_launch_control_try_cancel(larr.get_base_pointer(), smem)
+        cl.cluster_launch_control_try_cancel(larr.pointer(), smem)
 
 
 @cl.kernel
 def bad_clc_memspace_2():
-    smem = cl.shared_array(1, cl.cluster_launch_control_token).get_base_pointer()
+    smem = cl.shared_array(1, cl.cluster_launch_control_token).pointer()
     with cl.local_array(1, cl.mbarrier) as larr:
-        cl.cluster_launch_control_try_cancel(smem, larr.get_base_pointer())
+        cl.cluster_launch_control_try_cancel(smem, larr.pointer())
 
 
 @cl.kernel
 def bad_clc_type():
-    smem = cl.shared_array(2, cl.int64).get_base_pointer()
+    smem = cl.shared_array(2, cl.int64).pointer()
     cl.cluster_launch_control_is_canceled(smem)
 
 
@@ -65,8 +65,8 @@ def compute():
 
 @cl.kernel
 def worksteal(data, n: cl.Constant[int], stolen):
-    clc_resp = cl.shared_array(1, cl.cluster_launch_control_token, alignment=16).get_base_pointer()
-    mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+    clc_resp = cl.shared_array(1, cl.cluster_launch_control_token, alignment=16).pointer()
+    mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
     tx = cl.thread_index(0)
     bdx = cl.thread_count(0)
@@ -107,7 +107,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
             break
 
         if tx == 0:
-            cl.atomic_add(stolen.get_element_pointer(0), 1)
+            cl.atomic_add(stolen.pointer(0), 1)
         bx = cl.cluster_launch_control_get_first_block_index(tok, axis=0)
         cl.fence(
             cl.MemoryOrder.RELEASE,
@@ -120,8 +120,8 @@ def worksteal(data, n: cl.Constant[int], stolen):
 
 @cl.kernel
 def worksteal_cluster(data, n: cl.Constant[int], stolen):
-    clc_resp = cl.shared_array(1, cl.cluster_launch_control_token, alignment=16).get_base_pointer()
-    mbar = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+    clc_resp = cl.shared_array(1, cl.cluster_launch_control_token, alignment=16).pointer()
+    mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
 
     tx = cl.thread_index(0)
     bdx = cl.thread_count(0)
@@ -173,7 +173,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
             break  # no more work to steal
 
         if local_block == 0 and tx == 0:
-            cl.atomic_add(stolen.get_element_pointer(0), 1)
+            cl.atomic_add(stolen.pointer(0), 1)
 
         bx = cl.cluster_launch_control_get_first_block_index(token, axis=0) + local_block
         cl.fence(

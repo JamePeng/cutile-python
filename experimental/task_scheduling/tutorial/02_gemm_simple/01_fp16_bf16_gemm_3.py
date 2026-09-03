@@ -85,7 +85,7 @@ class SmemAbResource(ts.MemoryResource):
     @staticmethod
     def _init_smem_state(stage_info):
         """Create the real A/B views into the manager-owned SMEM arena."""
-        smem_base = stage_info.context.smem_base.get_base_pointer()
+        smem_base = stage_info.context.smem_base.pointer()
         a_smem = cl.reinterpret_pointer_as_array(
             smem_base + A_SMEM_OFFSET_BYTES,
             cl.uint16,
@@ -130,13 +130,13 @@ class SmemAbResource(ts.MemoryResource):
             cl.copy_async_bulk_tensor_global_to_shared(
                 values.a_map,
                 (coord_k, coord_m),
-                a_smem.get_element_pointer((stage, 0)),
+                a_smem.pointer((stage, 0)),
                 stage_info.barrier,
             )
             cl.copy_async_bulk_tensor_global_to_shared(
                 values.b_map,
                 (coord_k, coord_n),
-                b_smem.get_element_pointer((stage, 0)),
+                b_smem.pointer((stage, 0)),
                 stage_info.barrier,
             )
 
@@ -146,13 +146,13 @@ class SmemAbResource(ts.MemoryResource):
         # Route the A and B descriptors independently to the MMA work method.
         stage = stage_info.stage_idx
         a_desc = cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=a_smem.get_element_pointer((stage, 0)),
+            matrix_start_address=a_smem.pointer((stage, 0)),
             leading_dimension_byte_offset=16,
             stride_dimension_byte_offset=8 * 128,
             swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
         ).encode()
         b_desc = cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=b_smem.get_element_pointer((stage, 0)),
+            matrix_start_address=b_smem.pointer((stage, 0)),
             leading_dimension_byte_offset=16,
             stride_dimension_byte_offset=8 * 128,
             swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -257,7 +257,7 @@ class GmemDResource(ts.MemoryResource):
                 vector_idx * vsize:vector_idx * vsize + vsize
             ]
             packed = fragment.astype(resources.output.dtype)
-            resources.output.get_element_pointer((row, vector_column)).store(
+            resources.output.pointer((row, vector_column)).store(
                 packed, alignment=VEC_BYTES
             )
 
@@ -507,7 +507,7 @@ def make_gemm_kernel(device_manager):
         warp_index = device_allocators.warp_index
         if warp_index == 0:
             cl.tcgen05_allocate(
-                tmem_storage.get_base_pointer(),
+                tmem_storage.pointer(),
                 TMEM_COLS,
                 cta_group=cl.CTAGroup.CTA_1,
             )

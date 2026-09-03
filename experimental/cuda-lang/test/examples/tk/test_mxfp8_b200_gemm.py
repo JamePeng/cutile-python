@@ -213,7 +213,7 @@ def store_output_tile(
         with cl.local_array(width, cl.bfloat16) as registers:
             for subtile in cl.static_iter(range(epilogue_stages)):
                 stage = subtile % output_stages
-                stage_smem = c_smem.get_element_pointer((stage, 0))
+                stage_smem = c_smem.pointer((stage, 0))
                 if local_warp == 0 and cl.elect_sync():
                     cl.copy_async_bulk_wait_group(output_stages - 1, read=True)
                 sync_consumer_warpgroup()
@@ -260,7 +260,7 @@ def store_output_tile(
             sync_consumer_warpgroup()
             for subtile in cl.static_iter(range(epilogue_stages)):
                 stage = subtile % output_stages
-                stage_smem = c_smem.get_element_pointer((stage, 0))
+                stage_smem = c_smem.pointer((stage, 0))
                 if local_warp == 0 and cl.elect_sync():
                     cl.copy_async_bulk_wait_group(output_stages - 1, read=True)
                 sync_consumer_warpgroup()
@@ -368,8 +368,8 @@ def mxfp8_b200_gemm_kernel(
     data_ready = cl.shared_array(load_stages, cl.mbarrier, alignment=8)
     scale_ready = cl.shared_array(load_stages, cl.mbarrier, alignment=8)
     input_empty = cl.shared_array(load_stages, cl.mbarrier, alignment=8)
-    output_ready = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
-    output_empty = cl.shared_array(1, cl.mbarrier, alignment=8).get_base_pointer()
+    output_ready = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
+    output_empty = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
     tmem_storage = cl.shared_array(
         1,
         cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR),
@@ -378,9 +378,9 @@ def mxfp8_b200_gemm_kernel(
 
     if warp == 0 and cl.elect_sync():
         for stage in cl.static_iter(range(load_stages)):
-            cl.mbarrier_initialize(data_ready.get_element_pointer(stage), 2)
-            cl.mbarrier_initialize(scale_ready.get_element_pointer(stage), 2)
-            cl.mbarrier_initialize(input_empty.get_element_pointer(stage), 1)
+            cl.mbarrier_initialize(data_ready.pointer(stage), 2)
+            cl.mbarrier_initialize(scale_ready.pointer(stage), 2)
+            cl.mbarrier_initialize(input_empty.pointer(stage), 1)
         cl.mbarrier_initialize(output_ready, 1)
         cl.mbarrier_initialize(output_empty, 8)
         cl.fence(
@@ -392,7 +392,7 @@ def mxfp8_b200_gemm_kernel(
 
     if warp == mma_warp:
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(),
+            tmem_storage.pointer(),
             TMEM_COLUMNS,
             cta_group=cl.CTAGroup.CTA_2,
         )
@@ -416,19 +416,19 @@ def mxfp8_b200_gemm_kernel(
                 phase = (load_index // load_stages) & 1
                 if load_index >= load_stages:
                     cl.mbarrier_wait_parity(
-                        input_empty.get_element_pointer(stage),
+                        input_empty.pointer(stage),
                         phase ^ 1,
                     )
                 if cl.elect_sync():
-                    ready = data_ready.get_element_pointer(stage)
+                    ready = data_ready.pointer(stage)
                     arrive = cl.map_shared_to_leader_block(ready)
                     expect = cl.map_shared_to_cluster(ready, 0)
                     a_dst = cl.map_shared_to_cluster(
-                        a_smem.get_element_pointer((stage, 0)),
+                        a_smem.pointer((stage, 0)),
                         rank,
                     )
                     b_dst = cl.map_shared_to_cluster(
-                        b_smem.get_element_pointer((stage, 0)),
+                        b_smem.pointer((stage, 0)),
                         rank,
                     )
                     cl.copy_async_bulk_tensor_global_to_shared(
@@ -470,15 +470,15 @@ def mxfp8_b200_gemm_kernel(
                 phase = (load_index // load_stages) & 1
                 if load_index >= load_stages:
                     cl.mbarrier_wait_parity(
-                        input_empty.get_element_pointer(stage),
+                        input_empty.pointer(stage),
                         phase ^ 1,
                     )
                 if cl.elect_sync():
-                    ready = scale_ready.get_element_pointer(stage)
+                    ready = scale_ready.pointer(stage)
                     arrive = cl.map_shared_to_leader_block(ready)
                     expect = cl.map_shared_to_cluster(ready, 0)
                     a_dst = cl.map_shared_to_cluster(
-                        a_scale_smem.get_element_pointer((stage, 0)),
+                        a_scale_smem.pointer((stage, 0)),
                         rank,
                     )
                     cl.copy_async_bulk_tensor_global_to_shared(
@@ -491,7 +491,7 @@ def mxfp8_b200_gemm_kernel(
                     expected_bytes = SCALE_TILE_BYTES
                     if tile_n == 256:
                         b_dst = cl.map_shared_to_cluster(
-                            b_scale_smem.get_element_pointer((stage, rank, 0)),
+                            b_scale_smem.pointer((stage, rank, 0)),
                             rank,
                         )
                         cl.copy_async_bulk_tensor_global_to_shared(
@@ -505,7 +505,7 @@ def mxfp8_b200_gemm_kernel(
                         expected_bytes += 2 * SCALE_TILE_BYTES
                     elif rank == 0:
                         b_dst = cl.map_shared_to_cluster(
-                            b_scale_smem.get_element_pointer((stage, 0, 0)),
+                            b_scale_smem.pointer((stage, 0, 0)),
                             0,
                         )
                         cl.copy_async_bulk_tensor_global_to_shared(
@@ -538,18 +538,18 @@ def mxfp8_b200_gemm_kernel(
                 phase = (load_index // load_stages) & 1
                 if cl.elect_sync():
                     cl.mbarrier_wait_parity(
-                        scale_ready.get_element_pointer(stage),
+                        scale_ready.pointer(stage),
                         phase,
                     )
                     a_scale_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=a_scale_smem.get_element_pointer(
+                        matrix_start_address=a_scale_smem.pointer(
                             (stage, 0)
                         ),
                         leading_dimension_byte_offset=128,
                         stride_dimension_byte_offset=128,
                     ).encode()
                     b_scale_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=b_scale_smem.get_element_pointer(
+                        matrix_start_address=b_scale_smem.pointer(
                             (stage, 0, 0)
                         ),
                         leading_dimension_byte_offset=128,
@@ -579,7 +579,7 @@ def mxfp8_b200_gemm_kernel(
                     )
                     if b_scale_tiles == 2:
                         b_scale_desc_1 = cl.Tcgen05SharedMemoryDescriptor(
-                            matrix_start_address=b_scale_smem.get_element_pointer(
+                            matrix_start_address=b_scale_smem.pointer(
                                 (stage, 1, 0)
                             ),
                             leading_dimension_byte_offset=128,
@@ -594,17 +594,17 @@ def mxfp8_b200_gemm_kernel(
                         )
 
                     cl.mbarrier_wait_parity(
-                        data_ready.get_element_pointer(stage),
+                        data_ready.pointer(stage),
                         phase,
                     )
                     a_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=a_smem.get_element_pointer((stage, 0)),
+                        matrix_start_address=a_smem.pointer((stage, 0)),
                         leading_dimension_byte_offset=16,
                         stride_dimension_byte_offset=8 * 128,
                         swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
                     ).encode()
                     b_desc = cl.Tcgen05SharedMemoryDescriptor(
-                        matrix_start_address=b_smem.get_element_pointer((stage, 0)),
+                        matrix_start_address=b_smem.pointer((stage, 0)),
                         leading_dimension_byte_offset=16,
                         stride_dimension_byte_offset=8 * 128,
                         swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -630,7 +630,7 @@ def mxfp8_b200_gemm_kernel(
                             cta_group=cl.CTAGroup.CTA_2,
                         )
                     cl.tcgen05_commit(
-                        input_empty.get_element_pointer(stage),
+                        input_empty.pointer(stage),
                         multicast_mask=0b11,
                         cta_group=cl.CTAGroup.CTA_2,
                     )

@@ -27,8 +27,8 @@ def test_store_async_cluster(dtype, count, instruction):
     storage_count = count or 1
 
     def kernel():
-        values = cl.shared_array(storage_count, dtype).get_base_pointer()
-        mbarrier = cl.shared_array(1, cl.mbarrier).get_base_pointer()
+        values = cl.shared_array(storage_count, dtype).pointer()
+        mbarrier = cl.shared_array(1, cl.mbarrier).pointer()
         destination = cl.map_shared_to_cluster(values, 1)
         remote_mbarrier = cl.map_shared_to_cluster(mbarrier, 1)
         value = dtype(1) if count is None else values.load(count=count)
@@ -52,7 +52,7 @@ def test_store_async_cluster(dtype, count, instruction):
 )
 def test_store_async_global(dtype):
     def kernel():
-        ptr = cl.shared_array(1, dtype).get_base_pointer()
+        ptr = cl.shared_array(1, dtype).pointer()
         ptr = cl.address_space_cast(ptr, cl.MemorySpace.GENERIC)
         cl.store_async_global(ptr, dtype(1))
 
@@ -71,7 +71,7 @@ def test_store_async_global(dtype):
 )
 def test_store_async_global_mode(scope, is_multimem, instruction):
     def kernel():
-        ptr = cl.shared_array(1, cl.int32).get_base_pointer()
+        ptr = cl.shared_array(1, cl.int32).pointer()
         ptr = cl.address_space_cast(ptr, cl.MemorySpace.GENERIC)
         cl.store_async_global(ptr, 1, scope=scope, is_multimem=is_multimem)
 

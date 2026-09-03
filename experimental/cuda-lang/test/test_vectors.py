@@ -17,11 +17,11 @@ from cuda.lang.compilation import KernelSignature, ScalarConstraint
 def test_load_store_vector_free_functions():
     @cl.kernel
     def kernel(inp_1, inp_2, out_1, out_2):
-        vector_1 = inp_1.get_base_pointer().load(count=4, alignment=16)
-        out_1.get_base_pointer().store(vector_1, alignment=16)
+        vector_1 = inp_1.pointer().load(count=4, alignment=16)
+        out_1.pointer().store(vector_1, alignment=16)
 
-        vector_2 = cl.load(inp_2.get_base_pointer(), count=4, alignment=16)
-        cl.store(out_2.get_base_pointer(), vector_2, alignment=16)
+        vector_2 = cl.load(inp_2.pointer(), count=4, alignment=16)
+        cl.store(out_2.pointer(), vector_2, alignment=16)
 
     inp_1 = torch.tensor([1.0, 2.0, 3.0, 4.0], dtype=torch.float32).cuda()
     out_1 = torch.zeros((4,), dtype=torch.float32).cuda()
@@ -57,11 +57,11 @@ def test_pointer_vector_ldst(element_count, dtype):
         with cl.local_array(element_count, dtype, alignment=alignment) as larr:
             for i, value in cl.static_iter(enumerate(values)):
                 larr[i] = dtype(value)
-            v = larr.get_base_pointer().load(
+            v = larr.pointer().load(
                 count=element_count,
                 alignment=alignment,
             )
-        A.get_base_pointer().store(
+        A.pointer().store(
             v,
             alignment=alignment,
         )
@@ -77,7 +77,7 @@ def test_vector_apis():
     @cl.kernel
     def kernel(out):
         with cl.local_array(4, cl.int32, alignment=16) as larr:
-            p = larr.get_base_pointer()
+            p = larr.pointer()
             vec = p.load(count=4, alignment=16)
             out[0] = cl.int32(vec.dtype == larr.dtype)
             out[1] = cl.int32(larr.dtype == cl.int32)
@@ -92,9 +92,9 @@ def test_vector_apis():
 def test_astype_on_vector():
     @cl.kernel
     def kernel(inp, out):
-        vector = inp.get_base_pointer().load(count=4, alignment=16)
+        vector = inp.pointer().load(count=4, alignment=16)
         halved = vector.astype(cl.float16)
-        out.get_base_pointer().store(halved, alignment=8)
+        out.pointer().store(halved, alignment=8)
 
     values = [1.0, 2.0, 3.0, 4.0]
     inp = torch.tensor(values, dtype=torch.float32).cuda(0)
@@ -109,7 +109,7 @@ def test_vector_tuple(length):
 
     @cl.kernel
     def kernel(input, output):
-        vector = input.get_base_pointer().load(count=length, alignment=16)
+        vector = input.pointer().load(count=length, alignment=16)
         elements = tuple(vector)
         output[0] = elements == expect
 
@@ -123,7 +123,7 @@ def test_vector_tuple(length):
 def test_vector_tuple_len(length):
     @cl.kernel
     def kernel(input, output):
-        vector = input.get_base_pointer().load(count=length, alignment=16)
+        vector = input.pointer().load(count=length, alignment=16)
         output[0] = len(vector)
 
     input = torch.arange(4, dtype=torch.int32, device="cuda:0")
@@ -136,7 +136,7 @@ def test_vector_tuple_len(length):
 def test_vector_len_in_static_iter(length):
     @cl.kernel
     def kernel(input, output):
-        vector = input.get_base_pointer().load(count=length, alignment=16)
+        vector = input.pointer().load(count=length, alignment=16)
         for index in cl.static_iter(range(len(vector))):
             output[index] = vector[index]
 
@@ -163,7 +163,7 @@ def test_vector_constructor():
     @cl.kernel
     def kernel(out):
         vec = cl.Vector(1, 2, 3, 4)
-        out.get_base_pointer().store(vec, alignment=16)
+        out.pointer().store(vec, alignment=16)
 
     out = torch.zeros(4, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -174,7 +174,7 @@ def test_vector_constructor_unsigned():
     @cl.kernel
     def kernel(out):
         vec = cl.Vector(cl.uint32(1), 2, 3, 4)
-        out.get_base_pointer().store(vec, alignment=16)
+        out.pointer().store(vec, alignment=16)
 
     out = torch.zeros(4, dtype=torch.uint32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -185,7 +185,7 @@ def test_vector_constructor_uses_explicit_dtype():
     @cl.kernel
     def kernel(out):
         vec = cl.Vector(1, 2, 3, 4, dtype=cl.int8)
-        out.get_base_pointer().store(vec, alignment=4)
+        out.pointer().store(vec, alignment=4)
 
     out = torch.zeros(4, dtype=torch.int8).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -269,10 +269,10 @@ def test_pointer_vector_arithmetic(operation, dtype, lhs_values, rhs_values):
                 lhs[i] = dtype(value)
             for i, value in cl.static_iter(enumerate(rhs_values)):
                 rhs[i] = dtype(value)
-            lhs_vec = lhs.get_base_pointer().load(count=4, alignment=alignment)
-            rhs_vec = rhs.get_base_pointer().load(count=4, alignment=alignment)
+            lhs_vec = lhs.pointer().load(count=4, alignment=alignment)
+            rhs_vec = rhs.pointer().load(count=4, alignment=alignment)
             new = operation(lhs_vec, rhs_vec)
-            out.get_base_pointer().store(new, alignment=out_alignment)
+            out.pointer().store(new, alignment=out_alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -301,10 +301,10 @@ def test_pointer_vector_arithmetic_floordiv(dtype, lhs_values, rhs_values):
                 lhs[i] = dtype(value)
             for i, value in cl.static_iter(enumerate(rhs_values)):
                 rhs[i] = dtype(value)
-            lhs_vec = lhs.get_base_pointer().load(count=4, alignment=alignment)
-            rhs_vec = rhs.get_base_pointer().load(count=4, alignment=alignment)
+            lhs_vec = lhs.pointer().load(count=4, alignment=alignment)
+            rhs_vec = rhs.pointer().load(count=4, alignment=alignment)
             new = operator.floordiv(lhs_vec, rhs_vec)
-            out.get_base_pointer().store(new, alignment=alignment)
+            out.pointer().store(new, alignment=alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -349,10 +349,10 @@ def test_pointer_vector_arithmetic_bitwise(operation, dtype, lhs_values, rhs_val
                 lhs[i] = dtype(value)
             for i, value in cl.static_iter(enumerate(rhs_values)):
                 rhs[i] = dtype(value)
-            lhs_vec = lhs.get_base_pointer().load(count=4, alignment=alignment)
-            rhs_vec = rhs.get_base_pointer().load(count=4, alignment=alignment)
+            lhs_vec = lhs.pointer().load(count=4, alignment=alignment)
+            rhs_vec = rhs.pointer().load(count=4, alignment=alignment)
             new = operation(lhs_vec, rhs_vec)
-            out.get_base_pointer().store(new, alignment=alignment)
+            out.pointer().store(new, alignment=alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -389,10 +389,10 @@ def test_pointer_vector_arithmetic_comparison(operation, dtype, lhs_values, rhs_
                 lhs[i] = dtype(value)
             for i, value in cl.static_iter(enumerate(rhs_values)):
                 rhs[i] = dtype(value)
-            lhs_vec = lhs.get_base_pointer().load(count=4, alignment=alignment)
-            rhs_vec = rhs.get_base_pointer().load(count=4, alignment=alignment)
+            lhs_vec = lhs.pointer().load(count=4, alignment=alignment)
+            rhs_vec = rhs.pointer().load(count=4, alignment=alignment)
             new = operation(lhs_vec, rhs_vec)
-            out.get_base_pointer().store(new, alignment=out_alignment)
+            out.pointer().store(new, alignment=out_alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -425,10 +425,10 @@ def test_pointer_vector_arithmetic_shift(operation, dtype, lhs_values, rhs_value
                 lhs[i] = dtype(value)
             for i, value in cl.static_iter(enumerate(rhs_values)):
                 rhs[i] = dtype(value)
-            lhs_vec = lhs.get_base_pointer().load(count=4, alignment=alignment)
-            rhs_vec = rhs.get_base_pointer().load(count=4, alignment=alignment)
+            lhs_vec = lhs.pointer().load(count=4, alignment=alignment)
+            rhs_vec = rhs.pointer().load(count=4, alignment=alignment)
             new = operation(lhs_vec, rhs_vec)
-            out.get_base_pointer().store(new, alignment=alignment)
+            out.pointer().store(new, alignment=alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -453,9 +453,9 @@ def test_pointer_vector_arithmetic_unary(operation, dtype, values):
         with cl.local_array(4, dtype, alignment=alignment) as value:
             for i, item in cl.static_iter(enumerate(values)):
                 value[i] = dtype(item)
-            vec = value.get_base_pointer().load(count=4, alignment=alignment)
+            vec = value.pointer().load(count=4, alignment=alignment)
             new = operation(vec)
-            out.get_base_pointer().store(new, alignment=alignment)
+            out.pointer().store(new, alignment=alignment)
 
     out = torch.zeros(4, dtype=expected.dtype).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -465,7 +465,7 @@ def test_pointer_vector_arithmetic_unary(operation, dtype, values):
 def test_pointer_vector_count_can_be_non_power_of_two():
     @cl.kernel
     def kernel(out):
-        out.get_base_pointer().load(count=3, alignment=4)
+        out.pointer().load(count=3, alignment=4)
 
     out = torch.zeros(3, dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
@@ -474,7 +474,7 @@ def test_pointer_vector_count_can_be_non_power_of_two():
 def test_vector_getitem():
     @cl.kernel
     def kernel(tensor):
-        v4 = tensor.get_base_pointer().load(count=4)
+        v4 = tensor.pointer().load(count=4)
         tensor[0] = v4[3]
         tensor[1] = v4[2]
         tensor[2] = v4[1]
@@ -487,7 +487,7 @@ def test_vector_getitem():
 
 def test_vector_setitem():
     def kernel():
-        v = cl.shared_array(1, cl.int8).get_base_pointer().load(count=2)
+        v = cl.shared_array(1, cl.int8).pointer().load(count=2)
         v[0] = 1
 
     compile_kernel(
@@ -499,9 +499,9 @@ def test_vector_setitem():
 def test_vector_with_item():
     @cl.kernel
     def kernel(original, updated):
-        original_vector = original.get_base_pointer().load(count=4, alignment=16)
+        original_vector = original.pointer().load(count=4, alignment=16)
         updated_vector = original_vector.with_item(2, 42)
-        updated.get_base_pointer().store(updated_vector, alignment=16)
+        updated.pointer().store(updated_vector, alignment=16)
 
     a = torch.arange(4, dtype=torch.int32, device="cuda:0")
     b = torch.arange(4, dtype=torch.int32, device="cuda:0")
@@ -514,7 +514,7 @@ def test_vector_from_tuple():
     @cl.kernel
     def kernel(tensor):
         v4 = cl.Vector(*tuple(i for i in cl.static_iter(range(4))))
-        tensor.get_base_pointer().store(v4, alignment=16)
+        tensor.pointer().store(v4, alignment=16)
 
     tensor = torch.zeros(4, dtype=torch.int32, device='cuda:0')
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (tensor,))
@@ -783,9 +783,9 @@ class TestVectorSlice:
 
         @cl.kernel
         def kernel(inp: cl.Array, out: cl.Array):
-            v = inp.get_element_pointer(0).load(count=8)
+            v = inp.pointer(0).load(count=8)
             v2 = function(v)
-            out.get_element_pointer(0).store(v2)
+            out.pointer(0).store(v2)
 
         inp = torch.arange(8, dtype=torch.int8).cuda(0)
         out = torch.zeros(8, dtype=torch.int8).cuda(0)
@@ -924,7 +924,7 @@ def test_reinterpret_as_scalar():
     # Whole-vector reinterpret to a single scalar of the total width.
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=2)
+        v = inp.pointer().load(count=2)
         out[0] = v.reinterpret_as_scalar(cl.int64)
 
     inp = torch.tensor([1, 2], dtype=torch.int32).cuda(0)
@@ -938,7 +938,7 @@ def test_reinterpret_as_scalar_width_mismatch_errors():
     # The target scalar's bitwidth must equal the vector's total bitwidth.
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=2)     # Vector[int32, 2] = 64 bit
+        v = inp.pointer().load(count=2)     # Vector[int32, 2] = 64 bit
         out[0] = v.reinterpret_as_scalar(cl.int32)   # target is 32 bit != 64
 
     match = "bitcast requires input value's type and output type to have the same bitwidth"
@@ -955,8 +955,8 @@ def test_reinterpret_as_vector_reshape():
     # width: Vector[float32, 4] -> Vector[int8, 16].
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=4)
-        out.get_base_pointer().store(v.reinterpret_as_vector(cl.int8, 16))
+        v = inp.pointer().load(count=4)
+        out.pointer().store(v.reinterpret_as_vector(cl.int8, 16))
 
     values = torch.tensor([1.5, -2.25, 3.75, 0.5], dtype=torch.float32)
     inp = values.cuda(0)
@@ -968,8 +968,8 @@ def test_reinterpret_as_vector_reshape():
 def test_reinterpret_as_vector_width_mismatch_errors():
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=4)
-        out.get_base_pointer().store(v.reinterpret_as_vector(cl.int8, 15))
+        v = inp.pointer().load(count=4)
+        out.pointer().store(v.reinterpret_as_vector(cl.int8, 15))
 
     match = "bitcast requires input value's type and output type to have the same bitwidth"
     with pytest.raises(TypeCheckingError, match=match):
@@ -984,7 +984,7 @@ def test_reinterpret_as_vector_rejects_pointer():
     # A vector's element dtype must be a scalar, not a pointer.
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=4)
+        v = inp.pointer().load(count=4)
         v.reinterpret_as_vector(cl.pointer_dtype(cl.float32), 2)
 
     match = "reinterpret_as_vector only accepts a scalar element dtype"

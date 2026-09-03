@@ -22,7 +22,7 @@ def filecheck_hir(func_hir: cl.kernel, check_directives: str) -> None:
 def test_load_store_in_hir():
     @cl.kernel
     def my_kernel(A):
-        pointer = A.get_base_pointer()
+        pointer = A.pointer()
         val = cl.load(pointer)
         cl.store(pointer, val + 1)
 

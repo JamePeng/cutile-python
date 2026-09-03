@@ -29,7 +29,7 @@ def test_cluster_barriers():
         tx = cl.thread_index(0)
         bdx = cl.thread_count(0)
         mbar = cl.shared_array(shape=(), dtype=cl.mbarrier, alignment=8)
-        mbar = mbar.get_base_pointer()
+        mbar = mbar.pointer()
 
         if tx == 0:
             cl.mbarrier_initialize(mbar, cdx * bdx)
@@ -92,7 +92,7 @@ def test_initialize_and_invalidate():
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
-        ).get_base_pointer()
+        ).pointer()
         cl.mbarrier_initialize(mbar, 32)
         cl.mbarrier_invalidate(mbar)
 
@@ -114,7 +114,7 @@ def test_arrive_intrinsic_name(expect_transaction, drop, memory_order, scope):
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
-        ).get_base_pointer()
+        ).pointer()
         if expect_transaction:
             cl.mbarrier_arrive_expect_transaction(
                 mbar, 128, drop=drop, scope=scope, memory_order=memory_order
@@ -147,7 +147,7 @@ def test_expect_complete_transaction_intrinsic_name(operation, intrinsic, scope)
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
-        ).get_base_pointer()
+        ).pointer()
         operation(mbar, 64, scope=scope)
 
     expected = intrinsic + f".scope.{scope.value}.space.cta"
@@ -162,7 +162,7 @@ def test_test_wait_intrinsic_name(parity, memory_order, scope):
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
-        ).get_base_pointer()
+        ).pointer()
         if parity:
             cl.mbarrier_test_wait_parity(mbar, 0, scope=scope, memory_order=memory_order)
         else:
@@ -186,7 +186,7 @@ def test_try_wait_intrinsic_name(parity, memory_order, time_hint, scope):
     def kernel():
         mbar = cl.shared_array(
             shape=(1,), dtype=cl.mbarrier, alignment=8
-        ).get_base_pointer()
+        ).pointer()
         if parity:
             cl.mbarrier_try_wait_parity(
                 mbar, 0, time_hint=time_hint, scope=scope, memory_order=memory_order

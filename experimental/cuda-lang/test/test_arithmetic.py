@@ -124,10 +124,10 @@ def test_arithmetic_vector_scalar(
             arr[1] = vector_values[1]
             arr[2] = vector_values[2]
             arr[3] = vector_values[3]
-            v = arr.get_base_pointer().load(count=4)
+            v = arr.pointer().load(count=4)
             s = scalar_dtype(inp[0])
             result = operation(s, v)
-            out.get_base_pointer().store(result)
+            out.pointer().store(result)
 
     scalar_torch_dtype = to_torch_dtype(scalar_dtype)
     result_torch_dtype = to_torch_dtype(result_dtype)
@@ -146,9 +146,9 @@ def test_arithmetic_vector_scalar(
 def test_arithmetic_vector_comparison(op):
     @cl.kernel
     def kernel(inp, out):
-        v1 = inp.get_base_pointer().load(count=4)
-        v2 = inp.get_element_pointer(4).load(count=4)
-        out.get_base_pointer().store(op(v1, v2))
+        v1 = inp.pointer().load(count=4)
+        v2 = inp.pointer(4).load(count=4)
+        out.pointer().store(op(v1, v2))
 
     inp = torch.ones(8, dtype=torch.int32).cuda(0)
     out = torch.zeros(4, dtype=torch.bool).cuda(0)

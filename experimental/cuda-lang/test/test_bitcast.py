@@ -70,7 +70,7 @@ def test_bitcast_pointer_vector(mspace, fail):
 
     @cl.kernel
     def kernel(out):
-        v = out.get_base_pointer().load(count=count)
+        v = out.pointer().load(count=count)
         i = v.reinterpret_as_scalar(dst_dtype)
         p = cl.bitcast(i, cl.pointer_dtype(cl.float32, mspace))
         i = cl.bitcast(p, dst_dtype)
@@ -112,7 +112,7 @@ def test_bitcast_pointer_float(mspace, float_dtype):
 def test_bitcast_between_pointers():
     @cl.kernel
     def kernel(out):
-        p1 = cl.shared_array(1, cl.int64).get_base_pointer()
+        p1 = cl.shared_array(1, cl.int64).pointer()
         p1.store(0)
         p2 = cl.bitcast(p1, cl.pointer_dtype(cl.uint16, cl.MemorySpace.SHARED))
         p2.store(0xBEEF)
@@ -192,9 +192,9 @@ def test_bitcast_from_bool():
 def test_bitcast_vector_elementwise():
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=4)
+        v = inp.pointer().load(count=4)
         r = cl.bitcast(v, cl.float32)
-        out.get_base_pointer().store(r)
+        out.pointer().store(r)
 
     values = torch.tensor([1.5, -2.25, 3.75, 0.5], dtype=torch.float32)
     inp = values.view(torch.int32).cuda(0)
@@ -207,7 +207,7 @@ def test_bitcast_elementwise_width_mismatch_errors():
 
     @cl.kernel
     def kernel(inp, out):
-        v = inp.get_base_pointer().load(count=2)
+        v = inp.pointer().load(count=2)
         out[0] = cl.bitcast(v, cl.int64)[0]
 
     match = "Vector element and target dtype must have the same bitwidth"

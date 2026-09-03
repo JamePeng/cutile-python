@@ -21,8 +21,10 @@ def test_symbolic_pointer():
 
     def k():
         with cl.local_array(1, cl.int32) as arr:
-            ptr = arr.get_base_pointer()
-            cl.static_eval(checks(ptr))
+            base = arr.pointer()
+            element = arr.pointer(0)
+            cl.static_eval(checks(base))
+            cl.static_eval(checks(element))
 
     compile_kernel(k)
 
@@ -50,7 +52,7 @@ def test_symbolic_vector():
 
     def k():
         with cl.local_array(4, cl.int32) as arr:
-            vector = arr.get_element_pointer(0).load(count=4)
+            vector = arr.pointer(0).load(count=4)
             cl.static_eval(checks(vector))
 
     compile_kernel(k)

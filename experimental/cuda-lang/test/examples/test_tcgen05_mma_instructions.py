@@ -91,7 +91,7 @@ def make_tcgen05_mma_kernel(
                 scale_b_smem[tid] = cl.uint32(0x48484848)
 
         if warp == 0 and cl.elect_sync():
-            cl.mbarrier_initialize(mma_done.get_base_pointer(), 1)
+            cl.mbarrier_initialize(mma_done.pointer(), 1)
             cl.fence(
                 cl.MemoryOrder.RELEASE,
                 cl.MemoryScope.CLUSTER,
@@ -101,7 +101,7 @@ def make_tcgen05_mma_kernel(
         cl.barrier_sync_block()
 
         if warp == MMA_WARP:
-            cl.tcgen05_allocate(tmem_storage.get_base_pointer(), TMEM_COLUMNS)
+            cl.tcgen05_allocate(tmem_storage.pointer(), TMEM_COLUMNS)
 
         cl.barrier_sync_block()
 
@@ -254,11 +254,11 @@ def make_tcgen05_mma_kernel(
                     sparse_metadata=sparse_metadata,
                 )
 
-            cl.tcgen05_commit(mma_done.get_base_pointer())
+            cl.tcgen05_commit(mma_done.pointer())
 
         if warp < OUTPUT_WARPS:
             if warp == 0:
-                cl.mbarrier_wait_parity(mma_done.get_base_pointer(), 0)
+                cl.mbarrier_wait_parity(mma_done.pointer(), 0)
 
             cl.barrier_sync_block(
                 number_of_threads=OUTPUT_WARPS * WARP_SIZE,

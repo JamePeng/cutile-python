@@ -12,12 +12,12 @@ def test_vector_saxpy(vector_length):
 
     def load_vector_aligned(array, index):
         align = vector_length * cl.static_eval(array.dtype.bitwidth) // 8
-        ep = array.get_element_pointer(index)
+        ep = array.pointer(index)
         return ep.load(count=vector_length, alignment=align)
 
     def store_vector_aligned(array, index, value):
         align = vector_length * cl.static_eval(array.dtype.bitwidth) // 8
-        ep = array.get_element_pointer(index)
+        ep = array.pointer(index)
         ep.store(value, alignment=align)
 
     @cl.kernel

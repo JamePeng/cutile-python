@@ -56,7 +56,7 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
         dtype=cl.uint8,
     )
     s_ThreadBase = cl.reinterpret_pointer_as_array(
-        s_Hist.get_element_pointer((threadPos,)),
+        s_Hist.pointer((threadPos,)),
         cl.uint8,
         1,
     )
@@ -77,7 +77,7 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
 
     if tx < HISTOGRAM64_BIN_COUNT:
         s_HistBase = cl.reinterpret_pointer_as_array(
-            s_Hist.get_element_pointer((tx * HISTOGRAM64_THREADBLOCK_SIZE,)),
+            s_Hist.pointer((tx * HISTOGRAM64_THREADBLOCK_SIZE,)),
             cl.uint8,
             1,
         )

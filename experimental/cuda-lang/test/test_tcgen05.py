@@ -41,7 +41,7 @@ SM100_TARGET = {"gpu_name": "sm_100a", "arch": "compute_100a"}
 def test_commit(mc_mask, cta_group, expect):
     @cl.kernel
     def kernel():
-        mbar = cl.shared_array(1, cl.mbarrier).get_base_pointer()
+        mbar = cl.shared_array(1, cl.mbarrier).pointer()
         cl.tcgen05_commit(mbar, multicast_mask=mc_mask, cta_group=cta_group)
 
     compile_kernel(
@@ -67,7 +67,7 @@ def test_commit(mc_mask, cta_group, expect):
 def test_alloc(cta_group, expect):
     @cl.kernel
     def kernel():
-        p3 = cl.shared_array(1, cl.uint32).get_base_pointer()
+        p3 = cl.shared_array(1, cl.uint32).pointer()
         cl.tcgen05_allocate(p3, 5, cta_group=cta_group)
 
     compile_kernel(kernel, assert_in_ptx=expect, **SM100_TARGET)
@@ -76,7 +76,7 @@ def test_alloc(cta_group, expect):
 def test_dealloc_requires_tensor_pointer():
     @cl.kernel
     def kernel():
-        p3 = cl.shared_array(1, cl.uint32).get_base_pointer()
+        p3 = cl.shared_array(1, cl.uint32).pointer()
         cl.tcgen05_deallocate(p3, 5)
 
     with pytest.raises(
@@ -105,7 +105,7 @@ def test_dealloc(cta_group, expect):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128, cta_group=cta_group)
+        cl.tcgen05_allocate(smem.pointer(), 128, cta_group=cta_group)
         tmem_ptr = smem[0]
         cl.tcgen05_deallocate(tmem_ptr, 128, cta_group=cta_group)
 
@@ -195,7 +195,7 @@ def test_tmem_offset_requires_tensor_pointer():
     @cl.kernel
     def kernel():
         smem = cl.shared_array(1, cl.int8)
-        cl.tcgen05_tmem_offset(smem.get_base_pointer(), lane_offset=32)
+        cl.tcgen05_tmem_offset(smem.pointer(), lane_offset=32)
 
     compile_kernel(
         kernel,
@@ -244,8 +244,8 @@ def test_store_default_int32(shape, num, unpack):
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
         storage = cl.shared_array(256, cl.int32)
-        v = storage.get_element_pointer(0).load(count=register_count)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        v = storage.pointer(0).load(count=register_count)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         cl.tcgen05_store(shape, smem[0], v, unpack=unpack, offset=offset)
         cl.tcgen05_wait_store()
         cl.tcgen05_deallocate(smem[0], 128)
@@ -262,7 +262,7 @@ def test_store_accepts_typed_value():
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         cl.tcgen05_store(
             cl.Tcgen05LoadStoreShape.SHAPE_16X64B,
             smem[0],
@@ -303,7 +303,7 @@ def test_store_rejects_pointer_value():
         cl.tcgen05_store(
             cl.Tcgen05LoadStoreShape.SHAPE_16X64B,
             smem[0],
-            smem.get_base_pointer(),
+            smem.pointer(),
         )
 
     compile_kernel(
@@ -323,7 +323,7 @@ def test_store_rejects_partial_register(length):
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
         storage = cl.shared_array(256, cl.float16)
-        value = storage.get_element_pointer(0).load(count=length)
+        value = storage.pointer(0).load(count=length)
         cl.tcgen05_store(cl.Tcgen05LoadStoreShape.SHAPE_16X64B, smem[0], value)
 
     compile_kernel(
@@ -386,7 +386,7 @@ def test_copy(shape, cta_group, multicast, source_format):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128, cta_group=allocation_group)
+        cl.tcgen05_allocate(smem.pointer(), 128, cta_group=allocation_group)
         tmem_ptr = smem[0]
         descriptor = cl.uint64(0xDEADBEEF)
         cl.tcgen05_copy(
@@ -466,7 +466,7 @@ def test_load_default_int32(shape, num, pack, offset):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         tmem_ptr = smem[0]
         cl.tcgen05_load(
             shape,
@@ -529,7 +529,7 @@ def test_load_store_with_dtype(shape, dtype):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         tmem_ptr = smem[0]
         values = cl.tcgen05_load(
             shape,
@@ -564,7 +564,7 @@ def test_load_dtype_element_count(shape, dtype, num):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         tmem_ptr = smem[0]
         values = cl.tcgen05_load(
             shape,
@@ -597,7 +597,7 @@ def test_load_packed_16_bit_dtype(shape):
     def kernel():
         tmem_dtype = cl.pointer_dtype(cl.int8, cl.MemorySpace.TENSOR)
         smem = cl.shared_array(1, tmem_dtype, alignment=4)
-        cl.tcgen05_allocate(smem.get_base_pointer(), 128)
+        cl.tcgen05_allocate(smem.pointer(), 128)
         tmem_ptr = smem[0]
         values = cl.tcgen05_load(
             shape,
@@ -971,7 +971,7 @@ def test_shift_bad_group():
 
 def test_shift_bad_address_space_shared():
     def kernel():
-        ptr = cl.shared_array(1, cl.int8).get_base_pointer()
+        ptr = cl.shared_array(1, cl.int8).pointer()
         cl.tcgen05_shift_down(ptr, 0xDEADBEEF)
 
     compile_kernel(kernel, raises=pytest.raises(Exception))
@@ -981,7 +981,7 @@ def test_shift_bad_address_space_local():
 
     def kernel():
         with cl.local_array(1, cl.int8) as arr:
-            ptr = arr.get_base_pointer()
+            ptr = arr.pointer()
             cl.tcgen05_shift_down(ptr, 0xDEADBEEF)
 
     compile_kernel(kernel, raises=pytest.raises(Exception))
@@ -989,7 +989,7 @@ def test_shift_bad_address_space_local():
 
 def test_shift_bad_address_space_global():
     def kernel(arr):
-        ptr = arr.get_base_pointer()
+        ptr = arr.pointer()
         cl.tcgen05_shift_down(ptr, 0xDEADBEEF)
 
     compile_kernel(

@@ -959,7 +959,7 @@ def _initialize_tmem_state(
     cta_group = cl.CTAGroup.CTA_2 if uses_cluster else cl.CTAGroup.CTA_1
     if warp_index == 0:
         cl.tcgen05_allocate(
-            state.storage.get_base_pointer(),
+            state.storage.pointer(),
             columns,
             cta_group=cta_group,
         )
@@ -985,7 +985,7 @@ def _finalize_tmem_state(
     cl.barrier_sync_block()
     if warp_index == 0:
         if uses_cluster:
-            dealloc_barrier = barrier_arena.get_element_pointer(
+            dealloc_barrier = barrier_arena.pointer(
                 dealloc_barrier_offset
             )
             peer_rank = block_in_cluster_rank() ^ 1
@@ -1015,7 +1015,7 @@ def _initialize_barrier_runs(
             for begin, end, arrive_count in cl.static_iter(initialization_runs):
                 for offset in range(begin + lane, end, lane_count):
                     cl.mbarrier_initialize(
-                        barrier_arena.get_element_pointer(offset),
+                        barrier_arena.pointer(offset),
                         arrive_count,
                     )
             return
@@ -1041,7 +1041,7 @@ def _initialize_barrier_runs(
                     if offset < end:
                         arrive_count = run_arrive_count
             cl.mbarrier_initialize(
-                barrier_arena.get_element_pointer(offset),
+                barrier_arena.pointer(offset),
                 arrive_count,
             )
 
@@ -1155,7 +1155,7 @@ class DeviceSmemAllocator:
 
     def get(self, name: str, dtype: object, shape: tuple[int, ...] = (1,)):
         return cl.reinterpret_pointer_as_array(
-            self.base.get_base_pointer() + self.offset_of(name),
+            self.base.pointer() + self.offset_of(name),
             dtype,
             shape,
         )
@@ -1172,7 +1172,7 @@ class DeviceBarrierAllocator:
         return _named_device_offset(self.allocations, name)
 
     def get_ptr(self, name: str):
-        return self.base.get_element_pointer(self.offset_of(name))
+        return self.base.pointer(self.offset_of(name))
 
 
 @dataclass(frozen=True)
@@ -1232,7 +1232,7 @@ class DeviceTaskManager:
         cluster_smem_base = None
         if self.barrier_uses_cluster and smem_base is not None:
             cluster_smem_address = cl.shfl_sync(
-                cl.bitcast(smem_base.get_base_pointer(), cl.uint32), 0
+                cl.bitcast(smem_base.pointer(), cl.uint32), 0
             )
             cluster_smem_pointer = cl.bitcast(
                 cluster_smem_address,

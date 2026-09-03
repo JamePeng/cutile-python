@@ -270,7 +270,7 @@ def _query_next_work_tile(
             CLC_BYTES,
             scope=cl.MbarrierScope.BLOCK,
         )
-        cl.cluster_launch_control_try_cancel(clc_token.get_base_pointer(), clc_full)
+        cl.cluster_launch_control_try_cancel(clc_token.pointer(), clc_full)
     _wait_mbarrier(clc_full, clc_full_phase)
 
     token = clc_token[0]
@@ -402,9 +402,9 @@ def _store_output_global(
 ):
     """Guarded tail-row store to a fixed or flattened output view."""
     if variable_length:
-        dst = output.get_element_pointer((column, head, query_base + query_row))
+        dst = output.pointer((column, head, query_base + query_row))
     else:
-        dst = output.get_element_pointer((column, head, query_row, batch))
+        dst = output.pointer((column, head, query_row, batch))
 
     if output_kind == ELEMENT_E4M3:
         dst_u8 = cl.bitcast(
@@ -858,40 +858,40 @@ def _fmha_prefill_kernel(
     # every physical barrier exactly once.
     if warp == SOFTMAX0_WARPS[0]:
         if lane < Q_STAGES:
-            cl.mbarrier_initialize(q_full.get_element_pointer(lane), 1)
-            cl.mbarrier_initialize(q_empty.get_element_pointer(lane), 1)
+            cl.mbarrier_initialize(q_full.pointer(lane), 1)
+            cl.mbarrier_initialize(q_empty.pointer(lane), 1)
         if lane < KV_STAGES:
-            cl.mbarrier_initialize(kv_full.get_element_pointer(lane), 1)
-            cl.mbarrier_initialize(kv_empty.get_element_pointer(lane), 1)
+            cl.mbarrier_initialize(kv_full.pointer(lane), 1)
+            cl.mbarrier_initialize(kv_empty.pointer(lane), 1)
         for qid in cl.static_iter(range(2)):
             if lane < 1:
-                cl.mbarrier_initialize(score_full.get_element_pointer(qid), 1)
-                cl.mbarrier_initialize(score_empty.get_element_pointer(qid), 128)
-                cl.mbarrier_initialize(stats_full.get_element_pointer(qid), 128)
-                cl.mbarrier_initialize(stats_empty.get_element_pointer(qid), 128)
+                cl.mbarrier_initialize(score_full.pointer(qid), 1)
+                cl.mbarrier_initialize(score_empty.pointer(qid), 128)
+                cl.mbarrier_initialize(stats_full.pointer(qid), 128)
+                cl.mbarrier_initialize(stats_empty.pointer(qid), 128)
             if lane < P_READY_STAGES:
                 cl.mbarrier_initialize(
-                    p_full.get_element_pointer((qid, lane)), 128
+                    p_full.pointer((qid, lane)), 128
                 )
                 cl.mbarrier_initialize(
-                    p_empty.get_element_pointer((qid, lane)), 1
+                    p_empty.pointer((qid, lane)), 1
                 )
         if lane < O_STAGES:
-            cl.mbarrier_initialize(o_full.get_element_pointer(lane), 1)
-            cl.mbarrier_initialize(o_empty.get_element_pointer(lane), 128)
-            cl.mbarrier_initialize(epi_full.get_element_pointer(lane), 128)
-            cl.mbarrier_initialize(epi_empty.get_element_pointer(lane), WARP_SIZE)
+            cl.mbarrier_initialize(o_full.pointer(lane), 1)
+            cl.mbarrier_initialize(o_empty.pointer(lane), 128)
+            cl.mbarrier_initialize(epi_full.pointer(lane), 128)
+            cl.mbarrier_initialize(epi_empty.pointer(lane), WARP_SIZE)
         if lane < 1:
-            cl.mbarrier_initialize(clc_bar.get_element_pointer(lane), 1)
+            cl.mbarrier_initialize(clc_bar.pointer(lane), 1)
             cl.mbarrier_initialize(
-                clc_empty.get_element_pointer(lane), WARP_SIZE
+                clc_empty.pointer(lane), WARP_SIZE
             )
 
     # Non-pipeline barriers remain single-thread initialized.
     if warp == SCHEDULER_WARP and cl.elect_sync():
-        cl.mbarrier_initialize(tmem_dealloc.get_base_pointer(), 384)
-        cl.mbarrier_initialize(sched_full.get_base_pointer(), 1)
-        cl.mbarrier_initialize(sched_empty.get_base_pointer(), 480)
+        cl.mbarrier_initialize(tmem_dealloc.pointer(), 384)
+        cl.mbarrier_initialize(sched_full.pointer(), 1)
+        cl.mbarrier_initialize(sched_empty.pointer(), 480)
     cl.fence(
         cl.MemoryOrder.RELEASE,
         cl.MemoryScope.CLUSTER,
@@ -915,8 +915,8 @@ def _fmha_prefill_kernel(
             clc_empty_phase,
         ) = _query_next_work_tile(
             clc_token,
-            clc_bar.get_base_pointer(),
-            clc_empty.get_base_pointer(),
+            clc_bar.pointer(),
+            clc_empty.pointer(),
             clc_full_phase,
             clc_empty_phase,
             scheduler_elect_one,
@@ -932,7 +932,7 @@ def _fmha_prefill_kernel(
             sched_valid[0] = cl.int32(has_more)
             _fence_acq_rel_cta()
             cl.mbarrier_arrive(
-                sched_full.get_base_pointer(), scope=cl.MbarrierScope.BLOCK
+                sched_full.pointer(), scope=cl.MbarrierScope.BLOCK
             )
 
         while has_more:
@@ -945,8 +945,8 @@ def _fmha_prefill_kernel(
                 clc_empty_phase,
             ) = _query_next_work_tile(
                 clc_token,
-                clc_bar.get_base_pointer(),
-                clc_empty.get_base_pointer(),
+                clc_bar.pointer(),
+                clc_empty.pointer(),
                 clc_full_phase,
                 clc_empty_phase,
                 scheduler_elect_one,
@@ -956,7 +956,7 @@ def _fmha_prefill_kernel(
                 causal_scheduler,
             )
             _wait_mbarrier(
-                sched_empty.get_base_pointer(),
+                sched_empty.pointer(),
                 sched_empty_phase,
             )
             if scheduler_elect_one:
@@ -966,7 +966,7 @@ def _fmha_prefill_kernel(
                 sched_valid[0] = cl.int32(has_more)
                 _fence_acq_rel_cta()
                 cl.mbarrier_arrive(
-                    sched_full.get_base_pointer(), scope=cl.MbarrierScope.BLOCK
+                    sched_full.pointer(), scope=cl.MbarrierScope.BLOCK
                 )
             sched_empty_phase ^= 1
 
@@ -1007,8 +1007,8 @@ def _fmha_prefill_kernel(
                 seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                     sched_tile,
                     sched_valid,
-                    sched_full.get_base_pointer(),
-                    sched_empty.get_base_pointer(),
+                    sched_full.pointer(),
+                    sched_empty.pointer(),
                     sched_phase,
                 )
                 continue
@@ -1026,10 +1026,10 @@ def _fmha_prefill_kernel(
             first_key_offset = task_trip_start * MMA_N
 
             # Q0
-            _wait_mbarrier(q_empty.get_element_pointer(0), q_phase)
+            _wait_mbarrier(q_empty.pointer(0), q_phase)
             if cl.elect_sync():
                 cl.mbarrier_arrive_expect_transaction(
-                    q_full.get_element_pointer(0),
+                    q_full.pointer(0),
                     input_tile_bytes,
                     scope=cl.MbarrierScope.BLOCK,
                 )
@@ -1049,17 +1049,17 @@ def _fmha_prefill_kernel(
                     cl.copy_async_bulk_tensor_global_to_shared(
                         q_tmap,
                         q_coordinate,
-                        q_smem.get_element_pointer(
+                        q_smem.pointer(
                             (0, part * MMA_M * input_tma_granularity)
                         ),
-                        q_full.get_element_pointer(0),
+                        q_full.pointer(0),
                     )
 
             # K0
-            _wait_mbarrier(kv_empty.get_element_pointer(kv_index), kv_empty_phase)
+            _wait_mbarrier(kv_empty.pointer(kv_index), kv_empty_phase)
             if cl.elect_sync():
                 cl.mbarrier_arrive_expect_transaction(
-                    kv_full.get_element_pointer(kv_index),
+                    kv_full.pointer(kv_index),
                     input_tile_bytes,
                     scope=cl.MbarrierScope.BLOCK,
                 )
@@ -1080,7 +1080,7 @@ def _fmha_prefill_kernel(
                         k_tmap,
                         k_coordinate,
                         cl.map_shared_to_cluster(
-                            kv_smem.get_element_pointer(
+                            kv_smem.pointer(
                                 (
                                     kv_index,
                                     part * MMA_N * input_tma_granularity,
@@ -1088,7 +1088,7 @@ def _fmha_prefill_kernel(
                             ),
                             0,
                         ),
-                        kv_full.get_element_pointer(kv_index),
+                        kv_full.pointer(kv_index),
                         l2_cache_hint=TMA_KV_L2_CACHE_HINT,
                         cta_group=cl.CTAGroup.CTA_1,
                     )
@@ -1098,10 +1098,10 @@ def _fmha_prefill_kernel(
                 kv_empty_phase ^= 1
 
             # Q1
-            _wait_mbarrier(q_empty.get_element_pointer(1), q_phase)
+            _wait_mbarrier(q_empty.pointer(1), q_phase)
             if cl.elect_sync():
                 cl.mbarrier_arrive_expect_transaction(
-                    q_full.get_element_pointer(1),
+                    q_full.pointer(1),
                     input_tile_bytes,
                     scope=cl.MbarrierScope.BLOCK,
                 )
@@ -1121,17 +1121,17 @@ def _fmha_prefill_kernel(
                     cl.copy_async_bulk_tensor_global_to_shared(
                         q_tmap,
                         q_coordinate,
-                        q_smem.get_element_pointer(
+                        q_smem.pointer(
                             (1, part * MMA_M * input_tma_granularity)
                         ),
-                        q_full.get_element_pointer(1),
+                        q_full.pointer(1),
                     )
 
             # V0
-            _wait_mbarrier(kv_empty.get_element_pointer(kv_index), kv_empty_phase)
+            _wait_mbarrier(kv_empty.pointer(kv_index), kv_empty_phase)
             if cl.elect_sync():
                 cl.mbarrier_arrive_expect_transaction(
-                    kv_full.get_element_pointer(kv_index),
+                    kv_full.pointer(kv_index),
                     input_tile_bytes,
                     scope=cl.MbarrierScope.BLOCK,
                 )
@@ -1152,7 +1152,7 @@ def _fmha_prefill_kernel(
                         v_tmap,
                         v_coordinate,
                         cl.map_shared_to_cluster(
-                            kv_smem.get_element_pointer(
+                            kv_smem.pointer(
                                 (
                                     kv_index,
                                     part * MMA_N * input_tma_granularity,
@@ -1160,7 +1160,7 @@ def _fmha_prefill_kernel(
                             ),
                             0,
                         ),
-                        kv_full.get_element_pointer(kv_index),
+                        kv_full.pointer(kv_index),
                         l2_cache_hint=TMA_KV_L2_CACHE_HINT,
                         cta_group=cl.CTAGroup.CTA_1,
                     )
@@ -1172,10 +1172,10 @@ def _fmha_prefill_kernel(
             load_trip_count = cl.int32(task_trip_count)
             for key_ordinal in range(1, load_trip_count):
                 key_offset = (task_trip_start + key_ordinal) * MMA_N
-                _wait_mbarrier(kv_empty.get_element_pointer(kv_index), kv_empty_phase)
+                _wait_mbarrier(kv_empty.pointer(kv_index), kv_empty_phase)
                 if cl.elect_sync():
                     cl.mbarrier_arrive_expect_transaction(
-                        kv_full.get_element_pointer(kv_index),
+                        kv_full.pointer(kv_index),
                         input_tile_bytes,
                         scope=cl.MbarrierScope.BLOCK,
                     )
@@ -1196,7 +1196,7 @@ def _fmha_prefill_kernel(
                             k_tmap,
                             k_coordinate,
                             cl.map_shared_to_cluster(
-                                kv_smem.get_element_pointer(
+                                kv_smem.pointer(
                                     (
                                         kv_index,
                                         part * MMA_N * input_tma_granularity,
@@ -1204,7 +1204,7 @@ def _fmha_prefill_kernel(
                                 ),
                                 0,
                             ),
-                            kv_full.get_element_pointer(kv_index),
+                            kv_full.pointer(kv_index),
                             l2_cache_hint=TMA_KV_L2_CACHE_HINT,
                             cta_group=cl.CTAGroup.CTA_1,
                         )
@@ -1213,10 +1213,10 @@ def _fmha_prefill_kernel(
                     kv_index = 0
                     kv_empty_phase ^= 1
 
-                _wait_mbarrier(kv_empty.get_element_pointer(kv_index), kv_empty_phase)
+                _wait_mbarrier(kv_empty.pointer(kv_index), kv_empty_phase)
                 if cl.elect_sync():
                     cl.mbarrier_arrive_expect_transaction(
-                        kv_full.get_element_pointer(kv_index),
+                        kv_full.pointer(kv_index),
                         input_tile_bytes,
                         scope=cl.MbarrierScope.BLOCK,
                     )
@@ -1237,7 +1237,7 @@ def _fmha_prefill_kernel(
                             v_tmap,
                             v_coordinate,
                             cl.map_shared_to_cluster(
-                                kv_smem.get_element_pointer(
+                                kv_smem.pointer(
                                     (
                                         kv_index,
                                         part * MMA_N * input_tma_granularity,
@@ -1245,7 +1245,7 @@ def _fmha_prefill_kernel(
                                 ),
                                 0,
                             ),
-                            kv_full.get_element_pointer(kv_index),
+                            kv_full.pointer(kv_index),
                             l2_cache_hint=TMA_KV_L2_CACHE_HINT,
                             cta_group=cl.CTAGroup.CTA_1,
                         )
@@ -1257,8 +1257,8 @@ def _fmha_prefill_kernel(
             seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                 sched_tile,
                 sched_valid,
-                sched_full.get_base_pointer(),
-                sched_empty.get_base_pointer(),
+                sched_full.pointer(),
+                sched_empty.pointer(),
                 sched_phase,
             )
             data_task += 1
@@ -1267,7 +1267,7 @@ def _fmha_prefill_kernel(
     elif warp == MMA_WARP:
         cl.setmaxregister_decrease(32)
         cl.tcgen05_allocate(
-            tmem_storage.get_base_pointer(),
+            tmem_storage.pointer(),
             TMEM_COLUMNS,
             cta_group=cl.CTAGroup.CTA_1,
         )
@@ -1329,8 +1329,8 @@ def _fmha_prefill_kernel(
                 seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                     sched_tile,
                     sched_valid,
-                    sched_full.get_base_pointer(),
-                    sched_empty.get_base_pointer(),
+                    sched_full.pointer(),
+                    sched_empty.pointer(),
                     sched_phase,
                 )
                 continue
@@ -1344,16 +1344,16 @@ def _fmha_prefill_kernel(
             )
             q_phase = data_task & 1
             for qid in cl.static_iter(range(2)):
-                _wait_mbarrier(q_full.get_element_pointer(qid), q_phase)
+                _wait_mbarrier(q_full.pointer(qid), q_phase)
             q_desc0 = _qk_descriptor(
-                q_smem.get_element_pointer((0, 0)),
+                q_smem.pointer((0, 0)),
                 head_dim,
                 input_bits,
                 input_tma_slices,
                 input_swizzle,
             )
             q_desc1 = _qk_descriptor(
-                q_smem.get_element_pointer((1, 0)),
+                q_smem.pointer((1, 0)),
                 head_dim,
                 input_bits,
                 input_tma_slices,
@@ -1364,9 +1364,9 @@ def _fmha_prefill_kernel(
             # released. The acquire mbarrier wait orders the TMA async writes
             # before the tcgen MMA in the TMA-to-UMMA pipeline.
             k_stage = kv_index
-            _wait_mbarrier(kv_full.get_element_pointer(k_stage), kv_full_phase)
+            _wait_mbarrier(kv_full.pointer(k_stage), kv_full_phase)
             k_desc = _qk_descriptor(
-                kv_smem.get_element_pointer((k_stage, 0)),
+                kv_smem.pointer((k_stage, 0)),
                 head_dim,
                 input_bits,
                 input_tma_slices,
@@ -1374,7 +1374,7 @@ def _fmha_prefill_kernel(
             )
             initial_score_event = score_cursor
             _wait_mbarrier(
-                score_empty.get_element_pointer(0),
+                score_empty.pointer(0),
                 1 ^ (initial_score_event & 1),
             )
             _issue_qk(
@@ -1383,7 +1383,7 @@ def _fmha_prefill_kernel(
                 q_desc0,
                 k_desc,
                 qk_instruction,
-                score_full.get_element_pointer(0),
+                score_full.pointer(0),
                 qk_phases,
                 k_step,
                 input_bits,
@@ -1393,7 +1393,7 @@ def _fmha_prefill_kernel(
                 mma_elect_one,
             )
             _wait_mbarrier(
-                score_empty.get_element_pointer(1),
+                score_empty.pointer(1),
                 1 ^ (initial_score_event & 1),
             )
             _issue_qk(
@@ -1402,7 +1402,7 @@ def _fmha_prefill_kernel(
                 q_desc1,
                 k_desc,
                 qk_instruction,
-                score_full.get_element_pointer(1),
+                score_full.pointer(1),
                 qk_phases,
                 k_step,
                 input_bits,
@@ -1413,7 +1413,7 @@ def _fmha_prefill_kernel(
             )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    kv_empty.get_element_pointer(k_stage),
+                    kv_empty.pointer(k_stage),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
             kv_index += 1
@@ -1424,10 +1424,10 @@ def _fmha_prefill_kernel(
             # PV0(0) consumes P0 but retains V0 for the delayed PV1(0).
             previous_v_stage = kv_index
             _wait_mbarrier(
-                kv_full.get_element_pointer(previous_v_stage), kv_full_phase
+                kv_full.pointer(previous_v_stage), kv_full_phase
             )
             previous_v_desc = _pv_descriptor(
-                kv_smem.get_element_pointer((previous_v_stage, 0)),
+                kv_smem.pointer((previous_v_stage, 0)),
                 head_dim,
                 input_bits,
                 input_tma_slices,
@@ -1440,12 +1440,12 @@ def _fmha_prefill_kernel(
                 _tmem_pointer(tmem_base, 0, TMEM_P0),
                 previous_v_desc,
                 pv_instruction,
-                p_full.get_element_pointer((0, 0)),
-                p_full.get_element_pointer((0, 1)),
-                p_empty.get_element_pointer((0, 0)),
-                p_empty.get_element_pointer((0, 1)),
-                o_full.get_element_pointer(0),
-                o_empty.get_element_pointer(0),
+                p_full.pointer((0, 0)),
+                p_full.pointer((0, 1)),
+                p_empty.pointer((0, 0)),
+                p_empty.pointer((0, 1)),
+                o_full.pointer(0),
+                o_empty.pointer(0),
                 pv_cursor,
                 cl.int32(0),
                 pv_phases_per_ready,
@@ -1466,10 +1466,10 @@ def _fmha_prefill_kernel(
                 # QK0(i) starts the next score tile before PV1(i-1).
                 k_stage = kv_index
                 _wait_mbarrier(
-                    kv_full.get_element_pointer(k_stage), kv_full_phase
+                    kv_full.pointer(k_stage), kv_full_phase
                 )
                 k_desc = _qk_descriptor(
-                    kv_smem.get_element_pointer((k_stage, 0)),
+                    kv_smem.pointer((k_stage, 0)),
                     head_dim,
                     input_bits,
                     input_tma_slices,
@@ -1480,7 +1480,7 @@ def _fmha_prefill_kernel(
                     and key_ordinal == task_trip_count - 1
                 )
                 _wait_mbarrier(
-                    score_empty.get_element_pointer(0),
+                    score_empty.pointer(0),
                     1 ^ (score_event & 1),
                 )
                 _issue_qk(
@@ -1489,7 +1489,7 @@ def _fmha_prefill_kernel(
                     q_desc0,
                     k_desc,
                     qk_instruction,
-                    score_full.get_element_pointer(0),
+                    score_full.pointer(0),
                     qk_phases,
                     k_step,
                     input_bits,
@@ -1507,12 +1507,12 @@ def _fmha_prefill_kernel(
                     _tmem_pointer(tmem_base, 0, TMEM_P1),
                     previous_v_desc,
                     pv_instruction,
-                    p_full.get_element_pointer((1, 0)),
-                    p_full.get_element_pointer((1, 1)),
-                    p_empty.get_element_pointer((1, 0)),
-                    p_empty.get_element_pointer((1, 1)),
-                    o_full.get_element_pointer(1),
-                    o_empty.get_element_pointer(1),
+                    p_full.pointer((1, 0)),
+                    p_full.pointer((1, 1)),
+                    p_empty.pointer((1, 0)),
+                    p_empty.pointer((1, 1)),
+                    o_full.pointer(1),
+                    o_empty.pointer(1),
                     previous_pv_event,
                     key_ordinal - 1,
                     pv_phases_per_ready,
@@ -1525,13 +1525,13 @@ def _fmha_prefill_kernel(
                 )
                 if cl.elect_sync():
                     cl.tcgen05_commit(
-                        kv_empty.get_element_pointer(previous_v_stage),
+                        kv_empty.pointer(previous_v_stage),
                         cta_group=cl.CTAGroup.CTA_1,
                     )
 
                 # QK1(i) reuses Ki, after P1 has vacated the S1/P1 alias.
                 _wait_mbarrier(
-                    score_empty.get_element_pointer(1),
+                    score_empty.pointer(1),
                     1 ^ (score_event & 1),
                 )
                 _issue_qk(
@@ -1540,7 +1540,7 @@ def _fmha_prefill_kernel(
                     q_desc1,
                     k_desc,
                     qk_instruction,
-                    score_full.get_element_pointer(1),
+                    score_full.pointer(1),
                     qk_phases,
                     k_step,
                     input_bits,
@@ -1551,7 +1551,7 @@ def _fmha_prefill_kernel(
                 )
                 if cl.elect_sync():
                     cl.tcgen05_commit(
-                        kv_empty.get_element_pointer(k_stage),
+                        kv_empty.pointer(k_stage),
                         cta_group=cl.CTAGroup.CTA_1,
                     )
                 kv_index += 1
@@ -1562,10 +1562,10 @@ def _fmha_prefill_kernel(
                 # PV0(i) retains Vi for PV1(i) in the next iteration/final.
                 previous_v_stage = kv_index
                 _wait_mbarrier(
-                    kv_full.get_element_pointer(previous_v_stage), kv_full_phase
+                    kv_full.pointer(previous_v_stage), kv_full_phase
                 )
                 previous_v_desc = _pv_descriptor(
-                    kv_smem.get_element_pointer((previous_v_stage, 0)),
+                    kv_smem.pointer((previous_v_stage, 0)),
                     head_dim,
                     input_bits,
                     input_tma_slices,
@@ -1578,12 +1578,12 @@ def _fmha_prefill_kernel(
                     _tmem_pointer(tmem_base, 0, TMEM_P0),
                     previous_v_desc,
                     pv_instruction,
-                    p_full.get_element_pointer((0, 0)),
-                    p_full.get_element_pointer((0, 1)),
-                    p_empty.get_element_pointer((0, 0)),
-                    p_empty.get_element_pointer((0, 1)),
-                    o_full.get_element_pointer(0),
-                    o_empty.get_element_pointer(0),
+                    p_full.pointer((0, 0)),
+                    p_full.pointer((0, 1)),
+                    p_empty.pointer((0, 0)),
+                    p_empty.pointer((0, 1)),
+                    o_full.pointer(0),
+                    o_empty.pointer(0),
                     pv_cursor + key_ordinal,
                     key_ordinal,
                     pv_phases_per_ready,
@@ -1603,22 +1603,22 @@ def _fmha_prefill_kernel(
             # source overlap.  Q buffers are safe to recycle after all QKs.
             final_score_event = score_cursor + task_trip_count
             _wait_mbarrier(
-                score_empty.get_element_pointer(0),
+                score_empty.pointer(0),
                 1 ^ (final_score_event & 1),
             )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    q_empty.get_element_pointer(0),
+                    q_empty.pointer(0),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    q_empty.get_element_pointer(1),
+                    q_empty.pointer(1),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    score_full.get_element_pointer(0),
+                    score_full.pointer(0),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
 
@@ -1630,12 +1630,12 @@ def _fmha_prefill_kernel(
                 _tmem_pointer(tmem_base, 0, TMEM_P1),
                 previous_v_desc,
                 pv_instruction,
-                p_full.get_element_pointer((1, 0)),
-                p_full.get_element_pointer((1, 1)),
-                p_empty.get_element_pointer((1, 0)),
-                p_empty.get_element_pointer((1, 1)),
-                o_full.get_element_pointer(1),
-                o_empty.get_element_pointer(1),
+                p_full.pointer((1, 0)),
+                p_full.pointer((1, 1)),
+                p_empty.pointer((1, 0)),
+                p_empty.pointer((1, 1)),
+                o_full.pointer(1),
+                o_empty.pointer(1),
                 pv_cursor + final_key_ordinal,
                 final_key_ordinal,
                 pv_phases_per_ready,
@@ -1648,16 +1648,16 @@ def _fmha_prefill_kernel(
             )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    kv_empty.get_element_pointer(previous_v_stage),
+                    kv_empty.pointer(previous_v_stage),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
             _wait_mbarrier(
-                score_empty.get_element_pointer(1),
+                score_empty.pointer(1),
                 1 ^ (final_score_event & 1),
             )
             if cl.elect_sync():
                 cl.tcgen05_commit(
-                    score_full.get_element_pointer(1),
+                    score_full.pointer(1),
                     cta_group=cl.CTAGroup.CTA_1,
                 )
             score_cursor += task_trip_count + 1
@@ -1666,13 +1666,13 @@ def _fmha_prefill_kernel(
             seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                 sched_tile,
                 sched_valid,
-                sched_full.get_base_pointer(),
-                sched_empty.get_base_pointer(),
+                sched_full.pointer(),
+                sched_empty.pointer(),
                 sched_phase,
             )
             data_task += 1
 
-        _wait_mbarrier(tmem_dealloc.get_base_pointer(), 0)
+        _wait_mbarrier(tmem_dealloc.pointer(), 0)
         cl.tcgen05_deallocate(tmem_base, TMEM_COLUMNS, cta_group=cl.CTAGroup.CTA_1)
 
     # ------------------------------------------------------------ softmax 0/1
@@ -1727,8 +1727,8 @@ def _fmha_prefill_kernel(
                 seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                     sched_tile,
                     sched_valid,
-                    sched_full.get_base_pointer(),
-                    sched_empty.get_base_pointer(),
+                    sched_full.pointer(),
+                    sched_empty.pointer(),
                     sched_phase,
                 )
                 continue
@@ -1752,7 +1752,7 @@ def _fmha_prefill_kernel(
                 score_event = score_cursor
                 pv_event = pv_cursor
                 _wait_mbarrier(
-                    score_full.get_element_pointer(qid), score_event & 1
+                    score_full.pointer(qid), score_event & 1
                 )
                 row_tmem = _tmem_pointer(
                     tmem_base,
@@ -1769,20 +1769,20 @@ def _fmha_prefill_kernel(
                     # Q0's fully-invalid super-tile tail exchanges all pipeline
                     # tokens but leaves row statistics, P, and O unchanged.
                     _wait_mbarrier(
-                        stats_empty.get_element_pointer(qid),
+                        stats_empty.pointer(qid),
                         1 ^ (score_event & 1),
                     )
                     cl.mbarrier_arrive(
-                        stats_full.get_element_pointer(qid),
+                        stats_full.pointer(qid),
                         scope=cl.MbarrierScope.BLOCK,
                     )
                     for half in cl.static_iter(range(P_READY_STAGES)):
                         _wait_mbarrier(
-                            p_empty.get_element_pointer((qid, half)),
+                            p_empty.pointer((qid, half)),
                             1 ^ (pv_event & 1),
                         )
                         cl.mbarrier_arrive(
-                            p_full.get_element_pointer((qid, half)),
+                            p_full.pointer((qid, half)),
                             scope=cl.MbarrierScope.BLOCK,
                         )
                         if half == 0:
@@ -1790,7 +1790,7 @@ def _fmha_prefill_kernel(
                                 cl.barrier_arrive_block(256, SOFTMAX_SEQUENCE_0)
                                 cl.barrier_sync_block(256, SOFTMAX_SEQUENCE_1)
                     cl.mbarrier_arrive(
-                        score_empty.get_element_pointer(qid),
+                        score_empty.pointer(qid),
                         scope=cl.MbarrierScope.BLOCK,
                     )
                 else:
@@ -1862,7 +1862,7 @@ def _fmha_prefill_kernel(
                     # Publish correction alpha before P, exactly as the source
                     # stats->correction pipeline does.
                     _wait_mbarrier(
-                        stats_empty.get_element_pointer(qid),
+                        stats_empty.pointer(qid),
                         1 ^ (score_event & 1),
                     )
                     stats_vec = cl.Vector(
@@ -1879,7 +1879,7 @@ def _fmha_prefill_kernel(
                     # store is in flight. The second acquire and STTM wait are
                     # split into the initial FMA lookahead below.
                     _wait_mbarrier(
-                        p_empty.get_element_pointer((qid, 0)),
+                        p_empty.pointer((qid, 0)),
                         1 ^ (pv_event & 1),
                     )
 
@@ -1918,12 +1918,12 @@ def _fmha_prefill_kernel(
                             alignment=16,
                         ) as p_data_packed,
                     ):
-                        p_windows_ptr = p_windows.get_base_pointer()
+                        p_windows_ptr = p_windows.pointer()
                         p_fma_windows_ptr = (
-                            p_fma_windows.get_base_pointer()
+                            p_fma_windows.pointer()
                         )
                         p_data_packed_ptr = (
-                            p_data_packed.get_base_pointer()
+                            p_data_packed.pointer()
                         )
 
                         # Preserve the initial CUDA Lang lookahead:
@@ -1959,7 +1959,7 @@ def _fmha_prefill_kernel(
                             )
 
                         _wait_mbarrier(
-                            p_empty.get_element_pointer((qid, 1)),
+                            p_empty.pointer((qid, 1)),
                             1 ^ (pv_event & 1),
                         )
                         cl.tcgen05_wait_store()
@@ -1996,7 +1996,7 @@ def _fmha_prefill_kernel(
                             )
 
                         cl.mbarrier_arrive(
-                            stats_full.get_element_pointer(qid),
+                            stats_full.pointer(qid),
                             scope=cl.MbarrierScope.BLOCK,
                         )
 
@@ -2214,7 +2214,7 @@ def _fmha_prefill_kernel(
                                 )
                                 cl.tcgen05_wait_store()
                                 cl.mbarrier_arrive(
-                                    p_full.get_element_pointer(
+                                    p_full.pointer(
                                         (qid, pair_idx)
                                     ),
                                     scope=cl.MbarrierScope.BLOCK,
@@ -2231,7 +2231,7 @@ def _fmha_prefill_kernel(
                                         )
 
                         cl.mbarrier_arrive(
-                            score_empty.get_element_pointer(qid),
+                            score_empty.pointer(qid),
                             scope=cl.MbarrierScope.BLOCK,
                         )
 
@@ -2273,10 +2273,10 @@ def _fmha_prefill_kernel(
 
             final_score_event = score_cursor
             _wait_mbarrier(
-                score_full.get_element_pointer(qid), final_score_event & 1
+                score_full.pointer(qid), final_score_event & 1
             )
             _wait_mbarrier(
-                stats_empty.get_element_pointer(qid),
+                stats_empty.pointer(qid),
                 1 ^ (final_score_event & 1),
             )
             final_vec = cl.Vector(
@@ -2296,16 +2296,16 @@ def _fmha_prefill_kernel(
             )
             cl.tcgen05_wait_store()
             cl.mbarrier_arrive(
-                stats_full.get_element_pointer(qid),
+                stats_full.pointer(qid),
                 scope=cl.MbarrierScope.BLOCK,
             )
             # S and the final statistics alias in TMEM. Do not return the
             # score slot to MMA until correction has consumed (sum,max).
             _wait_mbarrier(
-                stats_empty.get_element_pointer(qid), final_score_event & 1
+                stats_empty.pointer(qid), final_score_event & 1
             )
             cl.mbarrier_arrive(
-                score_empty.get_element_pointer(qid),
+                score_empty.pointer(qid),
                 scope=cl.MbarrierScope.BLOCK,
             )
             score_cursor += 1
@@ -2313,12 +2313,12 @@ def _fmha_prefill_kernel(
             seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                 sched_tile,
                 sched_valid,
-                sched_full.get_base_pointer(),
-                sched_empty.get_base_pointer(),
+                sched_full.pointer(),
+                sched_empty.pointer(),
                 sched_phase,
             )
         cl.mbarrier_arrive(
-            tmem_dealloc.get_base_pointer(), scope=cl.MbarrierScope.BLOCK
+            tmem_dealloc.pointer(), scope=cl.MbarrierScope.BLOCK
         )
 
     # ------------------------------------------------------------- correction
@@ -2360,8 +2360,8 @@ def _fmha_prefill_kernel(
                 seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                     sched_tile,
                     sched_valid,
-                    sched_full.get_base_pointer(),
-                    sched_empty.get_base_pointer(),
+                    sched_full.pointer(),
+                    sched_empty.pointer(),
                     sched_phase,
                 )
                 continue
@@ -2377,10 +2377,10 @@ def _fmha_prefill_kernel(
             first_stats_event = score_cursor
             for qid in cl.static_iter(range(2)):
                 _wait_mbarrier(
-                    stats_full.get_element_pointer(qid), first_stats_event & 1
+                    stats_full.pointer(qid), first_stats_event & 1
                 )
                 cl.mbarrier_arrive(
-                    stats_empty.get_element_pointer(qid),
+                    stats_empty.pointer(qid),
                     scope=cl.MbarrierScope.BLOCK,
                 )
 
@@ -2395,10 +2395,10 @@ def _fmha_prefill_kernel(
                             and key_ordinal == task_trip_count - 1
                         )
                     _wait_mbarrier(
-                        stats_full.get_element_pointer(qid), stats_event & 1
+                        stats_full.pointer(qid), stats_event & 1
                     )
                     _wait_mbarrier(
-                        o_full.get_element_pointer(qid),
+                        o_full.pointer(qid),
                         previous_o_event & 1,
                     )
                     if not skip_q0_rescale:
@@ -2440,11 +2440,11 @@ def _fmha_prefill_kernel(
                                 )
                             cl.tcgen05_wait_store()
                     cl.mbarrier_arrive(
-                        o_empty.get_element_pointer(qid),
+                        o_empty.pointer(qid),
                         scope=cl.MbarrierScope.BLOCK,
                     )
                     cl.mbarrier_arrive(
-                        stats_empty.get_element_pointer(qid),
+                        stats_empty.pointer(qid),
                         scope=cl.MbarrierScope.BLOCK,
                     )
 
@@ -2453,14 +2453,14 @@ def _fmha_prefill_kernel(
             final_o_event = pv_cursor + task_trip_count - 1
             for qid in cl.static_iter(range(2)):
                 _wait_mbarrier(
-                    stats_full.get_element_pointer(qid), final_stats_event & 1
+                    stats_full.pointer(qid), final_stats_event & 1
                 )
                 _wait_mbarrier(
-                    o_full.get_element_pointer(qid),
+                    o_full.pointer(qid),
                     final_o_event & 1,
                 )
                 _wait_mbarrier(
-                    epi_empty.get_element_pointer(qid),
+                    epi_empty.pointer(qid),
                     1 ^ (data_task & 1),
                 )
                 stats_tmem = _tmem_pointer(
@@ -2481,14 +2481,14 @@ def _fmha_prefill_kernel(
                 # their TMEM alias before doing the comparatively long output
                 # conversion, matching the source pipeline cadence.
                 cl.mbarrier_arrive(
-                    stats_empty.get_element_pointer(qid),
+                    stats_empty.pointer(qid),
                     scope=cl.MbarrierScope.BLOCK,
                 )
                 inv_sum = cl.float32(1.0) / row_sum
                 if enable_approx_epilogue_rcp:
                     inv_sum = cl._nvvm.rcp_approx_ftz_f(row_sum)
                 final_scale = scale_output * inv_sum
-                o_stage = o_smem.get_element_pointer((qid, 0))
+                o_stage = o_smem.pointer((qid, 0))
                 half_query_offset = seq_tile * CTA_M + qid * MMA_M
                 query_row = half_query_offset + row_in_tile
                 full_output_half = half_query_offset + MMA_M <= task_seq_q
@@ -2543,11 +2543,11 @@ def _fmha_prefill_kernel(
                     restriction=cl.FenceRestriction.shared_block(),
                 )
                 cl.mbarrier_arrive(
-                    epi_full.get_element_pointer(qid),
+                    epi_full.pointer(qid),
                     scope=cl.MbarrierScope.BLOCK,
                 )
                 cl.mbarrier_arrive(
-                    o_empty.get_element_pointer(qid),
+                    o_empty.pointer(qid),
                     scope=cl.MbarrierScope.BLOCK,
                 )
             score_cursor += task_trip_count + 1
@@ -2555,14 +2555,14 @@ def _fmha_prefill_kernel(
             seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                 sched_tile,
                 sched_valid,
-                sched_full.get_base_pointer(),
-                sched_empty.get_base_pointer(),
+                sched_full.pointer(),
+                sched_empty.pointer(),
                 sched_phase,
             )
             data_task += 1
 
         cl.mbarrier_arrive(
-            tmem_dealloc.get_base_pointer(), scope=cl.MbarrierScope.BLOCK
+            tmem_dealloc.pointer(), scope=cl.MbarrierScope.BLOCK
         )
 
     # --------------------------------------------------------------- epilogue
@@ -2594,15 +2594,15 @@ def _fmha_prefill_kernel(
                 seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                     sched_tile,
                     sched_valid,
-                    sched_full.get_base_pointer(),
-                    sched_empty.get_base_pointer(),
+                    sched_full.pointer(),
+                    sched_empty.pointer(),
                     sched_phase,
                 )
                 continue
             query_offset = seq_tile * CTA_M
             store_elect_one = cl.elect_sync()
             for qid in cl.static_iter(range(2)):
-                _wait_mbarrier(epi_full.get_element_pointer(qid), data_task & 1)
+                _wait_mbarrier(epi_full.pointer(qid), data_task & 1)
                 if store_elect_one:
                     full_output_half = (
                         query_offset + (qid + 1) * MMA_M <= task_seq_q
@@ -2622,7 +2622,7 @@ def _fmha_prefill_kernel(
                                     query_base + query_offset + qid * MMA_M,
                                 )
                             cl.copy_async_bulk_tensor_shared_to_global(
-                                o_smem.get_element_pointer(
+                                o_smem.pointer(
                                     (
                                         qid,
                                         part * MMA_M * output_tma_granularity,
@@ -2634,14 +2634,14 @@ def _fmha_prefill_kernel(
                         cl.copy_async_bulk_commit_group()
                         cl.copy_async_bulk_wait_group(0, read=True)
                 cl.mbarrier_arrive(
-                    epi_empty.get_element_pointer(qid),
+                    epi_empty.pointer(qid),
                     scope=cl.MbarrierScope.BLOCK,
                 )
             seq_tile, head, batch, valid, sched_phase = _consume_scheduled_tile(
                 sched_tile,
                 sched_valid,
-                sched_full.get_base_pointer(),
-                sched_empty.get_base_pointer(),
+                sched_full.pointer(),
+                sched_empty.pointer(),
                 sched_phase,
             )
             data_task += 1

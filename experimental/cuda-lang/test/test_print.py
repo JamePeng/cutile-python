@@ -39,17 +39,17 @@ def run_print_scalars():
         print(not cl.bool_(A[0]))
 
         # CHECK: 0x{{([0-9a-f]{16})}}
-        print(A.get_base_pointer())
+        print(A.pointer())
 
         # CHECK: 0x{{([0-9a-f]{16})}}
-        print(f"{A.get_base_pointer()}")
+        print(f"{A.pointer()}")
 
         mbarriers = cl.shared_array(1, cl.mbarrier, alignment=8)
 
         # CHECK: smem pointer 0x{{([0-9a-f]{8})}}
-        print("smem pointer", mbarriers.get_base_pointer())
+        print("smem pointer", mbarriers.pointer())
 
-        cl.mbarrier_initialize(mbarriers.get_base_pointer(), 1)
+        cl.mbarrier_initialize(mbarriers.pointer(), 1)
 
         # CHECK: mbarrier 0x{{([0-9a-f]{8})}}
         print("mbarrier", mbarriers[0])
@@ -72,7 +72,7 @@ def run_print_vectors():
 
     @cl.kernel
     def kernel(A: cl.Array):
-        v_dyn = A.get_base_pointer().load(count=4)
+        v_dyn = A.pointer().load(count=4)
 
         # CHECK: <0, 1, 2, 3>
         print(v_dyn)

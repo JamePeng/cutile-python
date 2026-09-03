@@ -302,7 +302,7 @@ class ClcDynamicPersistentTileScheduler:
         return WorkTileInfo((leader_m + cta_m, leader_n + cta_n, batch), True)
 
     def get_current_work(self, response_stage=0) -> WorkTileInfo:
-        token = self.response_tokens.get_element_pointer(response_stage).load()
+        token = self.response_tokens.pointer(response_stage).load()
         has_work = cl.cluster_launch_control_is_canceled(token)
         leader_m = cl.cluster_launch_control_get_first_block_index(token, axis=0)
         leader_n = cl.cluster_launch_control_get_first_block_index(token, axis=1)
@@ -325,7 +325,7 @@ class ClcDynamicPersistentTileScheduler:
         is_cluster_leader = self.cta_rank_in_cluster == 0
         if is_cluster_leader and cl.elect_sync():
             cl.cluster_launch_control_try_cancel(
-                self.response_tokens.get_element_pointer(response_stage),
+                self.response_tokens.pointer(response_stage),
                 barrier,
                 multicast=True,
             )
@@ -352,7 +352,7 @@ class DeviceClcDynamicPersistentTileSchedulerConfig:
 
     def create(self, smem_base):
         response_tokens = cl.reinterpret_pointer_as_array(
-            smem_base.get_base_pointer() + self.response_offset,
+            smem_base.pointer() + self.response_offset,
             cl.cluster_launch_control_token,
             (self.response_count,),
         )

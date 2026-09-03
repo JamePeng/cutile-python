@@ -51,28 +51,28 @@ class Array(TileArray, Generic[T]):
     def strides(self): ...
 
     @stub
-    def get_base_pointer(self) -> "Pointer[T]":
-        """Retrieve the base pointer for this array."""
-        ...
+    def pointer(
+        self, index_or_indices: int | tuple[int, ...] | None = None
+    ) -> "Pointer[T]":
+        """Return a pointer to an array element.
 
-    @stub
-    def get_element_pointer(self, indices: int | tuple[int, ...]) -> "Pointer[T]":
-        """Retrieve a pointer to the array element accessed by ``indices``.
-        Equivalent to &array[index] in CUDA C++, but valid for arrays of any
-        rank."""
+        With no index, return a pointer to the first element. With a scalar
+        index or tuple of scalar indices, return a pointer to the specified
+        element. This is equivalent to ``&array[index]`` in CUDA C++.
+        """
         ...
 
     @stub
     def __setitem__(self, indices: int | tuple[int, ...], value: T):
         """Assign ``value`` to index given by ``indices``.
-        Equivalent to ``self.get_element_pointer(indices).store(value).
+        Equivalent to ``self.pointer(indices).store(value)``.
         """
         ...
 
     @stub
     def __getitem__(self, indices: int | tuple[int, ...]) -> T:
-        """Retriev value given by ``indices``.
-        Equivalent to ``self.get_element_pointer(indices).load().
+        """Retrieve the value given by ``indices``.
+        Equivalent to ``self.pointer(indices).load()``.
         """
         ...
 
@@ -525,7 +525,7 @@ def atomic_add(
             :template: kernel_2d_array_wrapper.py
 
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_add(ptr, 1)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -569,7 +569,7 @@ def atomic_sub(
             :template: kernel_2d_array_wrapper.py
 
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_sub(ptr, 1)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -613,7 +613,7 @@ def atomic_and(
 
             array[2, 3] = 14  # 0b1110
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_and(ptr, 11)  # 0b1011
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -657,7 +657,7 @@ def atomic_or(
 
             array[2, 3] = 12  # 0b1100
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_or(ptr, 3)  # 0b0011
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -701,7 +701,7 @@ def atomic_xor(
 
             array[2, 3] = 12  # 0b1100
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_xor(ptr, 10)  # 0b1010
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -746,7 +746,7 @@ def atomic_min(
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_min(ptr, 3)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -791,7 +791,7 @@ def atomic_max(
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_max(ptr, 11)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -836,7 +836,7 @@ def atomic_inc(
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_inc(ptr, 7)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -882,7 +882,7 @@ def atomic_dec(
 
             array[2, 3] = 0
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_dec(ptr, 7)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -927,7 +927,7 @@ def atomic_xchg(
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_xchg(ptr, 4)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -976,7 +976,7 @@ def atomic_cas(
 
             array[2, 3] = 7
             print(f"before: {array[2, 3]}")
-            ptr = array.get_element_pointer((2, 3))
+            ptr = array.pointer((2, 3))
             prev_val = cl.atomic_cas(ptr, 7, 4)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
@@ -1031,7 +1031,7 @@ def address_space_cast(value: Pointer[T], memory_space: MemorySpace) -> Pointer[
         :template: kernel_wrapper.py
 
         smem = cl.shared_array(1, cl.int32)
-        smem_ptr = smem.get_base_pointer()
+        smem_ptr = smem.pointer()
         generic_ptr = cl.address_space_cast(smem_ptr, cl.MemorySpace.GENERIC)
 
     """
@@ -1102,7 +1102,7 @@ def reinterpret_pointer_as_array(
         smem_array = cl.shared_array(1, cl.int32)
         smem_array[0] = 5
 
-        smem_ptr = smem_array.get_base_pointer()
+        smem_ptr = smem_array.pointer()
         smem_array_2 = cl.reinterpret_pointer_as_array(smem_ptr, shape=1, dtype=cl.int32)
 
         # Assignment through the reconstructed array is equivalent

@@ -181,7 +181,7 @@ def test_fence_proxy_tensormap_acquire(scope, scope_ptx):
             scope,
             from_proxy=cl.FenceProxy.GENERIC,
             to_proxy=cl.FenceProxy.TENSORMAP,
-            restriction=cl.FenceRestriction.address_range(tensor.get_base_pointer()),
+            restriction=cl.FenceRestriction.address_range(tensor.pointer()),
         )
 
     compile_kernel(
@@ -367,7 +367,7 @@ def test_fence_proxy_tensormap_invalid_address_size():
             from_proxy=cl.FenceProxy.GENERIC,
             to_proxy=cl.FenceProxy.TENSORMAP,
             restriction=cl.FenceRestriction.address_range(
-                tensor.get_base_pointer(), 256
+                tensor.pointer(), 256
             ),
         )
 
@@ -393,7 +393,7 @@ def test_fence_address_restriction_bad_extent():
         array = cl.shared_array(1, cl.int32)
         cl.fence(
             restriction=cl.FenceRestriction.address_range(
-                array.get_base_pointer(), 128.0
+                array.pointer(), 128.0
             )
         )
 
@@ -411,7 +411,7 @@ def test_fence_non_proxy_address_restriction():
             cl.MemoryOrder.ACQUIRE,
             cl.MemoryScope.DEVICE,
             restriction=cl.FenceRestriction.address_range(
-                array.get_base_pointer()
+                array.pointer()
             ),
         )
 
@@ -429,7 +429,7 @@ def test_fence_proxy_bidirectional_address_restriction():
         cl.fence_proxy_bidirectional(
             cl.FenceProxy.ASYNC,
             restriction=cl.FenceRestriction.address_range(
-                array.get_base_pointer()
+                array.pointer()
             ),
         )
 

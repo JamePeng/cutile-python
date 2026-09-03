@@ -346,10 +346,10 @@ def wmma_gemm_kernel(cfg: WmmaConfig) -> cl.kernel:
             return
 
         if config.acc_layout == wmma.Layout.COL_MAJOR:
-            c_ptr = c.get_element_pointer((tile_col, tile_row))
+            c_ptr = c.pointer((tile_col, tile_row))
             acc_ldm = global_m
         else:
-            c_ptr = c.get_element_pointer((tile_row, tile_col))
+            c_ptr = c.pointer((tile_row, tile_col))
             acc_ldm = global_n
 
         acc = wmma.load_matrix_sync(
@@ -361,17 +361,17 @@ def wmma_gemm_kernel(cfg: WmmaConfig) -> cl.kernel:
 
         for kk in cl.static_iter(range(0, global_k, wmma_k)):
             if config.a_layout == wmma.Layout.COL_MAJOR:
-                a_ptr = a.get_element_pointer((kk, tile_row))
+                a_ptr = a.pointer((kk, tile_row))
                 a_ldm = global_m
             else:
-                a_ptr = a.get_element_pointer((tile_row, kk))
+                a_ptr = a.pointer((tile_row, kk))
                 a_ldm = global_k
 
             if config.b_layout == wmma.Layout.ROW_MAJOR:
-                b_ptr = b.get_element_pointer((kk, tile_col))
+                b_ptr = b.pointer((kk, tile_col))
                 b_ldm = global_n
             else:
-                b_ptr = b.get_element_pointer((tile_col, kk))
+                b_ptr = b.pointer((tile_col, kk))
                 b_ldm = global_k
 
             acc = wmma.mma_sync(
@@ -382,9 +382,9 @@ def wmma_gemm_kernel(cfg: WmmaConfig) -> cl.kernel:
             )
 
         if config.acc_layout == wmma.Layout.COL_MAJOR:
-            d_ptr = d.get_element_pointer((tile_col, tile_row))
+            d_ptr = d.pointer((tile_col, tile_row))
         else:
-            d_ptr = d.get_element_pointer((tile_row, tile_col))
+            d_ptr = d.pointer((tile_row, tile_col))
 
         wmma.store_matrix_sync(
             d_ptr,

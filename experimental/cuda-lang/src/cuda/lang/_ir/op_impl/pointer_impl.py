@@ -29,6 +29,7 @@ from cuda.lang._ir.op_defs import (
     StorePointer,
 )
 from cuda.lang._ir.type_checking_helpers import (
+    is_none,
     require_concrete_pointer_type,
     require_optional_alignment,
     require_array_indices,
@@ -178,7 +179,7 @@ def _array_linear_offset(array: Var, indices: tuple[Var, ...]) -> Var:
     return offset
 
 
-def _array_get_element_pointer(array: Var, indices: tuple[Var, ...]) -> Var:
+def _array_element_pointer(array: Var, indices: tuple[Var, ...]) -> Var:
     base_pointer = _get_array_base_pointer(array)
     offset = _array_linear_offset(array, indices)
     return add_operation(
@@ -189,22 +190,19 @@ def _array_get_element_pointer(array: Var, indices: tuple[Var, ...]) -> Var:
     )
 
 
-@impl(getattr, overload=(ArrayTy, "get_base_pointer"))
-@impl(getattr, overload=(ArrayTy, "get_element_pointer"))
+@impl(getattr, overload=(ArrayTy, "pointer"))
 def getattr_array_method(object: Var, name: Var):
     name = require_constant_str(name)
     unbound_func = getattr(Array, name)
     return bind_method(object, unbound_func)
 
 
-@impl(Array.get_base_pointer)
-def array_get_base_pointer_impl(self: Var) -> Var:
-    return _get_array_base_pointer(self)
-
-
-@impl(Array.get_element_pointer)
-def array_get_element_pointer_impl(self: Var, indices: Var) -> Var:
-    return _array_get_element_pointer(self, require_array_indices(self, indices))
+@impl(Array.pointer)
+def array_pointer_impl(self: Var, index_or_indices: Var) -> Var:
+    if is_none(index_or_indices):
+        return _get_array_base_pointer(self)
+    indices = require_array_indices(self, index_or_indices)
+    return _array_element_pointer(self, indices)
 
 
 @impl(operator.getitem, overload=(PointerTy, WILDCARD))
@@ -237,7 +235,7 @@ def pointer_setitem(object: Var[PointerTy], key: Var[Type], value: Var[Type]):
 def array_getitem(object: Var, key: Var) -> Var:
     array_ty = require_array_type(object)
     indices = require_array_indices(object, key)
-    pointer = _array_get_element_pointer(object, indices)
+    pointer = _array_element_pointer(object, indices)
     return add_operation(
         LoadPointer,
         PointerTy(array_ty.dtype) if is_pointer_dtype(array_ty.dtype) else ScalarTy(array_ty.dtype),
@@ -252,7 +250,7 @@ def array_setitem(object: Var, key: Var, value: Var):
     require_scalar_type(value)
     value = astype(value, array_ty.dtype)
     indices = require_array_indices(object, key)
-    pointer = _array_get_element_pointer(object, indices)
+    pointer = _array_element_pointer(object, indices)
     add_operation_variadic(
         StorePointer,
         (),

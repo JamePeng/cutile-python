@@ -37,7 +37,7 @@ def _get_single_op(body, op_type):
 )
 def test_atomic_pointer_load_memory_arguments(memory_order, memory_scope):
     def kernel(source, result):
-        result[0] = source.get_base_pointer().atomic_load(
+        result[0] = source.pointer().atomic_load(
             memory_order=memory_order,
             memory_scope=memory_scope,
         )
@@ -71,7 +71,7 @@ def test_atomic_pointer_load_memory_arguments(memory_order, memory_scope):
 )
 def test_atomic_pointer_store_memory_arguments(memory_order, memory_scope):
     def kernel(result):
-        result.get_base_pointer().atomic_store(
+        result.pointer().atomic_store(
             cl.int32(1),
             memory_order=memory_order,
             memory_scope=memory_scope,
@@ -87,12 +87,12 @@ def test_atomic_pointer_store_memory_arguments(memory_order, memory_scope):
 
 def test_atomic_pointer_mmio():
     def kernel(source, result):
-        value = source.get_base_pointer().atomic_load(
+        value = source.pointer().atomic_load(
             memory_order=cl.MemoryOrder.RELAXED,
             memory_scope=cl.MemoryScope.SYS,
             mmio=True,
         )
-        result.get_base_pointer().atomic_store(
+        result.pointer().atomic_store(
             value,
             memory_order=cl.MemoryOrder.RELAXED,
             memory_scope=cl.MemoryScope.SYS,
@@ -124,7 +124,7 @@ def test_atomic_pointer_mmio():
 )
 def test_atomic_pointer_mmio_memory_order(method, memory_order, operation_type):
     def kernel(data):
-        pointer = data.get_base_pointer()
+        pointer = data.pointer()
         if method == "load":
             pointer.atomic_load(
                 memory_order=memory_order,
@@ -169,7 +169,7 @@ def test_atomic_pointer_mmio_memory_order(method, memory_order, operation_type):
 )
 def test_atomic_ldst_mmio_ptx(method, memory_order, instruction):
     def kernel(data):
-        pointer = data.get_base_pointer()
+        pointer = data.pointer()
         if method == "load":
             pointer.atomic_load(
                 memory_order=memory_order,
@@ -207,7 +207,7 @@ def test_atomic_ldst_mmio_ptx(method, memory_order, instruction):
 )
 def test_atomic_pointer_mmio_rejects_invalid_memory_order(method, memory_order):
     def kernel(result):
-        pointer = result.get_base_pointer()
+        pointer = result.pointer()
         if method == "load":
             result[0] = pointer.atomic_load(
                 memory_order=memory_order,
@@ -250,7 +250,7 @@ def test_atomic_pointer_mmio_requires_system_scope(
     method, memory_order, memory_scope
 ):
     def kernel(result):
-        pointer = result.get_base_pointer()
+        pointer = result.pointer()
         if method == "load":
             result[0] = pointer.atomic_load(
                 memory_order=memory_order,
@@ -277,7 +277,7 @@ def test_atomic_pointer_mmio_requires_system_scope(
 def test_atomic_pointer_mmio_rejects_shared_memory():
     def kernel():
         array = cl.shared_array(1, cl.int32)
-        array.get_base_pointer().atomic_load(
+        array.pointer().atomic_load(
             memory_order=cl.MemoryOrder.RELAXED,
             memory_scope=cl.MemoryScope.SYS,
             mmio=True,
@@ -294,8 +294,8 @@ def test_atomic_pointer_mmio_rejects_shared_memory():
 def test_observe_atomic_load_store():
     @cl.kernel
     def kernel(result):
-        first = result.get_element_pointer(0)
-        second = result.get_element_pointer(1)
+        first = result.pointer(0)
+        second = result.pointer(1)
         first.atomic_store(cl.int32(42))
         second.atomic_store(first.atomic_load() + cl.int32(1))
 
@@ -307,8 +307,8 @@ def test_observe_atomic_load_store():
 def test_observe_atomic_load_store_free_functions():
     @cl.kernel
     def kernel(result):
-        first = result.get_element_pointer(0)
-        second = result.get_element_pointer(1)
+        first = result.pointer(0)
+        second = result.pointer(1)
         cl.atomic_store(first, cl.int32(42))
         cl.atomic_store(second, cl.atomic_load(first) + cl.int32(1))
 
@@ -330,7 +330,7 @@ def test_observe_atomic_load_store_free_functions():
 )
 def test_atomic_pointer_rejects_invalid_memory_order(method, memory_order):
     def kernel(result):
-        pointer = result.get_base_pointer()
+        pointer = result.pointer()
         if method == "load":
             result[0] = pointer.atomic_load(memory_order=memory_order)
         else:
@@ -346,7 +346,7 @@ def test_atomic_pointer_rejects_invalid_memory_order(method, memory_order):
 @pytest.mark.parametrize("method", ("load", "store"))
 def test_atomic_pointer_rejects_invalid_memory_scope(method):
     def kernel(result):
-        pointer = result.get_base_pointer()
+        pointer = result.pointer()
         if method == "load":
             result[0] = pointer.atomic_load(memory_scope=cl.MemoryScope.NONE)
         else:
@@ -362,9 +362,9 @@ def test_atomic_pointer_rejects_invalid_memory_scope(method):
 def test_pointer_gep():
     @cl.kernel
     def kernel(A):
-        A.get_element_pointer((0, 0)).store(1)
-        A.get_element_pointer((1, 1)).store(2)
-        A.get_element_pointer((2, 2)).store(3)
+        A.pointer((0, 0)).store(1)
+        A.pointer((1, 1)).store(2)
+        A.pointer((2, 2)).store(3)
 
     A = torch.zeros(3, 3, dtype=torch.int32).cuda(0)
     cl.launch(
@@ -381,7 +381,7 @@ def test_ptr_roundtrip():
     @cl.kernel
     def kernel(A):
         B = cl.shared_array(shape=(3, 3), dtype=cl.int32)
-        smem = B.get_base_pointer()
+        smem = B.pointer()
         B2 = cl.reinterpret_pointer_as_array(smem, cl.int32, 1)
         B2[0] = 1
         A[0] = B[0, 0]
@@ -397,7 +397,7 @@ def test_pointer_smem():
     @cl.kernel
     def kernel(A):
         B = cl.shared_array(shape=(3, 3), dtype=cl.int32)
-        B.get_element_pointer((0, 0)).store(1)
+        B.pointer((0, 0)).store(1)
         A[0, 0] = B[0, 0]
 
     A = torch.zeros(3, 3, dtype=torch.int32).cuda(0)
@@ -414,7 +414,7 @@ def test_pointer_smem():
 def test_pointer_sub_ldst():
     @cl.kernel
     def kernel(A):
-        p = A.get_element_pointer(3)
+        p = A.pointer(3)
         for i in range(A.shape[0]):
             (p - i).store(i * i)
 
@@ -432,7 +432,7 @@ def test_pointer_sub_ldst():
 def test_pointer_add_ldst():
     @cl.kernel
     def kernel(A):
-        p = A.get_base_pointer()
+        p = A.pointer()
         for i in range(A.shape[0]):
             (p + i).store(i * i)
 
@@ -457,7 +457,7 @@ def test_pointer_add_ldst():
 def test_pointer_add_narrow_unsigned_offset(offset_dtype, offset):
     @cl.kernel
     def kernel(A):
-        p = A.get_base_pointer() + 1
+        p = A.pointer() + 1
         p[offset_dtype(offset)] = 7
 
     A = torch.ones(offset + 2, device="cuda:0")
@@ -479,7 +479,7 @@ def test_shared_pointer_add_narrow_unsigned_offset():
     @cl.kernel
     def kernel(out):
         storage = cl.shared_array(offset + 2, cl.int32)
-        p = storage.get_base_pointer() + 1
+        p = storage.pointer() + 1
         p[offset_dtype(offset)] = 7
         out[0] = storage[offset + 1]
 
@@ -498,7 +498,7 @@ def test_device_alloc_memspace():
     @cl.kernel
     def kernel(memspace):
         A = cl.shared_array(shape=(3, 3), dtype=cl.int32)
-        p = A.get_base_pointer()
+        p = A.pointer()
         p = cl.address_space_cast(p, cl.MemorySpace.GENERIC)
         if cl.thread_index(0) == 0:
             memspace[0] = cl.int32(cl._nvvm.isspacep_local(p))
@@ -506,7 +506,7 @@ def test_device_alloc_memspace():
             memspace[2] = cl.int32(cl._nvvm.isspacep_shared(p))
 
         with cl.local_array(shape=(3, 3), dtype=cl.int32) as B:
-            p = B.get_base_pointer()
+            p = B.pointer()
             p = cl.address_space_cast(p, cl.MemorySpace.GENERIC)
             if cl.thread_index(0) == 0:
                 memspace[3] = cl.int32(cl._nvvm.isspacep_local(p))
@@ -538,7 +538,7 @@ def test_static_shared_array(torch_dtype, cl_dtype):
     @cl.kernel
     def kernel(out):
         A = cl.shared_array(shape=(3, 3), dtype=cl_dtype)
-        p = A.get_base_pointer()
+        p = A.pointer()
         p = cl.address_space_cast(p, cl.MemorySpace.GENERIC)
         A[0, 0] = cl_dtype(1)
         A[1, 1] = cl_dtype(2)
@@ -646,7 +646,7 @@ def test_allocate_shmem_in_runtime_loop():
 def test_pointer_getitem():
     @cl.kernel
     def kernel(arr):
-        arr[0] += arr.get_base_pointer()[0]
+        arr[0] += arr.pointer()[0]
 
     arr = torch.tensor([1], dtype=torch.int32).cuda(0)
     cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (arr,))
@@ -656,7 +656,7 @@ def test_pointer_getitem():
 def test_pointer_setitem():
     @cl.kernel
     def kernel(arr):
-        p = arr.get_base_pointer()
+        p = arr.pointer()
         p[0] = 5
 
     arr = torch.tensor([1], dtype=torch.int32).cuda(0)
@@ -686,7 +686,7 @@ def test_map_shared_to_leader_block(cluster):
 
     @cl.kernel
     def kernel(out):
-        pointer = cl.shared_array(1, cl.int32, alignment=4).get_base_pointer()
+        pointer = cl.shared_array(1, cl.int32, alignment=4).pointer()
         if cluster:
             pointer = cl.map_shared_to_cluster(pointer, 0)
         mapped = cl.map_shared_to_leader_block(pointer)
@@ -709,7 +709,7 @@ def test_map_shared_to_leader_block(cluster):
 def test_map_shared_to_leader_block_rejects_global_pointer():
     @cl.kernel
     def kernel(out):
-        cl.map_shared_to_leader_block(out.get_base_pointer())
+        cl.map_shared_to_leader_block(out.pointer())
 
     with pytest.raises(TypeCheckingError, match="Expected pointer memory space"):
         compile_simt(
@@ -721,7 +721,7 @@ def test_map_shared_to_leader_block_rejects_global_pointer():
 def test_opaque_pointer_getitem():
     @cl.kernel
     def kernel(arr):
-        p = arr.get_base_pointer()
+        p = arr.pointer()
         p = cl.bitcast(p, cl.opaque_pointer_dtype())
         arr[0] += p[0]
 
@@ -735,7 +735,7 @@ def test_opaque_pointer_getitem():
 def test_opaque_pointer_setitem():
     @cl.kernel
     def kernel(arr):
-        p = arr.get_base_pointer()
+        p = arr.pointer()
         p = cl.bitcast(p, cl.opaque_pointer_dtype())
         p[0] = 5
 
@@ -750,7 +750,7 @@ def test_opaque_pointer_setitem():
 def test_pointer_access_2d_fails():
     @cl.kernel
     def kernel(arr):
-        arr.get_base_pointer()[0, 0] = 5
+        arr.pointer()[0, 0] = 5
 
     with pytest.raises(
         TypeCheckingError,

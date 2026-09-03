@@ -107,7 +107,7 @@ def _block_tile():
 
 
 def _smem_array(stage_info, offset, stage_bytes):
-    base = stage_info.context.smem_base.get_base_pointer()
+    base = stage_info.context.smem_base.pointer()
     return cl.reinterpret_pointer_as_array(
         base + offset,
         cl.uint8,
@@ -118,7 +118,7 @@ def _smem_array(stage_info, offset, stage_bytes):
 def _mma_descriptor(smem_values, stage):
     return cl.int64(
         cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=smem_values.get_element_pointer((stage, 0)),
+            matrix_start_address=smem_values.pointer((stage, 0)),
             leading_dimension_byte_offset=16,
             stride_dimension_byte_offset=8 * 128,
             swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -129,7 +129,7 @@ def _mma_descriptor(smem_values, stage):
 def _scale_descriptor(smem_values, stage):
     return cl.int64(
         cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=smem_values.get_element_pointer((stage, 0)),
+            matrix_start_address=smem_values.pointer((stage, 0)),
             leading_dimension_byte_offset=16,
             stride_dimension_byte_offset=128,
             swizzle_mode=cl.SwizzleMode.SWIZZLE_NONE,
@@ -217,7 +217,7 @@ class SmemAResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base.get_base_pointer()
+            stage_info.context.cluster_smem_base.pointer()
             + cl.uint32(A_SMEM_OFFSET_BYTES)
         )
 
@@ -266,7 +266,7 @@ class SmemBResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base.get_base_pointer()
+            stage_info.context.cluster_smem_base.pointer()
             + cl.uint32(B_SMEM_OFFSET_BYTES)
         )
 
@@ -315,7 +315,7 @@ class SmemSfAResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base.get_base_pointer()
+            stage_info.context.cluster_smem_base.pointer()
             + cl.uint32(SFA_SMEM_OFFSET_BYTES)
         )
 
@@ -364,7 +364,7 @@ class SmemSfBResource(ts.MemoryResource):
     @staticmethod
     def init_load_state(stage_info):
         return (
-            stage_info.context.cluster_smem_base.get_base_pointer()
+            stage_info.context.cluster_smem_base.pointer()
             + cl.uint32(SFB_SMEM_OFFSET_BYTES)
         )
 
@@ -546,7 +546,7 @@ class GmemDResource(ts.MemoryResource):
         row = tile_m * CTA_M + cl.thread_index(0)
         column = tile_n * BLOCK_N + subtile_idx * 128
         output_base = (
-            values.output.get_base_pointer()
+            values.output.pointer()
             + row * values.problem_n
             + column
             + tile_l * values.problem_m * values.problem_n
@@ -1050,7 +1050,7 @@ def make_gemm_kernel(
         )
         if warp_index == 0:
             cl.tcgen05_allocate(
-                tmem_storage.get_base_pointer(),
+                tmem_storage.pointer(),
                 TMEM_COLUMNS,
                 cta_group=cl.CTAGroup.CTA_2,
             )

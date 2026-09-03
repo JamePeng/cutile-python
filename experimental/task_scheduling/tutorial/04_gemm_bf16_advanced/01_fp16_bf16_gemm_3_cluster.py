@@ -144,7 +144,7 @@ class SmemAbResource(ts.MemoryResource):
             SmemAbResource._init_multicast_state(stage_info, operand_is_a)
         )
         shared_smem = (
-            stage_info.context.cluster_smem_base.get_base_pointer()
+            stage_info.context.cluster_smem_base.pointer()
             + cl.uint32(smem_offset)
         )
         return shared_smem, rank_in_pair, tma_mcast_mask, is_leader
@@ -160,7 +160,7 @@ class SmemAbResource(ts.MemoryResource):
         rank_in_pair, _, _ = SmemAbResource._init_multicast_state(
             stage_info, operand_is_a
         )
-        base = stage_info.context.smem_base.get_base_pointer()
+        base = stage_info.context.smem_base.pointer()
         shared_smem = cl.reinterpret_pointer_as_array(
             base + smem_offset,
             cl.uint16,
@@ -248,7 +248,7 @@ class SmemAbResource(ts.MemoryResource):
 def _build_smem_descriptor(shared_smem, stage_idx):
     return cl.int64(
         cl.Tcgen05SharedMemoryDescriptor(
-            matrix_start_address=shared_smem.get_element_pointer((stage_idx, 0)),
+            matrix_start_address=shared_smem.pointer((stage_idx, 0)),
             leading_dimension_byte_offset=16,
             stride_dimension_byte_offset=8 * 128,
             swizzle_mode=cl.SwizzleMode.SWIZZLE_128B,
@@ -396,10 +396,10 @@ class GmemDResource(ts.MemoryResource):
         column = coordc_n + subtile_idx * 32
         vsize = vec_bytes // 2
         if row < tasks_inputs.num_rows:
-            output_row = tasks_inputs.mC_mn.get_base_pointer() + (
+            output_row = tasks_inputs.mC_mn.pointer() + (
                 cl.uint64(row) * cl.uint64(tasks_inputs.num_cols)
             )
-            bias_pointer = tasks_inputs.bias.get_base_pointer()
+            bias_pointer = tasks_inputs.bias.pointer()
             for vector_idx in cl.static_iter(range(32 // vsize)):
                 vector_column = column + vector_idx * vsize
                 fragment = t2r_rmem[
@@ -1146,7 +1146,7 @@ def kernel(device_task_manager):
 
         if warp_index == 0:
             cl.tcgen05_allocate(
-                tmem_ptr_i32.get_base_pointer(),
+                tmem_ptr_i32.pointer(),
                 num_tmem_cols,
                 cta_group=cl.CTAGroup.CTA_2,
             )
