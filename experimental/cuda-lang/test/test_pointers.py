@@ -410,6 +410,49 @@ def test_array_from_parts_with_strides():
     assert array.cpu().tolist() == [10, 11, 0, 12, 13]
 
 
+def test_array_from_parts_with_dynamic_shape():
+    @cl.kernel
+    def kernel(array, result, m: int, n: int):
+        view = cl.Array.from_parts(array.pointer(), (m, n))
+        view[1, 1] = 10
+        view[2, 0] = 20
+        result[0] = view.shape[0]
+        result[1] = view.shape[1]
+        result[2] = view.strides[0]
+        result[3] = view.strides[1]
+
+    array = torch.zeros(9, dtype=torch.int32, device="cuda")
+    result = torch.zeros(4, dtype=torch.int32, device="cuda")
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (array, result, 3, 3))
+    assert array.cpu().tolist() == [0, 0, 0, 0, 10, 0, 20, 0, 0]
+    assert result.cpu().tolist() == [3, 3, 3, 1]
+
+
+def test_array_from_parts_with_dynamic_strides():
+    @cl.kernel
+    def kernel(array, result, m: int, n: int, row_stride: int, column_stride: int):
+        view = cl.Array.from_parts(
+            array.pointer(), (m, n), (row_stride, column_stride)
+        )
+        view[0, 1] = 10
+        view[1, 0] = 20
+        view[1, 1] = 30
+        result[0] = view.strides[0]
+        result[1] = view.strides[1]
+
+    array = torch.zeros(7, dtype=torch.int32, device="cuda")
+    result = torch.zeros(2, dtype=torch.int32, device="cuda")
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (1,),
+        kernel,
+        (array, result, 2, 2, 5, 1),
+    )
+    assert array.cpu().tolist() == [0, 10, 0, 0, 0, 20, 30]
+    assert result.cpu().tolist() == [5, 1]
+
+
 def test_array_from_parts_uses_pointer_dtype():
     @cl.kernel
     def kernel(array):
@@ -426,6 +469,34 @@ def test_array_from_parts_uses_pointer_dtype():
     assert array.cpu().item() == 0x3FC00000
 
 
+def test_array_from_parts_rejects_int64_shape():
+    def kernel(array):
+        cl.Array.from_parts(array.pointer(), (cl.int64(2), 2))
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(4, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match="Invalid array shape: cannot implicitly cast int64 to int32",
+        ),
+    )
+
+
+def test_array_from_parts_rejects_int64_stride():
+    def kernel(array):
+        cl.Array.from_parts(array.pointer(), (2, 2), (cl.int64(2), 1))
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(4, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match="Invalid array strides: cannot implicitly cast int64 to int32",
+        ),
+    )
+
+
 def test_array_from_parts_rejects_stride_rank_mismatch():
     def kernel(array):
         cl.Array.from_parts(array.pointer(), (2, 2), (1,))
@@ -436,6 +507,38 @@ def test_array_from_parts_rejects_stride_rank_mismatch():
         raises=pytest.raises(
             TypeCheckingError,
             match="Shape and strides must have the same rank, got 2 and 1",
+        ),
+    )
+
+
+def test_array_from_parts_rejects_invalid_shape_type():
+    def kernel(array):
+        cl.Array.from_parts(array.pointer(), (2, 2.0))
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(4, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match=(
+                "Expected a signed integer, but item at position #1 has type float32"
+            ),
+        ),
+    )
+
+
+def test_array_from_parts_rejects_invalid_stride_type():
+    def kernel(array):
+        cl.Array.from_parts(array.pointer(), (2, 2), (2.0, 1))
+
+    compile_kernel(
+        kernel,
+        signature=KernelSignature((make_symbolic_tensor(4, cl.int32),)),
+        raises=pytest.raises(
+            TypeCheckingError,
+            match=(
+                "Expected a signed integer, but item at position #0 has type float32"
+            ),
         ),
     )
 

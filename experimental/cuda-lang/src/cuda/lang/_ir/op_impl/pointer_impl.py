@@ -33,6 +33,7 @@ from cuda.lang._ir.type_checking_helpers import (
     require_optional_alignment,
     require_array_indices,
     require_pointer_type,
+    require_signed_int_scalar_or_tuple,
     require_scalar_type,
 )
 from cuda.tile._datatype import (
@@ -52,7 +53,6 @@ from cuda.tile._ir.op_impl import (
     require_array_type,
     require_constant_bool,
     require_constant_enum,
-    require_constant_int_tuple,
     require_constant_pointer_info,
     require_constant_str,
     require_dtype_spec,
@@ -79,6 +79,17 @@ def contiguous_strides_from_shape(shape: tuple[int, ...]) -> tuple[int, ...]:
     for extent in reversed(shape):
         strides.append(stride)
         stride *= extent
+    return tuple(reversed(strides))
+
+
+def contiguous_strides_from_shape_vars(
+    shape: tuple[Var, ...], index_dtype: datatype.DType
+) -> tuple[Var, ...]:
+    stride = strictly_typed_const(1, ScalarTy(index_dtype))
+    strides = []
+    for extent in reversed(shape):
+        strides.append(stride)
+        stride = binary_arithmetic_tensorlike_raw("mul", stride, extent)
     return tuple(reversed(strides))
 
 
@@ -462,26 +473,39 @@ def address_space_cast_impl(value: Var, memory_space: Var) -> Var:
 @impl(Array.from_parts)
 def array_from_parts_impl(pointer: Var, shape: Var, strides: Var) -> Var:
     pointer_ty = require_concrete_pointer_type(pointer)
-    shape = require_constant_int_tuple(shape, allow_single_int=True)
-    if strides.is_constant() and strides.get_constant() is None:
-        strides = contiguous_strides_from_shape(shape)
+    shape_vars = require_signed_int_scalar_or_tuple(shape)
+    if is_none(strides):
+        stride_vars = None
     else:
-        strides = require_constant_int_tuple(strides, allow_single_int=True)
-        if len(strides) != len(shape):
+        stride_vars = require_signed_int_scalar_or_tuple(strides)
+        if len(stride_vars) != len(shape_vars):
             raise TypeCheckingError(
-                f"Shape and strides must have the same rank, got {len(shape)} and {len(strides)}"
+                "Shape and strides must have the same rank, got "
+                f"{len(shape_vars)} and {len(stride_vars)}"
             )
+
     index_dtype = datatype.int32
+    shape_vars = tuple(
+        implicit_cast(var, index_dtype, "Invalid array shape") for var in shape_vars
+    )
+    if stride_vars is None:
+        stride_vars = contiguous_strides_from_shape_vars(shape_vars, index_dtype)
+    else:
+        stride_vars = tuple(
+            implicit_cast(var, index_dtype, "Invalid array strides")
+            for var in stride_vars
+        )
+
+    shape_values = tuple(var.get_constant() if var.is_constant() else None for var in shape_vars)
+    stride_values = tuple(
+        var.get_constant() if var.is_constant() else None for var in stride_vars
+    )
     array_ty = ArrayTy(
         pointer_ty.pointee_dtype,
-        shape=shape,
-        strides=strides,
+        shape=shape_values,
+        strides=stride_values,
         typing_hooks=pointer.ctx.typing_hooks,
         index_dtype=index_dtype,
         memory_space=pointer_ty.memory_space,
     )
-    # FIXME: Derive the index dtype from the shape and stride dtypes.
-    size_ty = ScalarTy(index_dtype)
-    shape_vars = tuple(strictly_typed_const(extent, size_ty) for extent in shape)
-    stride_vars = tuple(strictly_typed_const(extent, size_ty) for extent in strides)
     return make_aggregate(ArrayValue(pointer, shape_vars, stride_vars), array_ty)
