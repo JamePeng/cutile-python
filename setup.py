@@ -16,6 +16,7 @@ is_windows = sys.platform == "win32"
 class BuildExtWithCmake(build_ext):
     user_options = build_ext.user_options + [
         ('disable-internal', None, 'Disable building internal extension'),
+        ('minimal-internal', None, 'Enable building minimal internal extension'),
         ('enable-dev-features', None, 'Enable development-only features'),
         ('custom-static-libnvvm=', None, 'Include a custom NVVM built from a static library'),
         ('custom-libdevice=', None, 'Include a custom libdevice object'),
@@ -25,6 +26,7 @@ class BuildExtWithCmake(build_ext):
     def initialize_options(self):
         super().initialize_options()
         self.disable_internal = False
+        self.minimal_internal = False
         self.enable_dev_features = False
         self.custom_static_libnvvm = None
         self.custom_libdevice = None
@@ -53,6 +55,8 @@ class BuildExtWithCmake(build_ext):
                      "-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
         if self.disable_internal:
             cmake_cmd.append("-DDISABLE_INTERNAL=1")
+        if self.minimal_internal:
+            cmake_cmd.append("-DMINIMAL_INTERNAL=1")
         if self.enable_dev_features:
             cmake_cmd.append("-DENABLE_DEV_FEATURES=1")
         if self.custom_static_libnvvm is not None:
