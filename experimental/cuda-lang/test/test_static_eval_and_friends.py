@@ -63,7 +63,7 @@ def test_static_iter():
 def test_static_eval_pointer_arithmetic():
     @cl.kernel
     def kern(a):
-        p = a.get_base_pointer()
+        p = a.pointer()
         p2 = cl.static_eval(p + 3)
         p2[0] = 5
         p3 = cl.static_eval(p2 - 1)
