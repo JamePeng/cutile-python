@@ -113,6 +113,7 @@ from cuda.lang._stub._nvvm_support import (
     I32,
     I64,
     I8,
+    Meta,
     P0,
     P1,
     P3,
@@ -4442,6 +4443,8 @@ def tex_unified_cube_v4f32_f32(a: I64, b: F32, c: F32, d: F32, /) -> tuple[F32, 
 def tex_unified_cube_v4s32_f32(a: I64, b: F32, c: F32, d: F32, /) -> tuple[I32, I32, I32, I32]: ...
 @I
 def tex_unified_cube_v4u32_f32(a: I64, b: F32, c: F32, d: F32, /) -> tuple[I32, I32, I32, I32]: ...
+@I
+def texsurf_handle(a: Meta, b: SP_0, /) -> I64: ...
 @I
 def texsurf_handle_internal(a: SP_0, /) -> I64: ...
 @I

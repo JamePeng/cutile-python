@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Any
 
 from cuda.lang._enums import (
     CTAGroup,
@@ -28,7 +28,8 @@ class RawLLVMIntrinsic(
     Operation, opcode="llvm.call_intrinsic", memory_effect=MemoryEffect.STORE
 ):
     intrinsic: str = attribute()
-    operands_: tuple[Var, ...] = operand()
+    operands_: tuple[Var | None, ...] = operand()
+    metadata_args: tuple[Any, ...] = attribute(default=())
 
 
 @dataclass(eq=False)

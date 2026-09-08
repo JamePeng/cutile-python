@@ -317,7 +317,7 @@ class MetadataTable:
     def _is_empty(self) -> bool:
         return len(self._strings) == 0 and len(self._non_strings) == 0
 
-    def string(self, s: str):
+    def string(self, s: str) -> Metadata:
         ret = Metadata()
         self._strings.append((ret, s.encode()))
         return ret

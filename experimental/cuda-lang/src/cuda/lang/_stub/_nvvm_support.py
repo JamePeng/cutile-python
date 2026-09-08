@@ -18,7 +18,7 @@ from cuda.tile._ir.ir import Var, add_operation_variadic
 from cuda.tile._ir.ops import build_tuple
 from cuda.tile._ir.cast_ops import implicit_cast
 from cuda.tile import _datatype as datatype
-from cuda.tile._ir.type import Type
+from cuda.tile._ir.type import Type, StringTy
 from cuda.tile._memory_model import MemorySpace
 
 
@@ -29,20 +29,23 @@ class RawIntrinsicImpl:
         self.prefix = prefix
 
     def __call__(self, stub, *args: Var):
-        name = stub._nvvm_intrinsic_name
+        name = stub._llvm_intrinsic_name
         if name is None:
             name = stub.__name__.replace("_", ".")
 
-        prepared_operands, result_types, make_retval = match_intrinsic_signature(stub, args)
+        prepared_operands, result_types, make_retval, metadata_args = match_intrinsic_signature(
+                stub, args)
         return make_retval(add_operation_variadic(
             RawLLVMIntrinsic,
             tuple(result_types),
             intrinsic=self.prefix + name,
-            operands_=tuple(prepared_operands)
+            operands_=prepared_operands,
+            metadata_args=metadata_args
         ))
 
 
 _nvvm_intrinsic_impl = RawIntrinsicImpl("llvm.nvvm.")
+_llvm_intrinsic_impl = RawIntrinsicImpl("llvm.")
 
 
 def _libdevice_func_impl(stub, *args: Var):
@@ -51,8 +54,9 @@ def _libdevice_func_impl(stub, *args: Var):
     if not name.startswith("__nv_"):
         name = "__nv_" + name
 
-    prepared_operands, result_types, make_retval = match_intrinsic_signature(
+    prepared_operands, result_types, make_retval, metadata_args = match_intrinsic_signature(
         stub, args)
+    assert len(metadata_args) == 0
     return make_retval(add_operation_variadic(
         ForeignFunction,
         tuple(result_types),
@@ -68,9 +72,10 @@ class TypeArgument:
 
 
 class MatchedSignature(NamedTuple):
-    prepared_operands: tuple[Var, ...]
+    prepared_operands: tuple[Var | None, ...]
     result_types: tuple[Type, ...]
     make_retval: Callable
+    metadata_args: tuple[Any, ...]
 
 
 DIRECTLY_SUPPORTED_FLOATS = (
@@ -84,6 +89,7 @@ def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
 
     prepared_operands = []
     type_arguments = []
+    metadata_args = []
     for param_idx, (arg, param) in enumerate(zip(args, stub_sig.parameters.values(), strict=True)):
         ann = _get_annotation(param.annotation)
         if isinstance(ann, _IntrinsicDTypeAnnotation):
@@ -131,6 +137,10 @@ def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
                     while len(type_arguments) <= ann.index:
                         type_arguments.append(None)
                     type_arguments[ann.index] = arg.get_type()
+        elif isinstance(ann, _IntrinsicMetadataAnnotation):
+            meta = require_llvm_metadata(arg)
+            metadata_args.append(meta)
+            arg = None
         else:
             assert False
 
@@ -162,7 +172,16 @@ def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
             assert False
         result_types.append(ty)
 
-    return MatchedSignature(tuple(prepared_operands), tuple(result_types), make_retval)
+    return MatchedSignature(tuple(prepared_operands), tuple(result_types), make_retval,
+                            tuple(metadata_args))
+
+
+def require_llvm_metadata(var: Var):
+    ty = var.get_type()
+    if isinstance(ty, StringTy):
+        return ty.value
+
+    raise make_type_checking_error(f"Expected an LLVM metadata, got {ty}", var)
 
 
 def _implicit_cast_with_fallback(src: Var, target_dtype: DType, error_context: str) -> Var:
@@ -184,7 +203,14 @@ _libdevice_func_impl._is_coroutine = False
 def nvvm_intrinsic_stub(func, *, name: str | None):
     func = stub(func)
     func._cutile_custom_implementation_handler = _nvvm_intrinsic_impl
-    func._nvvm_intrinsic_name = name
+    func._llvm_intrinsic_name = name
+    return func
+
+
+def llvm_intrinsic_stub(func, *, name: str | None):
+    func = stub(func)
+    func._cutile_custom_implementation_handler = _llvm_intrinsic_impl
+    func._llvm_intrinsic_name = name
     return func
 
 
@@ -220,7 +246,13 @@ class _IntrinsicGenericAnnotation:
     index: int
 
 
-def _get_annotation(type_hint) -> _IntrinsicDTypeAnnotation | _IntrinsicGenericAnnotation:
+@dataclass
+class _IntrinsicMetadataAnnotation:
+    pass
+
+
+def _get_annotation(type_hint) -> (_IntrinsicDTypeAnnotation | _IntrinsicGenericAnnotation
+                                   | _IntrinsicMetadataAnnotation):
     assert typing.get_origin(type_hint) is Annotated, f"{type_hint} {typing.get_origin(type_hint)}"
     _, ann = typing.get_args(type_hint)
     assert isinstance(ann, _IntrinsicDTypeAnnotation | _IntrinsicGenericAnnotation)
@@ -246,3 +278,4 @@ P5 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(Memo
 P6 = Annotated[Any, _IntrinsicDTypeAnnotation(datatype.opaque_pointer_dtype(MemorySpace.TENSOR))]
 P7 = Annotated[Any, _IntrinsicDTypeAnnotation(
     datatype.opaque_pointer_dtype(MemorySpace.SHARED_CLUSTER))]
+Meta = Annotated[Any, _IntrinsicMetadataAnnotation()]
