@@ -68,7 +68,7 @@ def test_static_breakpoint(monkeypatch):
     assert call_count == 1
 
 
-@pytest.mark.parametrize("problem_size", [1, 32, 40])
+@pytest.mark.parametrize("problem_size", [1, 32, 37, 40])
 @pytest.mark.parametrize("unroll_factor", [1, 4, 8])
 def test_loop_unroller(unroll_factor, problem_size):
     """
@@ -78,7 +78,7 @@ def test_loop_unroller(unroll_factor, problem_size):
     """
 
     def unroll(function, /, *, count: int, unroll_factor: int):
-        count_per_unrolled = count // unroll_factor
+        count_per_unrolled = cl.cdiv(count, unroll_factor)
 
         for i in range(count_per_unrolled):
             for c in cl.static_iter(range(unroll_factor)):
