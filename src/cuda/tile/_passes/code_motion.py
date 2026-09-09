@@ -33,14 +33,6 @@ class _BlockMobility(enum.IntEnum):
     CAN_MOVE = 2
 
 
-@dataclass
-class _BlockResult:
-    mobility: _BlockMobility = _BlockMobility.CAN_MOVE
-
-    # Minimum depth to which the block could be hoisted, based on its data dependencies
-    min_depth: int = 0
-
-
 # Helper class for accumulating data dependency information per operation.
 @dataclass
 class _DependencyInfo:
@@ -64,19 +56,29 @@ class _DependencyInfo:
 
 
 @dataclass
-class _StackItem:
+class _BlockInfo:
     new_block: Block
     is_loop_body: bool
+
+    mobility: _BlockMobility = _BlockMobility.CAN_MOVE
+
+    # Minimum depth to which the block could be hoisted, based on its data dependencies
+    min_depth: int = 0
+
+    def update_mobility(self, mobility: _BlockMobility):
+        self.mobility = min(self.mobility, mobility)
+
+    def update_min_depth(self, max_outside_depth: int):
+        self.min_depth = max(self.min_depth, max_outside_depth)
 
 
 # This function does too many things at once. However, this allows us to do everything
 # in a single linear-time pass, no matter how many nested loops we may have.
-def _hoist(block: Block, stack: list[_StackItem], def_depth: dict[str, int], is_loop_body: bool) \
-        -> _BlockResult:
+def _hoist(block: Block, stack: list[_BlockInfo], def_depth: dict[str, int], is_loop_body: bool) \
+        -> _BlockInfo:
     depth = len(stack)
     new_block = block.empty_like_self()
-    stack.append(_StackItem(new_block, is_loop_body))
-    ret = _BlockResult()
+    stack.append(_BlockInfo(new_block, is_loop_body))
 
     for op in block:
         # We can only hoist operations out of loops, not other nested blocks like IfElse branches.
@@ -89,7 +91,7 @@ def _hoist(block: Block, stack: list[_StackItem], def_depth: dict[str, int], is_
             body_res = _hoist(op.body, stack, def_depth, True)
             if body_res.mobility == _BlockMobility.IMMOVABLE:
                 # Propagate IMMOVABLE to all ancestors.
-                ret.mobility = _BlockMobility.IMMOVABLE
+                stack[-1].update_mobility(_BlockMobility.IMMOVABLE)
                 depinfo.must_stay = True
 
             inputs = op.initial_values if isinstance(op, Loop) else op.xs
@@ -103,15 +105,15 @@ def _hoist(block: Block, stack: list[_StackItem], def_depth: dict[str, int], is_
                 depinfo.update(branch_res.min_depth, depth)
                 if branch_res.mobility != _BlockMobility.CAN_MOVE:
                     # Propagate CAN_MOVE_WITH_LOOP and IMMOVABLE
-                    ret.mobility = min(ret.mobility, branch_res.mobility)
+                    stack[-1].update_mobility(branch_res.mobility)
                     depinfo.must_stay = True
         elif op.has_observable_effect:
-            ret.mobility = _BlockMobility.IMMOVABLE
+            stack[-1].update_mobility(_BlockMobility.IMMOVABLE)
             depinfo.must_stay = True
         elif isinstance(op, (Continue, Break)):
             # Can't move the block that contains a Continue/Break, unless it is moved
             # together with its containing loop.
-            ret.mobility = min(ret.mobility, _BlockMobility.CAN_MOVE_WITH_LOOP)
+            stack[-1].update_mobility(_BlockMobility.CAN_MOVE_WITH_LOOP)
             depinfo.must_stay = True
             for v in op.values:
                 depinfo.update(def_depth[v.name], depth)
@@ -126,12 +128,11 @@ def _hoist(block: Block, stack: list[_StackItem], def_depth: dict[str, int], is_
                 depinfo.update(def_depth[v.name], depth)
 
         target_depth = depth
-        if depinfo.must_stay:
-            ret.min_depth = max(ret.min_depth, depinfo.max_outside_depth)
-        else:
+        if not depinfo.must_stay:
             while target_depth > depinfo.max_outside_depth and stack[target_depth].is_loop_body:
                 target_depth -= 1
 
+        stack[target_depth].update_min_depth(depinfo.max_outside_depth)
         stack[target_depth].new_block.append(op)
 
         # Record the definition depth of the results variables. Note that we do this
@@ -140,6 +141,5 @@ def _hoist(block: Block, stack: list[_StackItem], def_depth: dict[str, int], is_
         for v in op.result_vars:
             def_depth[v.name] = target_depth
 
-    stack.pop()
     block[:] = new_block.detach_all()
-    return ret
+    return stack.pop()

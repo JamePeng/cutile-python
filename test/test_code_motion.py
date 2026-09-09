@@ -35,6 +35,13 @@ def _find_nested_loops(block, hoisted_op) -> List[Loop]:
             assert len(ret) == 0, "Expected loops to be nested"
             ret.append(op)
             ret.extend(_find_nested_loops(op.body, hoisted_op))
+        elif isinstance(op, IfElse):
+            then_loops = _find_nested_loops(op.then_block, hoisted_op)
+            else_loops = _find_nested_loops(op.else_block, hoisted_op)
+            assert len(then_loops) == 0 or len(else_loops) == 0
+            ret.extend(then_loops)
+            ret.extend(else_loops)
+
     return ret
 
 
@@ -196,6 +203,19 @@ def carried_from_nested_loop_no(x, a, t):
         ct.store(x, i, val)
 
 
+@ct.kernel
+def nested_loop_inside_ifelse_no_yes(x, a, t):
+    bid = ct.bid(0)
+    for i in range(x.shape[0]):
+        if bid == 0:
+            value = 0.0
+            for j in range(1 + ct.bid(0)):
+                value = ct.sqrt(i)
+        else:
+            value = 3.0
+        ct.store(x, i, value)
+
+
 def make_cases(tuples):
     return [pytest.param(kernel, op_finder, expected_x, id=kernel._pyfunc.__name__)
             for kernel, op_finder, expected_x in tuples]
@@ -214,7 +234,8 @@ def make_cases(tuples):
     (entire_loop_yes, _find_loop_with_extract, [11.0, 11.0, 11.0]),
     (ifelse_cond_indvar_no, _find_ifelse_with_sqrt, [0.0, 0.0, 2.0]),
     (ifelse_carry_no, _find_first_ifelse, [1.0, 2.0, 3.0]),
-    (carried_from_nested_loop_no, _find_loop_without_sqrt, [10.0, 10.0, 10.0])
+    (carried_from_nested_loop_no, _find_loop_without_sqrt, [10.0, 10.0, 10.0]),
+    (nested_loop_inside_ifelse_no_yes, _find_sqrt, [0.0, 1.0, math.sqrt(2.0)])
 ]))
 def test_hoisting(kernel, op_finder, expected_x):
     kernel_name = kernel._pyfunc.__name__
