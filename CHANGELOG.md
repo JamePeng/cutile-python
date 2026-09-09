@@ -5,15 +5,17 @@ Release Notes
 =============
 
 {#release-1-6-0}
-1.6.0 (2026-09-08)
+1.6.0 (2026-09-09)
 ------------------
 
-This release adds finer control over compilation and execution with static
-array strides, unchecked memory accesses, programmatic dependent launch, and
-portable TileIR bytecode export. It expands the supported Python subset with
-user-defined context managers, dataclass methods, `break` in non-static loops,
-and integer `divmod`. Autotuning, JAX interoperability, diagnostics, and
-floating-point behavior are also improved.
+This release adds support for CTK 13.4 features, including programmatic
+dependent launch, unchecked memory accesses, `ct.insert()`, and
+`float8_e5m3fnu` scale dtype support for FP4 block-scaled MMA on Rubin. It
+also adds finer control over compilation and execution with static array
+strides and portable TileIR bytecode export. It expands the supported Python
+subset with user-defined context managers, dataclass methods, `break` in
+non-static loops, and integer `divmod`. Autotuning, JAX interoperability,
+diagnostics, and floating-point behavior are also improved.
 
 ### CTK 13.4 features
 - Add Programmatic Dependent Launch support with
@@ -53,7 +55,7 @@ floating-point behavior are also improved.
   ignored. When enabled, a NaN propagates, min/max/minimum/maximum return NaN and
   argmin/argmax return the index of the first NaN.
 
-### Python Features
+### Python features
 - Add support for `break` in non-static `for` loops.
 - Add support for user-defined context managers created with
   `@contextlib.contextmanager`.
