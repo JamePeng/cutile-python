@@ -644,6 +644,20 @@
           "params": {}
         }
       ],
+      "nvfp4_matmul": [
+        {
+          "config": {
+            "num_ctas": 2,
+            "tk": 128,
+            "tm": 256,
+            "tn": 256
+          },
+          "error_margin_us": 0.9444289456889404,
+          "mean_us": 156.18560016155243,
+          "num_samples": 5,
+          "params": {}
+        }
+      ],
       "persistent_matmul": [
         {
           "config": {
@@ -1214,6 +1228,20 @@
           "error_margin_us": 0.45281538853064873,
           "mean_us": 19.539200048893687,
           "num_samples": 20,
+          "params": {}
+        }
+      ],
+      "nvfp4_matmul": [
+        {
+          "config": {
+            "num_ctas": 2,
+            "tk": 128,
+            "tm": 256,
+            "tn": 256
+          },
+          "error_margin_us": 0.670663832846717,
+          "mean_us": 122.96960055828094,
+          "num_samples": 5,
           "params": {}
         }
       ],

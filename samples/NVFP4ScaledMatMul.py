@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) <2025> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
 
@@ -52,23 +52,82 @@ def _pad_tensor(x: torch.Tensor, block_size: int):
     return x
 
 
-def block_quantize_f8e4m3fn_f8e8m0fnu(x: torch.Tensor, block_size: int):
+def block_quantize_f4e2m1fn_f8e4m3fn(x: torch.Tensor, block_size: int):
+    F4E2M1FN_MAX = 6
     F8E4M3FN_MAX = 448
     x = _pad_tensor(x, block_size)
 
     x_block = x.reshape(*x.shape[:-1], x.shape[-1] // block_size, block_size)
     block_amax = x_block.abs().amax(dim=-1, keepdim=True)
-    block_scale = block_amax / F8E4M3FN_MAX
-    block_scale = torch.pow(2.0, torch.ceil(torch.log2(block_scale)))
-    block_scale_fp8 = block_scale.to(torch.float8_e8m0fnu)
-    effective_block_scale = block_scale_fp8.to(x.dtype)
+    global_amax = x.abs().amax()
+    global_scale = global_amax / (F4E2M1FN_MAX * F8E4M3FN_MAX)
+    block_scale = block_amax / (F4E2M1FN_MAX * torch.where(global_scale == 0,
+                                                           torch.ones_like(global_scale),
+                                                           global_scale))
 
+    block_scale_fp8 = block_scale.to(torch.float8_e4m3fn)
+    effective_block_scale = block_scale_fp8.to(x.dtype)
+    effective_block_scale *= global_scale
     x_block_scaled = x_block / torch.where(effective_block_scale == 0,
                                            torch.ones_like(effective_block_scale),
                                            effective_block_scale)
-    x_block_scaled = x_block_scaled.to(torch.float8_e4m3fn).reshape(x.shape)
+
+    x_block_scaled_fp4_bits_packed = pack_e2m1(x_block_scaled)
+    x_block_scaled = x_block_scaled_fp4_bits_packed.reshape(*x.shape[:-1], x.shape[-1] // 2)
     block_scale_fp8 = block_scale_fp8.squeeze(-1)
-    return x_block_scaled, block_scale_fp8
+    return x_block_scaled, block_scale_fp8, global_scale.view((1,))
+
+
+def pack_e2m1(x: torch.Tensor) -> torch.Tensor:
+    """
+    Input shape:  (..., K)
+    Output shape: (..., K // 2)
+    """
+    assert x.dtype == torch.float32
+    assert x.shape[-1] % 2 == 0
+
+    mag = x.abs()
+
+    lookup = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+    midpoints = ((i + j) / 2 for i, j in zip(lookup[:-1], lookup[1:]))
+
+    # the alternating > and >= comparisons select the even encoding
+    # when a value lies exactly halfway between two values (round to nearest even encoding)
+    encoding = 0
+    for index, e in enumerate(midpoints):
+        if index % 2:
+            encoding += (mag >= e).to(torch.uint8)
+        else:
+            encoding += (mag > e).to(torch.uint8)
+
+    # add the E2M1 sign bit
+    encoding |= torch.signbit(x).to(torch.uint8) << 3
+
+    # pack two E2M1 values into each byte
+    packed = encoding[..., 0::2] | (encoding[..., 1::2] << 4)
+    return packed.contiguous().view(torch.float4_e2m1fn_x2)
+
+
+def unpack_e2m1_bytes_to_float(fp4_bytes: torch.Tensor) -> torch.Tensor:
+    lookup = torch.tensor(
+        [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0],
+        dtype=torch.float32,
+        device=fp4_bytes.device,
+    )
+    low = fp4_bytes & 0x0F
+    high = (fp4_bytes >> 4) & 0x0F
+    low_values = lookup[(low & 0x7).long()]
+    high_values = lookup[(high & 0x7).long()]
+    low_values = torch.where((low & 0x8) != 0, -low_values, low_values)
+    high_values = torch.where((high & 0x8) != 0, -high_values, high_values)
+    values = torch.empty(
+        (*fp4_bytes.shape[:-1], fp4_bytes.shape[-1] * 2),
+        dtype=torch.float32,
+        device=fp4_bytes.device,
+    )
+    values[..., 0::2] = low_values
+    values[..., 1::2] = high_values
+    return values
 
 
 ConstInt = ct.Constant[int]
@@ -108,8 +167,8 @@ def unswizzle_32_4_4(tile_swizzled_scale):
 
 
 @ct.kernel(num_ctas=ct.ByTarget(sm_100=2))
-def block_scaled_matmul_kernel(
-                    A, A_scale, B, B_scale, C,
+def nvfp4_block_scaled_matmul_kernel(
+                    A, A_scale, A_global, B, B_scale, B_global, C,
                     tm: ConstInt,         # Tile size along M dimension (rows of C)
                     tn: ConstInt,         # Tile size along N dimension (columns of C)
                     tk: ConstInt,         # Tile size along K dimension (inner product dimension)
@@ -118,7 +177,9 @@ def block_scaled_matmul_kernel(
     """
     cuTile kernel for block-scaled matrix multiplication.
 
-    Computes C = (A * A_scale) @ (B * B_scale).T, accumulating in float32.
+    Computes C = (A * A_scale * A_global) @ (B * B_scale * B_global) if A and B contain
+    packed E2M1 values, with two FP4 elements stored in each byte.
+
     Each TileBlock computes one tm x tn output tile. The K dimension is processed
     in chunks of tk, with tks scale values per K tile.
 
@@ -126,14 +187,18 @@ def block_scaled_matmul_kernel(
     then passed to ct.mma_scaled.
 
     Args:
-        A:              Input matrix A (M x K).
+        A:              Input matrix A with physical shape (M, K // 2) which is a
+                        uint8 view of packed E2M1 data.
         A_scale:        2D scale of (M, K // block_size) or swizzle scale of
                         (M // 32 // 4, K // block_size // 4, 32, 4, 4) reshaped
                         into (M // 32 // 4, K // block_size // 4, 32, 16).
-        B:              Input matrix B (N x K).
+        A_global:       One element float32 tensor containing the global scale for A.
+        B:              Input matrix B with physical shape (N, K // 2) which is a
+                        uint8 view of packed E2M1 data.
         B_scale:        2D scale of (N, K // block_size) or swizzled scale of
                         (N // 32 // 4, K // block_size // 4, 32, 4, 4) reshaped
                         into (N // 32 // 4, K // block_size // 4, 32, 16).
+        B_global:       One element float32 tensor containing the global scale for B.
         C:              Output matrix C (M x N).
         tm (ConstInt):  The height of the output tile computed by this block.
                         Corresponds to rows of A and C.
@@ -155,7 +220,8 @@ def block_scaled_matmul_kernel(
     #   "View A as an MxK tensor tiled by (tm, tk), and return the number of tiles along
     #    axis 1 (the K dimension)."
     # We pass shape=(tm, tk) to describe the 2D tiling, only `tk` matters for axis=1.
-    num_tiles_k = ct.num_tiles(A, axis=1, shape=(tm, tk))
+    # The inputs are made from two packed fp4 values
+    num_tiles_k = ct.num_tiles(A, axis=1, shape=(tm, tk // 2))
 
     # Initialize an accumulator for the current output tile (tm x tn).
     # It's common practice to use `float32` for accumulation even with `float16` inputs
@@ -170,7 +236,8 @@ def block_scaled_matmul_kernel(
         # Load tile from matrix A.
         # The `index=(bidx, k_tile_idx)` specifies which (M-tile, K-tile) to load
         # from global memory A. `shape=(tm, tk)` defines the size of this tile.
-        a = ct.load(A, index=(bidx, k), shape=(tm, tk), padding_mode=zero_pad)
+        a = ct.load(A, index=(bidx, k), shape=(tm, tk // 2), padding_mode=zero_pad)
+        a = ct.unpack_from_bytes(a.reshape((-1,)), ct.float4_e2m1fn).reshape((tm, tk))
 
         if len(A_scale.shape) == 2:
             # 2D scale path. A_scale is already stored in logical shape (M, K_s).
@@ -187,7 +254,8 @@ def block_scaled_matmul_kernel(
         # Load tile from matrix B.
         # The `index=(bidy, k_tile_idx)` specifies which (N-tile, K-tile) to load
         # from global memory B. `shape=(tn, tk)` defines the size of this tile.
-        b = ct.load(B, index=(bidy, k), shape=(tn, tk), padding_mode=zero_pad)
+        b = ct.load(B, index=(bidy, k), shape=(tn, tk // 2), padding_mode=zero_pad)
+        b = ct.unpack_from_bytes(b.reshape((-1,)), ct.float4_e2m1fn).reshape((tn, tk))
         b = b.permute((1, 0))
 
         if len(B_scale.shape) == 2:
@@ -208,31 +276,37 @@ def block_scaled_matmul_kernel(
         # and scales and accumulates the result.
         accumulator = ct.mma_scaled(a, a_scale, b, b_scale, accumulator)
 
+    a_global = ct.load(A_global, index=(0,), shape=(1,))
+    b_global = ct.load(B_global, index=(0,), shape=(1,))
+    accumulator = accumulator * a_global * b_global
+
     # Store the computed tile to the global memory of the output matrix C.
     # The `(bidx, bidy)` directly corresponds to the tile's position in the 2D output matrix.
     ct.store(C, index=(bidx, bidy), tile=accumulator)
 
 
-def cutile_block_scaled_matmul(A: torch.Tensor, A_scale: torch.Tensor,
-                               B: torch.Tensor, B_scale: torch.Tensor,
-                               scaling_block_size: int) -> torch.Tensor:
+def cutile_nvfp4_matmul(A: torch.Tensor, A_scale: torch.Tensor, A_global: torch.Tensor,
+                        B: torch.Tensor, B_scale: torch.Tensor, B_global: torch.Tensor,
+                        scaling_block_size: int) -> torch.Tensor:
 
     """
-    Performs block-scaled matrix multiplication using a cuTile kernel.
+    Performs NVFP4 matrix multiplication using a cuTile kernel.
 
     This wrapper function handles input validation, calculates the necessary grid dimensions,
-    and launches the `block_scaled_matmul_kernel`.
+    and launches the `nvfp4_block_scaled_matmul_kernel`.
 
     Args:
-        A (torch.Tensor):         The first input matrix (M x K). Must be on a CUDA device.
-        A_scale (torch.Tensor):   Either 2D scale with shape (M, K // scaling_block_size) or
-                                  swizzled scale of (M // 32 // 4,
-                                  K // scaling_block_size // 4, 32, 16).
-        B (torch.Tensor):         The second input matrix (N x K). Must be on a CUDA device
-                                  and have its K dimension match A's K dimension.
-        B_scale (torch.Tensor):   Either 2D scale with shape (N, K // scaling_block_size) or
-                                  swizzled scale of (N // 32 // 4,
-                                  K // scaling_block_size // 4, 32, 16).
+        A (torch.Tensor):         Packed input matrix with physical shape (M, K // 2).
+                                  Must be on a CUDA device.
+        A_scale (torch.Tensor):   Either 2D scale with shape (M, K // NVFP4_BLOCK_SIZE) or swizzled
+                                  scale of (M // 32 // 4, K // NVFP4_BLOCK_SIZE // 4, 32, 16).
+        A_global (torch.Tensor):  One-element float32 tensor containing A's tensor-wide scale.
+        B (torch.Tensor):         Packed input matrix with physical shape (N, K // 2).
+                                  Must be on a CUDA device and have its 2nd dimension match
+                                  A's 2nd dimension.
+        B_scale (torch.Tensor):   Either 2D scale with shape (N, K // NVFP4_BLOCK_SIZE) or swizzled
+                                  scale of  (N // 32 // 4, K // NVFP4_BLOCK_SIZE // 4, 32, 16).
+        B_global (torch.Tensor):  One-element float32 tensor containing B's tensor-wide scale.
         scaling_block_size (int): The scaling block size.
 
     Returns:
@@ -245,14 +319,19 @@ def cutile_block_scaled_matmul(A: torch.Tensor, A_scale: torch.Tensor,
     # --- Input Validation ---
     if A.shape[1] != B.shape[1]:
         raise ValueError("Incompatible matrices")
-    if A.device != B.device or A.device != A_scale.device or A.device != B_scale.device:
+    if not (A.device == A_scale.device == A_global.device ==
+            B.device == B_scale.device == B_global.device):
         raise ValueError("Input tensors must be on the same device.")
-    if not A.is_cuda or not A_scale.is_cuda or not B.is_cuda or not B_scale.is_cuda:
+    if not (A.is_cuda and A_scale.is_cuda and A_global.is_cuda and
+            B.is_cuda and B_scale.is_cuda and B_global.is_cuda):
         raise ValueError("Input tensors must be on a CUDA device.")
+
+    A = A.view(torch.uint8)
+    B = B.view(torch.uint8)
+
     # Note: cuTile handles dtype compatibility within the kernel,
     # but inputs should generally match.
-
-    tm, tn, tk = 256, 256, 128
+    tm, tn, tk = 256, 256, 256
 
     # --- Get Matrix Dimensions ---
     m, _ = A.shape
@@ -275,14 +354,11 @@ def cutile_block_scaled_matmul(A: torch.Tensor, A_scale: torch.Tensor,
     C = torch.empty((m, n), device=A.device, dtype=torch.float32)
 
     # --- Launch the cuTile Kernel ---
-    # The `block_scaled_matmul_kernel` is launched with the calculated grid dimensions.
+    # The `nvfp4_block_scaled_matmul_kernel` is launched with the calculated grid dimensions.
     # `tm`, `tn`, and `tk` are passed as Constant integers to the kernel.
-    kernel = block_scaled_matmul_kernel
+    kernel = nvfp4_block_scaled_matmul_kernel
     ct.launch(torch.cuda.current_stream(), grid, kernel, (
-        A, A_scale,
-        B, B_scale,
-        C, tm, tn, tk, scaling_block_size))
-
+        A, A_scale, A_global, B, B_scale, B_global, C, tm, tn, tk, scaling_block_size))
     return C
 
 
@@ -296,27 +372,26 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if get_compute_capability()[0] < 10:
-        print("Skipped test: NOT Running cuTile Block Scaled Matrix Multiplication Examples "
+        print("Skipped test: NOT Running cuTile NVFP4 Matrix Multiplication Examples "
               "Blackwell or newer required.")
         sys.exit(0)
 
-    if get_tileiras_version() < BytecodeVersion.V_13_3:
-        print("Skipped test: NOT Running cuTile Block Scaled Matrix Multiplication Examples "
-              "tileiras version 13.3 required.")
+    if get_tileiras_version() < BytecodeVersion.V_13_4:
+        print("Skipped test: NOT Running cuTile NVFP4 Matrix Multiplication Examples "
+              "tileiras version 13.4 required.")
         sys.exit(0)
 
-    # --- Running cuTile Block Scaled Matrix Multiplication Examples ---
-    print("--- Running cuTile Block Scaled Matrix Multiplication Examples ---")
+    # --- Running cuTile NVFP4 Matrix Multiplication Examples ---
+    print("--- Running cuTile NVFP4 Matrix Multiplication Examples ---")
 
     # Define common matrix dimensions for the examples
     M_dim = 512
     N_dim = 512
     K_dim = 768
 
-    scaling_block_size = 32
-    KS_dim = K_dim // scaling_block_size
+    scaling_block_size = 16
 
-    print(f"\n--- Test Case: Block Scaled Matrix Multiplication with M = {M_dim}, N = {N_dim}, "
+    print(f"\n--- Test Case: NVFP4 Matrix Multiplication with M = {M_dim}, N = {N_dim}, "
           f"K = {K_dim}, Scaling Block Size = {scaling_block_size} ---")
 
     A = torch.rand((M_dim, K_dim), device='cuda:0')
@@ -324,33 +399,32 @@ if __name__ == "__main__":
 
     uncompressed_ref = A @ B.T
 
-    A, A_scale = block_quantize_f8e4m3fn_f8e8m0fnu(A, scaling_block_size)
-    B, B_scale = block_quantize_f8e4m3fn_f8e8m0fnu(B, scaling_block_size)
-
-    k = A.shape[-1]
-    ks = k // scaling_block_size
+    A, A_scale, A_global = block_quantize_f4e2m1fn_f8e4m3fn(A, scaling_block_size)
+    B, B_scale, B_global = block_quantize_f4e2m1fn_f8e4m3fn(B, scaling_block_size)
 
     A_s_swizzled = swizzle_32_4_4(A_scale)
     B_s_swizzled = swizzle_32_4_4(B_scale)
 
-    print(f"Input A shape: {A.shape}, dtype: {A.dtype}")
-    print(f"Input B shape: {B.shape}, dtype: {B.dtype}")
+    print(f"Input A packed shape: {A.shape}, dtype: {A.dtype}")
+    print(f"Input B packed shape: {B.shape}, dtype: {B.dtype}")
 
     kernel_atol, kernel_rtol = 1e-4, 1e-3
     compression_atol, compression_rtol = 0.5, 0.05
 
-    # Perform matrix multiplication using the cuTile wrapper function.
-    C_cutile = cutile_block_scaled_matmul(A, A_scale, B, B_scale, scaling_block_size)
+    # Perform NVFP4 matrix multiplication using the cuTile wrapper function.
+    C_cutile = cutile_nvfp4_matmul(A, A_scale, A_global, B, B_scale, B_global, scaling_block_size)
     torch.cuda.synchronize()
-    C_cutile_swizzled = cutile_block_scaled_matmul(A, A_s_swizzled, B, B_s_swizzled,
-                                                   scaling_block_size)
+    C_cutile_swizzled = cutile_nvfp4_matmul(A, A_s_swizzled, A_global, B, B_s_swizzled, B_global,
+                                            scaling_block_size)
     torch.cuda.synchronize()
     print(f"cuTile Output C shape: {C_cutile.shape}, dtype: {C_cutile.dtype}")
 
     if args.correctness_check:
         ref_A_scale = torch.repeat_interleave(A_scale, scaling_block_size, dim=1).to(torch.float32)
         ref_B_scale = torch.repeat_interleave(B_scale, scaling_block_size, dim=1).to(torch.float32)
-        ref = (A.to(torch.float32) * ref_A_scale) @ (B.T.to(torch.float32) * ref_B_scale.T)
+        ref_A = unpack_e2m1_bytes_to_float(A.view(torch.uint8))
+        ref_B = unpack_e2m1_bytes_to_float(B.view(torch.uint8))
+        ref = (ref_A * ref_A_scale * A_global) @ (ref_B.T * ref_B_scale.T * B_global)
 
         torch.testing.assert_close(C_cutile, ref, atol=kernel_atol, rtol=kernel_rtol)
         torch.testing.assert_close(C_cutile_swizzled, ref, atol=kernel_atol, rtol=kernel_rtol)
@@ -363,4 +437,4 @@ if __name__ == "__main__":
     else:
         print("Correctness check disabled")
 
-    print("\n--- cuTile block scaled matrix multiplication example completed. ---")
+    print("\n--- cuTile NVFP4 matrix multiplication example completed. ---")

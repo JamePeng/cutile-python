@@ -5,7 +5,7 @@
 import cuda.tile as ct
 import torch
 
-from kernels.matmul import swizzle_2d
+from kernels.kernel_utils import swizzle_2d
 
 ConstInt = ct.Constant[int]
 ConstBool = ct.Constant[bool]

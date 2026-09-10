@@ -28,7 +28,8 @@ SAMPLES_TO_TEST = [
     "LayerNorm.py",
     "MoE.py",
     "AllGatherMatmul.py",
-    "BlockScaledMatMul.py"
+    "BlockScaledMatMul.py",
+    "NVFP4ScaledMatMul.py",
 ]
 
 # Get the absolute path of the current directory to ensure the script

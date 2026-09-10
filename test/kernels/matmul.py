@@ -3,30 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import cuda.tile as ct
+from kernels.kernel_utils import swizzle_2d, swizzle_2d_from_bid
 
 # Define a type alias for Constant integers.
 # This makes kernel signatures cleaner and indicates that these parameters
 # are compile-time constants, which cuTile uses for optimization.
 ConstInt = ct.Constant[int]
-
-
-def swizzle_2d_from_bid(M, N, tm, tn, GROUP_SIZE_M, bid):
-    # Get the global IDs of a given block in a 1D grid.
-    num_bid_m = ct.cdiv(M, tm)
-    num_bid_n = ct.cdiv(N, tn)
-    num_bid_in_group = GROUP_SIZE_M * num_bid_n
-    group_id = bid // num_bid_in_group
-    first_bid_m = group_id * GROUP_SIZE_M
-    group_size_m = min(num_bid_m - first_bid_m, GROUP_SIZE_M)
-    bid_m = first_bid_m + (bid % group_size_m)
-    bid_n = (bid % num_bid_in_group) // group_size_m
-    return bid_m, bid_n
-
-
-def swizzle_2d(M, N, tm, tn, GROUP_SIZE_M):
-    # Get the global IDs of the current block in a 1D grid.
-    bid = ct.bid(0)
-    return swizzle_2d_from_bid(M, N, tm, tn, GROUP_SIZE_M, bid)
 
 
 @ct.kernel(num_ctas=ct.ByTarget(sm_100=2))

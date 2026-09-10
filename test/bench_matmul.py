@@ -15,10 +15,12 @@ from math import ceil
 from cuda.tile.tune import exhaustive_search
 
 import benchmark_tuning
-from kernels.kernel_utils import block_quantize, swizzle_32_4_4
+from kernels.kernel_utils import (block_quantize_f4e2m1fn_f8e4m3fn,
+                                  block_quantize_f8e4m3fn_f8e8m0fnu, swizzle_32_4_4,
+                                  unpack_e2m1_bytes_to_float)
 from kernels.matmul import (
     matmul_kernel, matmul_split_k_kernel, batch_matmul_kernel, persistent_matmul_kernel)
-from kernels.scaled_matmul import block_scaled_matmul_kernel
+from kernels.scaled_matmul import block_scaled_matmul_kernel, nvfp4_block_scaled_matmul_kernel
 from cuda.tile._bytecode.version import BytecodeVersion
 
 
@@ -77,36 +79,46 @@ def _run_batch_matmul_benchmark(shape, dtype, backend, benchmark,
     benchmark.extra_info['bytes_rw'] = bytes_rw
 
 
-def _make_scaled_matmul_inputs(shape, dtype, scaling_block_size):
+def _make_scaled_matmul_inputs(shape, scaling_block_size):
     m, n, k = shape
 
     A = torch.rand((m, k), device='cuda:0')
     B = torch.rand((n, k), device='cuda:0')
 
-    A, A_s = block_quantize(A, scaling_block_size, dtype)
-    B, B_s = block_quantize(B, scaling_block_size, dtype)
-
-    B = B.T
-    B_s = B_s.T
-
-    k = A.shape[-1]
+    A, A_s = block_quantize_f8e4m3fn_f8e8m0fnu(A, scaling_block_size)
+    B, B_s = block_quantize_f8e4m3fn_f8e8m0fnu(B, scaling_block_size)
 
     C = torch.zeros((m, n), dtype=torch.float32, device="cuda:0")
     return A, B, A_s, B_s, C
 
 
-def _run_swizzled_scaled_matmul_benchmark(shape, dtype, backend,
-                                          benchmark, extra_args=(), atol=1e-3, rtol=1e-3):
+def _make_nvfp4_scaled_matmul_inputs(shape, scaling_block_size):
     m, n, k = shape
-    scaling_block_size = 32  # this must be 32 because of hardware limitations
-    A, B, A_s, B_s, C = _make_scaled_matmul_inputs(shape, dtype, scaling_block_size)
+
+    A = torch.rand((m, k), device='cuda:0')
+    B = torch.rand((n, k), device='cuda:0')
+
+    A, A_s, A_g = block_quantize_f4e2m1fn_f8e4m3fn(A, scaling_block_size)
+    B, B_s, B_g = block_quantize_f4e2m1fn_f8e4m3fn(B, scaling_block_size)
+
+    C = torch.zeros((m, n), dtype=torch.float32, device="cuda")
+    return A, B, A_s, B_s, A_g, B_g, C
+
+
+def _run_swizzled_scaled_matmul_benchmark(shape, backend, benchmark, extra_args=(),
+                                          atol=1e-3, rtol=1e-3):
+
+    # check _mma_scaled_supported_dtypes in _datatype.py for allowed mma scaled block sizes
+    scaling_block_size = 32
+    m, n, k = shape
+    A, B, A_s, B_s, C = _make_scaled_matmul_inputs(shape, scaling_block_size)
     A_s_swizzled = swizzle_32_4_4(A_s)
-    B_s_swizzled = swizzle_32_4_4(B_s.T.contiguous())
-    args = (A, A_s_swizzled, B, B_s_swizzled, C) + extra_args
+    B_s_swizzled = swizzle_32_4_4(B_s)
+    args = (A, A_s_swizzled, B, B_s_swizzled, C, scaling_block_size) + extra_args
 
     ref_A_s = torch.repeat_interleave(A_s, scaling_block_size, dim=1).to(torch.float32)
-    ref_B_s = torch.repeat_interleave(B_s, scaling_block_size, dim=0).to(torch.float32)
-    ref = (A.to(torch.float32) * ref_A_s) @ (B.to(torch.float32) * ref_B_s)
+    ref_B_s = torch.repeat_interleave(B_s, scaling_block_size, dim=1).to(torch.float32)
+    ref = (A.to(torch.float32) * ref_A_s) @ (B.T.to(torch.float32) * ref_B_s.T)
 
     res = backend(*args)
     torch.testing.assert_close(res, ref, atol=atol, rtol=rtol)
@@ -120,6 +132,36 @@ def _run_swizzled_scaled_matmul_benchmark(shape, dtype, backend,
 
     flop_count = 2 * m * n * k
     bytes_rw = sum([t.numel() * t.dtype.itemsize for t in (A, A_s, B, B_s, C)])
+    benchmark.extra_info['flop_count'] = flop_count
+    benchmark.extra_info['bytes_rw'] = bytes_rw
+
+
+def _run_nvfp4_matmul_benchmark(shape, backend, benchmark, extra_args=(), atol=1e-3, rtol=1e-3):
+    m, n, k = shape
+    scaling_block_size = 16
+    A, B, A_s, B_s, A_g, B_g, C = _make_nvfp4_scaled_matmul_inputs(shape, scaling_block_size)
+    A_s_swizzled = swizzle_32_4_4(A_s)
+    B_s_swizzled = swizzle_32_4_4(B_s)
+    args = (A, A_s_swizzled, A_g, B, B_s_swizzled, B_g, C, scaling_block_size) + extra_args
+
+    ref_A_s = torch.repeat_interleave(A_s, scaling_block_size, dim=1).to(torch.float32)
+    ref_B_s = torch.repeat_interleave(B_s, scaling_block_size, dim=1).to(torch.float32)
+    ref_A = unpack_e2m1_bytes_to_float(A.view(torch.uint8))
+    ref_B = unpack_e2m1_bytes_to_float(B.view(torch.uint8))
+    ref = (ref_A * ref_A_s * A_g) @ (ref_B.T * ref_B_s.T * B_g)
+
+    res = backend(*args)
+    torch.testing.assert_close(res, ref, atol=atol, rtol=rtol)
+
+    torch.cuda.synchronize()
+    warmup_rounds, iterations, rounds = estimate_bench_iter(backend, args, cudagraph=True)
+    benchmark.pedantic(
+        backend, args,
+        rounds=rounds, warmup_rounds=warmup_rounds, iterations=iterations, cudagraph=True
+    )
+
+    flop_count = 2 * m * n * k
+    bytes_rw = sum([t.numel() * t.dtype.itemsize for t in (A, A_s, A_g, B, B_s, B_g, C)])
     benchmark.extra_info['flop_count'] = flop_count
     benchmark.extra_info['bytes_rw'] = bytes_rw
 
@@ -195,7 +237,6 @@ def torch_matmul(A, B, C):
 
 
 # =============================== Matmul Split K =============================
-
 
 @pytest.fixture(params=[
     (256, 256, 4096),
@@ -425,37 +466,28 @@ def scaled_matmul_shape(request):
     return request.param
 
 
-@pytest.fixture(params=[
-    torch.float8_e4m3fn
-], ids=dtype_id)
-def scaled_matmul_dtype(request):
-    return request.param
-
-
 @require_blackwell_or_newer()
 @requires_tileiras(BytecodeVersion.V_13_3)
 @pytest.mark.benchmark(group='mma_scaled_swizzled')
-def bench_swizzled_scaled_matmul(scaled_matmul_shape, scaled_matmul_dtype, backend, benchmark):
-    _run_swizzled_scaled_matmul_benchmark(scaled_matmul_shape,
-                                          scaled_matmul_dtype, backend, benchmark)
+def bench_swizzled_scaled_matmul(scaled_matmul_shape, backend, benchmark):
+    _run_swizzled_scaled_matmul_benchmark(scaled_matmul_shape, backend, benchmark)
 
 
-def cutile_swizzled_scaled_matmul(A, A_s_swizzled, B, B_s_swizzled, C):
-    scaling_block_size = 32
+def cutile_swizzled_scaled_matmul(A, A_s_swizzled, B, B_s_swizzled, C, scaling_block_size):
     cfg = benchmark_tuning.get_tuned_config(tune_swizzled_scaled_matmul)
     kernel = get_kernel(block_scaled_matmul_kernel, num_ctas=cfg['num_ctas'])
     tm, tn, tk = cfg['tm'], cfg['tn'], cfg['tk']
-    m, n, _ = A.shape[0], B.shape[1], A.shape[1]
+    m, n, _ = A.shape[0], B.shape[0], A.shape[1]
     grid = (ct.cdiv(m, tm) * ct.cdiv(n, tn), 1, 1)
     ct.launch(torch.cuda.current_stream(), grid, kernel,
               (A, A_s_swizzled, B, B_s_swizzled, C, tm, tn, tk, scaling_block_size))
     return C
 
 
-def torch_swizzled_scaled_matmul(A, A_s_swizzled, B, B_s_swizzled, C):
+def torch_swizzled_scaled_matmul(A, A_s_swizzled, B, B_s_swizzled, C, scaling_block_size):
 
     return torch.nn.functional.scaled_mm(
-                                    A, B,
+                                    A, B.T,
                                     scale_a=A_s_swizzled, scale_b=B_s_swizzled,
                                     scale_recipe_a=torch.nn.functional.ScalingType.BlockWise1x32,
                                     scale_recipe_b=torch.nn.functional.ScalingType.BlockWise1x32,
@@ -478,11 +510,10 @@ def _swizzled_scaled_matmul_search_space():
 
 def tune_swizzled_scaled_matmul():
     m, n, k = (4096, 4096, 4096)
-    dtype = torch.float8_e4m3fn
     scaling_block_size = 32
-    A, B, A_s, B_s, C = _make_scaled_matmul_inputs((m, n, k), dtype, scaling_block_size)
+    A, B, A_s, B_s, C = _make_scaled_matmul_inputs((m, n, k), scaling_block_size)
     A_s_swizzled = swizzle_32_4_4(A_s)
-    B_s_swizzled = swizzle_32_4_4(B_s.T.contiguous())
+    B_s_swizzled = swizzle_32_4_4(B_s)
     with ct.compiler_timeout(5):
         return exhaustive_search(
             _swizzled_scaled_matmul_search_space(),
@@ -490,6 +521,86 @@ def tune_swizzled_scaled_matmul():
             grid_fn=lambda cfg: (ct.cdiv(m, cfg["tm"]) * ct.cdiv(n, cfg["tn"]), ),
             kernel=block_scaled_matmul_kernel,
             args_fn=lambda cfg: (A, A_s_swizzled, B, B_s_swizzled, C,
+                                 cfg["tm"], cfg["tn"], cfg["tk"], scaling_block_size),
+            hints_fn=lambda cfg: {"num_ctas": cfg["num_ctas"]},
+        )
+
+
+# =============================== NVFP4 Matmul =============================
+
+@pytest.fixture(params=[
+    (1024, 1024, 1024),
+    (8192, 8192, 8192),
+    (12288, 4096, 2560),
+], ids=shape_id)
+def nvfp4_matmul_shape(request):
+    return request.param
+
+
+@require_blackwell_or_newer()
+@requires_tileiras(BytecodeVersion.V_13_4)
+@pytest.mark.benchmark(group='mma_scaled_swizzled')
+def bench_nvfp4_matmul(nvfp4_matmul_shape, backend, benchmark):
+    _run_nvfp4_matmul_benchmark(nvfp4_matmul_shape, backend, benchmark)
+
+
+def cutile_nvfp4_matmul(A, A_s_swizzled, A_g, B, B_s_swizzled, B_g, C, scaling_block_size):
+    cfg = benchmark_tuning.get_tuned_config(tune_nvfp4_matmul)
+    kernel = get_kernel(nvfp4_block_scaled_matmul_kernel, num_ctas=cfg['num_ctas'])
+    tm, tn, tk = cfg['tm'], cfg['tn'], cfg['tk']
+    m, n, _ = A.shape[0], B.shape[0], A.shape[1]
+    grid = (ct.cdiv(m, tm) * ct.cdiv(n, tn), 1, 1)
+    A = A.view(torch.uint8)
+    B = B.view(torch.uint8)
+    ct.launch(torch.cuda.current_stream(), grid, kernel,
+              (A, A_s_swizzled, A_g, B, B_s_swizzled, B_g, C, tm, tn, tk, scaling_block_size))
+    return C
+
+
+def torch_nvfp4_matmul(A, A_s_swizzled, A_g, B, B_s_swizzled, B_g, C, scaling_block_size):
+
+    return torch.nn.functional.scaled_mm(
+                            A, B.T,
+                            scale_a=[A_s_swizzled, A_g], scale_b=[B_s_swizzled, B_g],
+                            scale_recipe_a=[torch.nn.functional.ScalingType.BlockWise1x16,
+                                            torch.nn.functional.ScalingType.TensorWise],
+                            scale_recipe_b=[torch.nn.functional.ScalingType.BlockWise1x16,
+                                            torch.nn.functional.ScalingType.TensorWise],
+                            swizzle_a=[torch.nn.functional.SwizzleType.SWIZZLE_32_4_4,
+                                       torch.nn.functional.SwizzleType.NO_SWIZZLE],
+                            swizzle_b=[torch.nn.functional.SwizzleType.SWIZZLE_32_4_4,
+                                       torch.nn.functional.SwizzleType.NO_SWIZZLE],
+                            output_dtype=torch.float32)
+
+
+def _nvfp4_matmul_search_space():
+    return [
+        {"tm": tm, "tn": tn, "tk": tk, "num_ctas": num_ctas}
+        for tm, tn, tk, num_ctas in product(
+            (128, 256),
+            (128, 256),
+            (128, 256),
+            (1, 2),
+        )
+    ]
+
+
+def tune_nvfp4_matmul():
+    m, n, k = (4096, 4096, 4096)
+    scaling_block_size = 16
+    A, B, A_s, B_s, A_g, B_g, C = _make_nvfp4_scaled_matmul_inputs((m, n, k), scaling_block_size)
+    A_s_swizzled = swizzle_32_4_4(A_s)
+    B_s_swizzled = swizzle_32_4_4(B_s)
+    A = A.view(torch.uint8)
+    B = B.view(torch.uint8)
+
+    with ct.compiler_timeout(5):
+        return exhaustive_search(
+            _nvfp4_matmul_search_space(),
+            torch.cuda.current_stream(),
+            grid_fn=lambda cfg: (ct.cdiv(m, cfg["tm"]) * ct.cdiv(n, cfg["tn"]), ),
+            kernel=nvfp4_block_scaled_matmul_kernel,
+            args_fn=lambda cfg: (A, A_s_swizzled, A_g, B, B_s_swizzled, B_g, C,
                                  cfg["tm"], cfg["tn"], cfg["tk"], scaling_block_size),
             hints_fn=lambda cfg: {"num_ctas": cfg["num_ctas"]},
         )
