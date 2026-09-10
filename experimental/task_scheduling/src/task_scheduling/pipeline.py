@@ -81,6 +81,8 @@ class DevicePipelineBinding:
     producer_cta_leader: bool = False
     consumer_cta_leader: bool = False
     consumer_wait_cta_leader: bool = False
+    advance_on_wait: bool = False
+    tcgen05_fence_after_wait: bool = True
     full_barrier_offset: int = -1
     empty_barrier_offset: int = -1
 
@@ -132,6 +134,8 @@ class DevicePipelineBinding:
             producer_cta_leader=config.producer_signaling_threads.has_cta_leader(),
             consumer_cta_leader=config.consumer_signaling_threads.has_cta_leader(),
             consumer_wait_cta_leader=consumer_wait_signaling.has_cta_leader(),
+            advance_on_wait=config.advance_on_wait,
+            tcgen05_fence_after_wait=config.tcgen05_fence_after_wait,
         )
 
     @property
@@ -319,8 +323,8 @@ def require_device_support(config: PipelineConfig) -> None:
     unsupported = []
     if config.has_interleaved_stride:
         unsupported.append("interleave strides")
-    if config.advance_on_wait or config.advance_on_acquire:
-        unsupported.append("split state advancement")
+    if config.advance_on_acquire:
+        unsupported.append("producer split state advancement")
     cta_layout_vmnk = _normalize_cta_layout(config.cta_layout_vmnk)
     if (
         config.pipeline_type

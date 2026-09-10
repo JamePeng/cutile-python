@@ -38,7 +38,7 @@ class UnifiedStaticResource(ts.MemoryResource):
 
 
 @dataclass(kw_only=True, eq=False)
-class ManyStaticArgsResource(ts.MemoryResource):
+class ManyConstexprArgsResource(ts.MemoryResource):
     @ts.consumer_work(outputs=1)
     @staticmethod
     def produce(stage_info):
@@ -372,27 +372,8 @@ def test_work_arguments_infer_static_or_dataflow_bindings():
     assert routed_step.constexpr_kwargs == {}
 
 
-def test_explicit_static_work_argument_rejects_dataflow_token():
-    @dataclass(kw_only=True, eq=False)
-    class StaticResource(ts.MemoryResource):
-        @ts.consumer_work(outputs=1, static_args=("subtile",))
-        def load(self, stage_info, subtile):
-            del stage_info
-            return subtile
-
-    resource = StaticResource(name="static")
-
-    @ts.schedule
-    def invalid(item):
-        token = item.load(subtile=1)
-        item.load(subtile=token)
-
-    with pytest.raises(ts.ScheduleError, match="static input"):
-        invalid(resource)
-
-
-def test_device_work_supports_arbitrary_static_argument_count():
-    resource = ManyStaticArgsResource(name="many_static_args")
+def test_device_work_supports_arbitrary_constexpr_argument_count():
+    resource = ManyConstexprArgsResource(name="many_constexpr_args")
 
     @ts.schedule
     def captured(data):
@@ -407,7 +388,7 @@ def test_device_work_supports_arbitrary_static_argument_count():
         schedule=captured(resource),
     )
     device_task = task.to_device()
-    assert device_task.body[1].static_args == (1, 2, 3, 4)
+    assert device_task.body[1].constexpr_args == (1, 2, 3, 4)
     assert device_task.body[1].argument_order == (1, 0, 2, 3, 4)
 
     @cl.kernel

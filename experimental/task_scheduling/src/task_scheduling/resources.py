@@ -58,6 +58,7 @@ class PipelineConfig:
     consumer_wait_signaling_threads: SignalingThreads | None = None
     advance_on_wait: bool = False
     advance_on_acquire: bool = False
+    tcgen05_fence_after_wait: bool = True
     num_bytes_per_warp_per_cta: int | None = None
     mcast_mode_mn: tuple[int, int] = (1, 1)
     interleave_stride: int | tuple[int, int, int, int] = 1
@@ -85,6 +86,8 @@ class PipelineConfig:
                 self.consumer_wait_signaling_threads,
                 "consumer_wait_signaling_threads",
             )
+        if type(self.tcgen05_fence_after_wait) is not bool:
+            raise TypeError("tcgen05_fence_after_wait must be a bool")
         strides = self.interleave_strides
         for stride in strides:
             if self.num_stages % stride:
@@ -301,7 +304,6 @@ def _work_decorator(
     producer: bool,
     work_attrs: WorkAttr,
     outputs: int = 0,
-    static_args: tuple[str, ...] = (),
 ) -> Callable[..., object]:
     WorkAttr.validate(work_attrs, "work_attrs")
     if type(outputs) is not int or outputs < 0:
@@ -313,19 +315,6 @@ def _work_decorator(
         is_static = isinstance(fn, staticmethod)
         work_fn = fn.__func__ if is_static else fn
         parameter_names, required = _work_schema(work_fn, static=is_static)
-        if not isinstance(static_args, tuple) or not all(
-            isinstance(name, str) for name in static_args
-        ):
-            raise TypeError("static_args must be a tuple of parameter names")
-        if len(set(static_args)) != len(static_args):
-            raise ValueError("static_args cannot contain duplicate names")
-        unknown_static = set(static_args) - set(parameter_names)
-        if unknown_static:
-            raise ValueError(
-                f"static_args contains unknown parameters {unknown_static}"
-            )
-        routed = tuple(name for name in parameter_names if name not in static_args)
-        required = tuple(name for name in required if name not in static_args)
 
         if is_static:
             @functools.wraps(work_fn)
@@ -340,10 +329,9 @@ def _work_decorator(
         prefix = "producer" if producer else "consumer"
         registry_attr = _PRODUCER_WORK_FNS_ATTR if producer else _CONSUMER_WORK_FNS_ATTR
         setattr(wrapper, registry_attr, {work_fn.__name__: work_fn.__name__})
-        setattr(wrapper, f"_{prefix}_routed_names", routed)
-        setattr(wrapper, f"_{prefix}_routed_positional_names", routed)
+        setattr(wrapper, f"_{prefix}_routed_names", parameter_names)
+        setattr(wrapper, f"_{prefix}_routed_positional_names", parameter_names)
         setattr(wrapper, f"_{prefix}_required_routed_names", required)
-        setattr(wrapper, f"_{prefix}_static_names", static_args)
         setattr(wrapper, f"_{prefix}_parameter_names", parameter_names)
         setattr(wrapper, f"_{prefix}_work_attrs", work_attrs)
         setattr(
@@ -370,14 +358,12 @@ def consumer_work(
     *,
     work_attrs=WorkAttr.NONE,
     outputs=0,
-    static_args=(),
 ):
     return _work_decorator(
         method,
         producer=False,
         work_attrs=work_attrs,
         outputs=outputs,
-        static_args=static_args,
     )
 
 
@@ -386,14 +372,12 @@ def producer_work(
     *,
     work_attrs=WorkAttr.NONE,
     outputs=0,
-    static_args=(),
 ):
     return _work_decorator(
         method,
         producer=True,
         work_attrs=work_attrs,
         outputs=outputs,
-        static_args=static_args,
     )
 
 

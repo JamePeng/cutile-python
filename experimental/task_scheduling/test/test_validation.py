@@ -9,7 +9,7 @@ from task_scheduling_test_requirements import cuda_lang as cl
 from task_scheduling_test_requirements import task_scheduling as ts
 
 from cuda.lang.compilation import KernelSignature
-from task_scheduling.task import DeviceDebugStep
+from task_scheduling.task import DeviceDebugStep, DevicePipelineStep
 
 
 def config(stages=1):
@@ -532,9 +532,60 @@ def test_invalid_bracketing_is_actionable():
         ts.TaskManager([task], {pipe: [source]}, exhaustive_deadlock_race_check=False)
 
 
-def test_blocking_pipeline_ops_require_matching_try_probe():
+def test_advance_on_wait_allows_multiple_outstanding_consumer_stages():
+    pipeline_config = ts.PipelineConfig.create_tma_umma_pipeline_cfg(
+        2,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(1),
+        advance_on_wait=True,
+    )
+    pipe = Pipe(name="advance_on_wait_pipe", pipeline_config=pipeline_config)
+    source, sink, producer, _ = make_balanced_tasks(pipe)
+
+    @ts.schedule
+    def consumer(resource):
+        resource.try_wait()
+        resource.wait()
+        resource.read()
+        resource.try_wait()
+        resource.wait()
+        resource.read()
+        resource.release()
+        resource.release()
+
+    task = ts.Task([pipe], [sink], 1, 1, schedule=consumer(pipe), name="consumer")
+    manager = ts.TaskManager(
+        [producer, task],
+        {pipe: [source], sink: [pipe]},
+        exhaustive_deadlock_race_check=False,
+    )
+
+    device_producer, device_consumer = manager.to_device().tasks
+    wait_steps = [
+        step
+        for step in device_consumer.body
+        if isinstance(step, DevicePipelineStep)
+        and step.action == DevicePipelineStep.WAIT
+    ]
+    release_steps = [
+        step
+        for step in device_consumer.body
+        if isinstance(step, DevicePipelineStep)
+        and step.action == DevicePipelineStep.RELEASE
+    ]
+    assert len(wait_steps) == 2
+    assert len(release_steps) == 2
+    assert wait_steps[0].consumer_work_state_slot >= 0
+    assert release_steps[0].state_slot != wait_steps[0].state_slot
+    assert len(device_producer.initial_pipeline_states) == 1
+    assert len(device_consumer.initial_pipeline_states) == 3
+
+
+def test_blocking_pipeline_ops_allow_omitting_try_probe():
     pipe = Pipe(name="pipe", pipeline_config=config())
     source = ts.MemoryResource(name="source")
+    sink = ts.MemoryResource(name="sink")
 
     @ts.schedule
     def producer_without_try(resource):
@@ -542,7 +593,7 @@ def test_blocking_pipeline_ops_require_matching_try_probe():
         resource.write()
         resource.commit()
 
-    task = ts.Task(
+    producer = ts.Task(
         [source],
         [pipe],
         0,
@@ -550,12 +601,45 @@ def test_blocking_pipeline_ops_require_matching_try_probe():
         schedule=producer_without_try(pipe),
         name="producer_without_try",
     )
-    with pytest.raises(ValueError, match="ProducerTryAcquire"):
-        ts.TaskManager(
-            [task],
-            {pipe: [source]},
-            exhaustive_deadlock_race_check=False,
-        )
+
+    @ts.schedule
+    def consumer_without_try(resource):
+        resource.wait()
+        resource.read()
+        resource.release()
+
+    consumer = ts.Task(
+        [pipe],
+        [sink],
+        1,
+        1,
+        schedule=consumer_without_try(pipe),
+        name="consumer_without_try",
+    )
+    manager = ts.TaskManager(
+        [producer, consumer],
+        {pipe: [source], sink: [pipe]},
+        exhaustive_deadlock_race_check=False,
+    )
+    device_producer, device_consumer = manager.to_device().tasks
+    producer_actions = [
+        step.action
+        for step in device_producer.body
+        if isinstance(step, DevicePipelineStep)
+    ]
+    consumer_actions = [
+        step.action
+        for step in device_consumer.body
+        if isinstance(step, DevicePipelineStep)
+    ]
+    assert producer_actions == [
+        DevicePipelineStep.ACQUIRE,
+        DevicePipelineStep.COMMIT,
+    ]
+    assert consumer_actions == [
+        DevicePipelineStep.WAIT,
+        DevicePipelineStep.RELEASE,
+    ]
 
 
 def test_deadlock_witness_for_consumer_without_producer(capsys):

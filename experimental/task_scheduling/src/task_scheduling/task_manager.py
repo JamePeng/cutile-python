@@ -289,26 +289,10 @@ class TaskManager:
         }
         for task in self.tasks:
             state = {}
-            tried = set()
             for step in _iter_steps(task.schedule):
                 rid = id(step.memory_resource)
                 stage = step.schedule_stage
-                if stage is ScheduleStage.ProducerTryAcquire:
-                    tried.add((rid, "producer"))
-                elif stage is ScheduleStage.ConsumerTryWait:
-                    tried.add((rid, "consumer"))
-                elif stage is ScheduleStage.ProducerAcquire:
-                    config = step.memory_resource.pipeline_config
-                    if (
-                        config is not None
-                        and config.supports_try_probe_ops
-                        and (rid, "producer") not in tried
-                    ):
-                        raise ValueError(
-                            "ProducerAcquire must be preceded by "
-                            "ProducerTryAcquire on the same resource"
-                        )
-                    tried.discard((rid, "producer"))
+                if stage is ScheduleStage.ProducerAcquire:
                     if state.get((rid, "producer")):
                         raise ValueError("nested ProducerAcquire without commit")
                     state[(rid, "producer")] = True
@@ -325,19 +309,12 @@ class TaskManager:
                         raise ValueError("ProducerCommit without ProducerAcquire")
                 elif stage is ScheduleStage.ConsumerWait:
                     config = step.memory_resource.pipeline_config
-                    if (
-                        config is not None
-                        and config.supports_try_probe_ops
-                        and (rid, "consumer") not in tried
+                    open_count = state.get((rid, "consumer"), 0)
+                    if open_count and not (
+                        config is not None and config.advance_on_wait
                     ):
-                        raise ValueError(
-                            "ConsumerWait must be preceded by ConsumerTryWait "
-                            "on the same resource"
-                        )
-                    tried.discard((rid, "consumer"))
-                    if state.get((rid, "consumer")):
                         raise ValueError("nested ConsumerWait without release")
-                    state[(rid, "consumer")] = True
+                    state[(rid, "consumer")] = open_count + 1
                 elif stage is ScheduleStage.ConsumerWork:
                     if step.memory_resource.pipeline_config and not state.get(
                         (rid, "consumer")
@@ -347,8 +324,13 @@ class TaskManager:
                             "is not bracketed by wait/release"
                         )
                 elif stage is ScheduleStage.ConsumerRelease:
-                    if not state.pop((rid, "consumer"), False):
+                    open_count = state.get((rid, "consumer"), 0)
+                    if not open_count:
                         raise ValueError("ConsumerRelease without ConsumerWait")
+                    if open_count == 1:
+                        state.pop((rid, "consumer"))
+                    else:
+                        state[(rid, "consumer")] = open_count - 1
             if state:
                 raise ValueError(f"{task.name}: unterminated pipeline work group")
         del producer_open
@@ -430,11 +412,20 @@ class TaskManager:
                 (assignment, result, verbose_output)
             )
             if not result.is_safe:
-                witness = (
-                    result.deadlock_states[0].format_lines()[0]
-                    if result.deadlock_states
-                    else f"aliasing race: {result.race_states[0].overlap_desc}"
-                )
+                if result.deadlock_states:
+                    witness = result.deadlock_states[0].format_lines()[0]
+                elif result.race_states:
+                    witness = (
+                        f"aliasing race: {result.race_states[0].overlap_desc}"
+                    )
+                elif result.hit_state_limit:
+                    witness = (
+                        "inconclusive: exhaustive checker hit its state limit "
+                        f"after {result.states_explored} states without reaching "
+                        "a complete execution"
+                    )
+                else:
+                    witness = "inconclusive: no complete execution or witness"
                 raise ValueError(
                     f"exhaustive schedule validation failed for opaque "
                     f"assignment {assignment}: {witness}"

@@ -484,7 +484,15 @@ def array_from_parts_impl(pointer: Var, shape: Var, strides: Var) -> Var:
                 f"{len(shape_vars)} and {len(stride_vars)}"
             )
 
-    index_dtype = datatype.int32
+    # Descriptor-only views may have constant dimensions or element strides
+    # outside signed i32. Preserve those values without widening ordinary views.
+    metadata_vars = shape_vars + (() if stride_vars is None else stride_vars)
+    index_dtype = (
+        datatype.int64
+        if any(var.is_constant() and not -(1 << 31) <= var.get_constant() < (1 << 31)
+               for var in metadata_vars)
+        else datatype.int32
+    )
     shape_vars = tuple(
         implicit_cast(var, index_dtype, "Invalid array shape") for var in shape_vars
     )

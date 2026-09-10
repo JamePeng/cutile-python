@@ -60,9 +60,52 @@ def test_work_tile_loop_freezes_with_static_persistent_scheduler():
 
     device_manager = manager.to_device()
     assert len(device_manager.tasks) == 1
+    work_tile_loop = next(
+        node
+        for node in device_manager.tasks[0].body
+        if isinstance(node, DeviceWorkTileLoop)
+    )
+    assert work_tile_loop.skip_if is None
+    assert work_tile_loop.skip_context is None
+    assert not work_tile_loop.bind_skip_context
     advance = _work_queue_advance(device_manager.tasks[0])
     assert advance.tile_scheduler_type is TileSchedulerType.StaticPersistent
     assert advance.pipeline_slot == -1
+
+
+def test_work_tile_loop_freezes_skip_predicate():
+    params = ts.PersistentTileSchedulerParams(
+        problem_shape_ntile_mnl=(4, 2, 1),
+        cluster_shape_mnk=(1, 1, 1),
+    )
+    queue = ts.WorkQueue(
+        name="queue",
+        tile_scheduler_config=(
+            ts.TileSchedulerConfig.create_static_persistent_tile_scheduler_params(
+                params
+            )
+        ),
+    )
+
+    def skip_if(_queue, work_tile):
+        return work_tile.tile_idx[0] >= 2
+
+    @ts.schedule
+    def persistent(wq):
+        with ts.work_tile_loop(wq, skip_if=skip_if) as work_tiles:
+            with work_tiles.skippable():
+                wq.try_wait()
+            wq.get_and_advance_work_tile()
+
+    task = ts.Task(0, 1, schedule=persistent(queue), name="PersistentTask")
+    manager = ts.TaskManager([task], {}, verbose=False)
+    device_task = manager.to_device().tasks[0]
+    work_tile_loop = next(
+        node for node in device_task.body if isinstance(node, DeviceWorkTileLoop)
+    )
+
+    assert work_tile_loop.skip_if is skip_if
+    assert work_tile_loop.skip_context is queue
 
 
 def test_pdl_resources_use_their_static_work_methods():

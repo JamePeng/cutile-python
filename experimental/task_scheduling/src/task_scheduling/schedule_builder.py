@@ -279,7 +279,6 @@ class _WorkInfo:
     label: str | None
     parameter_names: tuple[str, ...] = ()
     routed_names: tuple[str, ...] = ()
-    static_names: tuple[str, ...] = ()
     output_count: int = 0
 
 
@@ -475,7 +474,6 @@ class ResourceProxy:
                         method, f"_{prefix}_parameter_names", ()
                     ),
                     routed_names=getattr(method, f"_{prefix}_routed_names", ()),
-                    static_names=getattr(method, f"_{prefix}_static_names", ()),
                     output_count=getattr(method, "_ts_route_output_count", 0),
                 )
 
@@ -508,16 +506,8 @@ class ResourceProxy:
                 raise ScheduleError(
                     f"invalid routed inputs; missing={missing}, extra={extra}"
                 )
-            explicit_static = set(info.static_names)
             for argument in parameter_names:
                 value = bound[argument]
-                if argument in explicit_static:
-                    if isinstance(value, ScheduleValue):
-                        raise ScheduleError(
-                            f"static input {argument!r} cannot be a dataflow token"
-                        )
-                    step.constexpr_kwargs[argument] = value
-                    continue
                 if not isinstance(value, ScheduleValue):
                     step.constexpr_kwargs[argument] = value
                     continue

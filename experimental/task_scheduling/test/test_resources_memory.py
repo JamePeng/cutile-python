@@ -35,6 +35,42 @@ def test_pipeline_config_interleave_validation_and_offsets():
         )
 
 
+def test_tcgen05_fence_after_wait_is_explicit_and_validated():
+    default = ts.PipelineConfig.create_tma_umma_pipeline_cfg(
+        1,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(128),
+    )
+    assert default.tcgen05_fence_after_wait is True
+    assert (
+        ts.DevicePipelineBinding.from_config(default).tcgen05_fence_after_wait
+        is True
+    )
+
+    disabled = ts.PipelineConfig.create_tma_umma_pipeline_cfg(
+        1,
+        128,
+        ts.CooperativeGroup(1),
+        ts.CooperativeGroup(128),
+        tcgen05_fence_after_wait=False,
+    )
+    assert disabled.tcgen05_fence_after_wait is False
+    assert (
+        ts.DevicePipelineBinding.from_config(disabled).tcgen05_fence_after_wait
+        is False
+    )
+
+    with pytest.raises(TypeError, match="tcgen05_fence_after_wait must be a bool"):
+        ts.PipelineConfig.create_tma_umma_pipeline_cfg(
+            1,
+            128,
+            ts.CooperativeGroup(1),
+            ts.CooperativeGroup(128),
+            tcgen05_fence_after_wait=0,
+        )
+
+
 def test_smem_alignment_alias_phases_and_capacity():
     a = ts.SmemAllocation("a", 33, 32)
     b = ts.SmemAllocation("b", 16, 16)

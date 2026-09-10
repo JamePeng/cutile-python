@@ -138,7 +138,7 @@ class DeviceGuard:
 class DeviceStep:
     callback: object
     unique_id: int
-    static_args: tuple[object, ...] = ()
+    constexpr_args: tuple[object, ...] = ()
     argument_order: tuple[int, ...] = ()
     pipeline_slot: int = -1
     input_slots: tuple[int, ...] = ()
@@ -193,7 +193,7 @@ class DeviceStep:
             context.route(self.input_slots[index])
             for index in cl.static_iter(range(len(self.input_slots)))
         )
-        unordered_values = routed_values + self.static_args
+        unordered_values = routed_values + self.constexpr_args
         ordered_values = tuple(
             unordered_values[index]
             for index in cl.static_iter(self.argument_order)
@@ -217,7 +217,7 @@ class DeviceStep:
             result = self._call_with_routed_values(context)
             return self._store_routed_values(context, result)
         callback_argument = self._callback_argument(context)
-        return self.callback(callback_argument, *self.static_args)
+        return self.callback(callback_argument, *self.constexpr_args)
 
 
 @dataclass(frozen=True)
@@ -374,6 +374,7 @@ class DevicePipelineStep:
     state_slot: int
     unique_id: int
     task_warp_start: int = 0
+    consumer_work_state_slot: int = -1
 
     def _signal_selected(self, context: ExecutionContext, producer: bool):
         """Select one fixed lane when a barrier expects one signaling thread."""
@@ -561,20 +562,30 @@ class DevicePipelineStep:
 
         if self.action == self.WAIT:
             if not self._wait_selected(False):
-                return context.store_pipeline_state(
-                    self.state_slot, state.with_status(False)
-                )
+                state = state.with_status(False)
+                if self.binding.advance_on_wait:
+                    context = context.store_pipeline_state(
+                        self.consumer_work_state_slot,
+                        state,
+                    )
+                    state = state.advance(self.binding.num_stages)
+                return context.store_pipeline_state(self.state_slot, state)
             if not state.status:
                 _mbarrier_wait_parity(full, state.phase)
-            if self.binding.kind in (
+            if self.binding.tcgen05_fence_after_wait and self.binding.kind in (
                 DevicePipelineBinding.TMA_UMMA,
                 DevicePipelineBinding.ASYNC_UMMA,
                 DevicePipelineBinding.UMMA_ASYNC,
             ):
                 cl.tcgen05_fence_after_thread_sync()
-            return context.store_pipeline_state(
-                self.state_slot, state.with_status(False)
-            )
+            state = state.with_status(False)
+            if self.binding.advance_on_wait:
+                context = context.store_pipeline_state(
+                    self.consumer_work_state_slot,
+                    state,
+                )
+                state = state.advance(self.binding.num_stages)
+            return context.store_pipeline_state(self.state_slot, state)
 
         if self._signal_selected(context, False):
             if self.binding.kind in (
@@ -728,24 +739,38 @@ class DeviceWorkTileLoop:
 
     body: tuple[object, ...]
     tile_scheduler_config: object
+    skip_if: object | None = None
+    skip_context: object | None = None
+    bind_skip_context: bool = False
     release_count: int = 0
 
     def __call__(self, context: ExecutionContext) -> ExecutionContext:
         scheduler = self.tile_scheduler_config.create(context.smem_base)
         outer_work_tile = context.work_tile
+        outer_skipped = context.skipped
         route_depth = len(context.route_values)
+        skip_context = self.skip_context
+        if self.bind_skip_context:
+            skip_context = skip_context.bind_inputs(context.tasks_inputs)
         context = replace(
             context,
             tile_scheduler=scheduler,
             work_tile=scheduler.initial_work_tile_info(),
         )
         while context.work_tile.is_valid_tile:
-            body_context = _run_device_nodes(self.body, context)
+            skipped = False
+            if self.skip_if is not None:
+                skipped = self.skip_if(skip_context, context.work_tile)
+            body_context = _run_device_nodes(
+                self.body,
+                replace(context, skipped=skipped),
+            )
             context = body_context.truncate_routes(route_depth)
         context = replace(
             context,
             work_tile=outer_work_tile,
             tile_scheduler=None,
+            skipped=outer_skipped,
         )
         return context.pop_routes(self.release_count)
 
@@ -1565,6 +1590,35 @@ class Task:
         for resource in dual_pipeline_resources:
             producer_pipeline_slots[resource] = len(pipeline_slot_resources)
             pipeline_slot_resources.append(resource)
+        consumer_release_pipeline_slots = dict(pipeline_slots)
+        consumer_work_pipeline_slots = dict(pipeline_slots)
+        for resource in pipeline_resources:
+            config = resource.pipeline_config
+            if (
+                config is None
+                or not config.advance_on_wait
+                or resource not in self.consumer_resources
+            ):
+                continue
+            consumer_release_pipeline_slots[resource] = len(
+                pipeline_slot_resources
+            )
+            pipeline_slot_resources.append(resource)
+            has_consumer_wait = any(
+                isinstance(node, Step)
+                and node.memory_resource is resource
+                and node.schedule_stage is ScheduleStage.ConsumerWait
+                for node in _iter_nodes(self.schedule.body)
+            )
+            if has_consumer_wait:
+                consumer_work_pipeline_slots[resource] = len(
+                    pipeline_slot_resources
+                )
+                pipeline_slot_resources.append(resource)
+            else:
+                consumer_work_pipeline_slots[resource] = (
+                    consumer_release_pipeline_slots[resource]
+                )
         resolved_pipeline_bindings = {}
         next_barrier_offset = 0
         for resource in pipeline_resources:
@@ -1577,17 +1631,14 @@ class Task:
             if binding is not None:
                 resolved_pipeline_bindings[resource] = binding
             next_barrier_offset += 2 * resource.pipeline_config.num_stages
+        producer_state_slots = {
+            producer_pipeline_slots[resource]
+            for resource in pipeline_resources
+            if resource in self.producer_resources
+        }
         initial_pipeline_states = tuple(
             PipelineState(
-                phase=(
-                    1
-                    if slot >= len(pipeline_resources)
-                    or (
-                        resource not in dual_pipeline_resources
-                        and any(resource is item for item in self.dst_resources)
-                    )
-                    else 0
-                )
+                phase=1 if slot in producer_state_slots else 0
             )
             for slot, resource in enumerate(pipeline_slot_resources)
         )
@@ -1806,17 +1857,27 @@ class Task:
                         (
                             producer_pipeline_slots[node.memory_resource]
                             if node.schedule_stage in producer_stages
+                            else consumer_release_pipeline_slots[
+                                node.memory_resource
+                            ]
+                            if node.schedule_stage
+                            is ScheduleStage.ConsumerRelease
                             else pipeline_slots[node.memory_resource]
                         ),
                         node.unique_id,
                         task_warp_start=self.warp_start,
+                        consumer_work_state_slot=(
+                            consumer_work_pipeline_slots[node.memory_resource]
+                            if node.schedule_stage is ScheduleStage.ConsumerWait
+                            else -1
+                        ),
                     )
                 callback = resolve_callback(node)
                 input_slots = tuple(
                     anonymous_index(value, anonymous_routes)
                     for value in node.input_values.values()
                 )
-                static_args = tuple(node.constexpr_kwargs.values())
+                constexpr_args = tuple(node.constexpr_kwargs.values())
                 input_indices = {
                     name: index for index, name in enumerate(node.input_values)
                 }
@@ -1862,11 +1923,13 @@ class Task:
                 device_step = DeviceStep(
                     callback=callback,
                     unique_id=node.unique_id,
-                    static_args=static_args,
+                    constexpr_args=constexpr_args,
                     argument_order=argument_order,
                     pipeline_slot=(
                         producer_pipeline_slots.get(stage_resource, -1)
                         if node.schedule_stage in producer_stages
+                        else consumer_work_pipeline_slots.get(stage_resource, -1)
+                        if node.schedule_stage is ScheduleStage.ConsumerWork
                         else pipeline_slots.get(stage_resource, -1)
                     ),
                     input_slots=input_slots,
@@ -1981,10 +2044,16 @@ class Task:
                         f"WorkQueue {node.work_queue.name!r} needs a "
                         "tile_scheduler_config for device lowering"
                     )
+                skip_context = None
+                bind_skip_context = False
                 if node.skip_if is not None:
-                    raise NotImplementedError(
-                        "device work_tile_loop(skip_if=...) is not supported"
+                    skip_context = node.work_queue
+                    freeze_skip_context = getattr(
+                        skip_context, "_freeze_skip_context", None
                     )
+                    if freeze_skip_context is not None:
+                        skip_context = freeze_skip_context()
+                    bind_skip_context = hasattr(skip_context, "bind_inputs")
                 body_routes = list(anonymous_routes)
                 body_frame_depth = len(body_routes)
                 return DeviceWorkTileLoop(
@@ -1995,6 +2064,9 @@ class Task:
                         frame_depth=body_frame_depth,
                     ),
                     config.to_device(),
+                    node.skip_if,
+                    skip_context,
+                    bind_skip_context,
                 )
             raise TypeError(type(node).__name__)
 

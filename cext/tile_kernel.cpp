@@ -2948,7 +2948,7 @@ static Status hoisted_tensor_map_encode(const DriverApi& driver,
             if (bytes / m.item_size != u)
                 return raise(PyExc_OverflowError,
                         "Can't create a tensor map: stride ", s, " is too big");
-            global_strides[i - 1] = static_cast<uint32_t>(bytes);
+            global_strides[i - 1] = bytes;
         }
 
         CUresult res = driver.cuTensorMapEncodeTiled(

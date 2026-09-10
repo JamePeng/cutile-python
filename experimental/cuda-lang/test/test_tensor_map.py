@@ -19,6 +19,133 @@ def _build_ir(kernel, dtype):
     return get_ir(kernel, [make_symbolic_tensor((1, 1), dtype)])
 
 
+@pytest.mark.parametrize(
+    ("shape", "strides", "index_dtype"),
+    (
+        ((128, 8, 128, 1 << 31, 1 << 31),
+         (1, 128, 1024, (1 << 35) - 1024, 1024), cl.int64),
+        ((128, (1 << 31) - 1), (1, 128), cl.int32),
+        ((128, 1 << 31), (1, 128), cl.int64),
+        ((128, 2), (1, (1 << 31) - 1), cl.int32),
+        ((128, 2), (1, 1 << 31), cl.int64),
+    ),
+)
+def test_tensor_map_preserves_wide_constant_metadata(shape, strides, index_dtype):
+    tile_shape = (1,) * len(shape)
+    order = tuple(range(len(shape)))
+
+    def kernel(x):
+        view = cl.Array.from_parts(x.pointer(), shape, strides)
+        tmap = cl.tensor_map_tiled(view, tile_shape, order=order)
+        cl.prefetch_tensor_map(tmap)
+
+    ir = _build_ir(kernel, cl.float16)
+    [create] = [op for op in ir.traverse() if isinstance(op, CreateTensorMap)]
+    assert tuple(value.get_constant() for value in create.array_shape) == shape
+    assert tuple(value.get_constant() for value in create.array_strides) == strides
+    assert all(value.get_type().dtype == index_dtype
+               for value in (*create.array_shape, *create.array_strides))
+
+
+@require_hopper_or_newer()
+def test_tensor_map_large_explicit_stride_launch():
+    """Exercise the 64-bit byte stride used by packed-ragged TMA maps."""
+    tile_rows = 128
+    tile_columns = 64
+    row_stride = 128
+    ragged_large_n = 1 << 30
+    ragged_xlarge_n = 1 << 35
+    ragged_tma_dim_max = 1 << 31
+    row_offset = 33
+    valid_rows = 65
+    distance_mod = tile_rows - valid_rows
+
+    @cl.kernel
+    def kernel(x, y):
+        ragged = cl.Array.from_parts(
+            x.pointer(),
+            (row_stride, 1, tile_rows, ragged_tma_dim_max, ragged_tma_dim_max),
+            (
+                1,
+                row_stride,
+                row_stride,
+                ragged_xlarge_n - row_stride,
+                row_stride,
+            ),
+        )
+        tmap = cl.tensor_map_tiled(
+            ragged,
+            (tile_columns, 1, tile_rows, 1, 1),
+            order=(0, 1, 2, 3, 4),
+        )
+        smem = cl.shared_array(
+            tile_rows * tile_columns,
+            cl.float16,
+            alignment=128,
+        )
+        mbar = cl.shared_array(1, cl.mbarrier, alignment=8).pointer()
+
+        if cl.thread_index(0) == 0:
+            cl.mbarrier_initialize(mbar, cl.thread_count(0))
+            cl.fence(
+                cl.MemoryOrder.RELEASE,
+                cl.MemoryScope.CLUSTER,
+                restriction=cl.FenceRestriction.mbarrier_initialize(),
+            )
+        cl.barrier_sync_block()
+
+        if cl.thread_index(0) == 0:
+            cl.copy_async_bulk_tensor_global_to_shared(
+                tmap,
+                (
+                    0,
+                    0,
+                    distance_mod,
+                    ragged_large_n,
+                    row_offset + ragged_large_n - distance_mod,
+                ),
+                smem.pointer(),
+                mbar,
+            )
+            token = cl.mbarrier_arrive_expect_transaction(
+                mbar,
+                tmap.get_transaction_bytes(),
+            )
+        else:
+            token = cl.mbarrier_arrive(mbar)
+        cl.mbarrier_wait(mbar, token, time_hint=10_000)
+
+        row = cl.thread_index(0)
+        for column in cl.static_iter(range(tile_columns)):
+            y[row * tile_columns + column] = smem[row * tile_columns + column]
+
+    x = torch.arange(
+        170 * row_stride,
+        dtype=torch.float16,
+        device="cuda",
+    ).reshape(170, 1, row_stride)
+    y = torch.empty(tile_rows * tile_columns, dtype=x.dtype, device=x.device)
+    cl.launch(
+        torch.cuda.current_stream(),
+        (1,),
+        (tile_rows,),
+        kernel,
+        (x, y),
+    )
+
+    expected = torch.zeros(
+        (tile_rows, tile_columns),
+        dtype=x.dtype,
+        device=x.device,
+    )
+    expected[:valid_rows] = x[
+        row_offset:row_offset + valid_rows,
+        0,
+        :tile_columns,
+    ]
+    torch.testing.assert_close(y.reshape(tile_rows, tile_columns), expected)
+
+
 def test_float4_tensor_map_requires_explicit_encoding():
     def kernel(x):
         cl.tensor_map_tiled(x, 1)
