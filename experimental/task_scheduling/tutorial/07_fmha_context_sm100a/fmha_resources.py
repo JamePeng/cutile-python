@@ -53,6 +53,7 @@ SUPPORTED_SCHEDULERS = (
     "static_persistent",
     "clc_dynamic_persistent",
 )
+SUPPORTED_PAGE_SIZES = (16, 32, 64, 128)
 
 Q_STAGE_ELEMENTS = Q_TILE_M * HEAD_DIM
 KV_STAGE_ELEMENTS = KV_TILE_N * HEAD_DIM
@@ -257,9 +258,7 @@ class FmhaConfig:
             self.has_q_offset
             and self.has_uniform_varlen
             and self.uniform_seq_len_q % self.cta_tiler[0] == 0
-            and (self.uniform_seq_len_k - self.uniform_seq_len_q)
-            % self.kv_tile_n
-            == 0
+            and (self.uniform_seq_len_k - self.uniform_seq_len_q) % self.kv_tile_n == 0
         )
 
     @property
@@ -345,6 +344,15 @@ def transform_ragged_coords(
 
     orig = cl.int32(coords[ragged_dim_idx])
     return coords[0], coords[1], d_mod, large_n, orig + large_n + bal
+
+
+def _smem_array(stage_info, smem_offset, dtype, shape):
+    pointer = stage_info.context.smem_base.pointer() + smem_offset
+    typed_pointer = cl.bitcast(
+        pointer,
+        cl.pointer_dtype(dtype, pointer.memory_space),
+    )
+    return cl.Array.from_parts(typed_pointer, shape)
 
 
 def _qk_descriptor(pointer, fmha_config):
@@ -553,13 +561,9 @@ class GmemQKVResource(ts.MemoryResource):
         batch_coord = tile_idx[batch_idx]
         if fmha_config.uses_causal_reversed_head_batch_seq_tile_order:
             seq_coord = fmha_config.num_seq_tiles - seq_coord - 1
-        kv_head_coord = (
-            head_coord * fmha_config.work_tile_q_heads // fmha_config.h_r
-        )
+        kv_head_coord = head_coord * fmha_config.work_tile_q_heads // fmha_config.h_r
         seq_coord_q = (
-            seq_coord
-            * fmha_config.q_tile_m
-            * fmha_config.work_tile_q_seq_tiles
+            seq_coord * fmha_config.q_tile_m * fmha_config.work_tile_q_seq_tiles
         )
         cuseqlen_q = cl.int32(0)
         cuseqlen_k = cl.int32(0)
@@ -607,11 +611,10 @@ class SmemQResource(ts.MemoryResource):
     )
     @staticmethod
     def init_load_state(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float16, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float16,
             fmha_config.sQ_shape,
         )
 
@@ -621,11 +624,10 @@ class SmemQResource(ts.MemoryResource):
     )
     @staticmethod
     def init_descriptor_state(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float16, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float16,
             fmha_config.sQ_shape,
         )
 
@@ -697,11 +699,10 @@ class SmemKVResource(ts.MemoryResource):
     )
     @staticmethod
     def init_load_state(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float16, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float16,
             fmha_config.sK_shape,
         )
 
@@ -711,11 +712,10 @@ class SmemKVResource(ts.MemoryResource):
     )
     @staticmethod
     def init_descriptor_state(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float16, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float16,
             fmha_config.sK_shape,
         )
 
@@ -730,15 +730,49 @@ class SmemKVResource(ts.MemoryResource):
         is_v,
         fmha_config,
     ):
-        seq_offset = (
-            kv_tile_start + stage_info.loop_offset
-        ) * fmha_config.kv_tile_n
         tma_desc = stage_info.context.tasks_inputs.tma_k_desc
         if is_v:
             tma_desc = stage_info.context.tasks_inputs.tma_v_desc
+
+        if fmha_config.use_paged_kv:
+            tile_idx = kv_tile_start + stage_info.loop_offset
+            pages_per_tile = fmha_config.kv_tile_n // fmha_config.num_tokens_per_page
+            page_elements = (
+                fmha_config.num_tokens_per_page * fmha_config.tma_copy_kv_granu_inner
+            )
+            page_table_offset = batch_coord * 2 * fmha_config.max_num_pages_per_seq_kv
+            logical_page_idx = tile_idx * pages_per_tile
+            if cl.elect_sync():
+                # The elected lane reads the tile's page IDs
+                # before issuing its page-fragment / head-dimension TMA copies.
+                page_ids = tuple(
+                    cl.int32(
+                        stage_info.context.tasks_inputs.page_idx_kv[
+                            page_table_offset + logical_page_idx + page_frag
+                        ]
+                    )
+                    for page_frag in cl.static_iter(range(pages_per_tile))
+                )
+                for page_frag in cl.static_iter(range(pages_per_tile)):
+                    page_id = page_ids[page_frag]
+                    for i in cl.static_iter(range(fmha_config.tma_copy_kv_stage_iters)):
+                        d_offset = i * fmha_config.tma_copy_kv_granu_inner
+                        smem_offset = (
+                            i * fmha_config.tma_copy_kv_granu_elems
+                            + page_frag * page_elements
+                        )
+                        cl.copy_async_bulk_tensor_global_to_shared(
+                            tma_desc,
+                            (d_offset, 0, kv_head_coord, page_id),
+                            sK_array.pointer((stage_info.stage_idx, smem_offset)),
+                            stage_info.barrier,
+                        )
+            return
+
+        seq_offset = (kv_tile_start + stage_info.loop_offset) * fmha_config.kv_tile_n
         if cl.elect_sync():
             seq_coord_kv = cuseqlen_k + seq_offset
-            for i in cl.static_iter(range(fmha_config.tma_copy_qkv_iters)):
+            for i in cl.static_iter(range(fmha_config.tma_copy_kv_stage_iters)):
                 d_offset = i * fmha_config.tma_copy_kv_granu_inner
                 kv_coords = (d_offset, kv_head_coord, seq_coord_kv, batch_coord)
                 if fmha_config.has_varlen:
@@ -880,12 +914,17 @@ class TmemSPResource(ts.MemoryResource):
         phases_per_slice = qk_phases // fmha_config.tma_copy_qkv_iters
         step_bytes = MMA_K * 2
         slice_bytes = fmha_config.tma_copy_q_bytes // fmha_config.tma_copy_qkv_iters
-        elected = cl.elect_sync()
+        elected = cl.bool_(False)
+        if not fmha_config.use_paged_kv:
+            elected = cl.elect_sync()
         for kk in cl.static_iter(range(qk_phases)):
             byte_offset = kk * step_bytes
             if kk >= phases_per_slice:
                 byte_offset = slice_bytes + (kk - phases_per_slice) * step_bytes
             descriptor_increment = byte_offset >> 4
+            if fmha_config.use_paged_kv:
+                # Elect a lane for each MMA in the paged pipeline.
+                elected = cl.elect_sync()
             if elected:
                 cl.tcgen05_mma(
                     cl.Tcgen05MMAKind.F16,
@@ -925,9 +964,7 @@ class TmemSPResource(ts.MemoryResource):
             fmha_config.softmax0_warp_ids
         )
         score_column = (
-            fmha_config.tmem_s0_offset
-            if inst_idx == 0
-            else fmha_config.tmem_s1_offset
+            fmha_config.tmem_s0_offset if inst_idx == 0 else fmha_config.tmem_s1_offset
         )
         row_tmem = _tmem_pointer(
             tasks_inputs.tmem_base,
@@ -954,9 +991,7 @@ class TmemSPResource(ts.MemoryResource):
     @ts.consumer_work(outputs=3)
     @staticmethod
     def compute_row_max(stage_info, row_max, inst_idx, fmha_config):
-        chunks = TmemSPResource._load_s_chunks(
-            stage_info, inst_idx, fmha_config
-        )
+        chunks = TmemSPResource._load_s_chunks(stage_info, inst_idx, fmha_config)
         old_row_max, row_max = _reduce_row_max(chunks, row_max, fmha_config)
         return old_row_max, row_max, chunks
 
@@ -970,9 +1005,7 @@ class TmemSPResource(ts.MemoryResource):
         fmha_config,
     ):
         """Mask scores beyond the active packed request's K right edge."""
-        raw_chunks = TmemSPResource._load_s_chunks(
-            stage_info, inst_idx, fmha_config
-        )
+        raw_chunks = TmemSPResource._load_s_chunks(stage_info, inst_idx, fmha_config)
 
         key_tile_base = stage_info.loop_offset * fmha_config.kv_tile_n
         score0, score1, score2, score3 = raw_chunks
@@ -1026,12 +1059,8 @@ class TmemSPResource(ts.MemoryResource):
         fmha_config,
     ):
         """Apply the left bound in head-paired sliding-window LOOP work."""
-        chunks = TmemSPResource._load_s_chunks(
-            stage_info, inst_idx, fmha_config
-        )
-        query_idx = TmemSPResource._query_row(
-            stage_info, inst_idx, fmha_config
-        )
+        chunks = TmemSPResource._load_s_chunks(stage_info, inst_idx, fmha_config)
+        query_idx = TmemSPResource._query_row(stage_info, inst_idx, fmha_config)
         seq_idx = fmha_config.work_tile_coord_indices[0]
         seq_coord = stage_info.work_tile.tile_idx[seq_idx]
         if fmha_config.uses_causal_reversed_head_batch_seq_tile_order:
@@ -1043,9 +1072,7 @@ class TmemSPResource(ts.MemoryResource):
             q_offset,
             fmha_config.window_size_left,
         )
-        kv_base = (
-            kv_tile_start + stage_info.loop_offset
-        ) * fmha_config.kv_tile_n
+        kv_base = (kv_tile_start + stage_info.loop_offset) * fmha_config.kv_tile_n
         lower_bound = query_idx + q_offset - fmha_config.window_size_left
         if fmha_config.has_varlen or fmha_config.has_q_offset:
             upper_bound = query_idx + q_offset
@@ -1085,12 +1112,8 @@ class TmemSPResource(ts.MemoryResource):
         fmha_config,
     ):
         """Apply the head-paired causal right edge and optional left edge."""
-        chunks = TmemSPResource._load_s_chunks(
-            stage_info, inst_idx, fmha_config
-        )
-        query_idx = TmemSPResource._query_row(
-            stage_info, inst_idx, fmha_config
-        )
+        chunks = TmemSPResource._load_s_chunks(stage_info, inst_idx, fmha_config)
+        query_idx = TmemSPResource._query_row(stage_info, inst_idx, fmha_config)
         seq_idx = fmha_config.work_tile_coord_indices[0]
         seq_coord = stage_info.work_tile.tile_idx[seq_idx]
         if fmha_config.uses_causal_reversed_head_batch_seq_tile_order:
@@ -1144,9 +1167,7 @@ class TmemSPResource(ts.MemoryResource):
         fmha_config,
     ):
         """Apply bottom-right causal masking to a query-paired score tile."""
-        chunks = TmemSPResource._load_s_chunks(
-            stage_info, inst_idx, fmha_config
-        )
+        chunks = TmemSPResource._load_s_chunks(stage_info, inst_idx, fmha_config)
         kv_base = kv_tile_idx * fmha_config.kv_tile_n
         seq_idx = fmha_config.work_tile_coord_indices[0]
         seq_coord = stage_info.work_tile.tile_idx[seq_idx]
@@ -1155,20 +1176,14 @@ class TmemSPResource(ts.MemoryResource):
         q_min = (
             q_offset
             + seq_coord * fmha_config.cta_tiler[0]
-            + inst_idx
-            * fmha_config.peer_q_seq_tile_stride
-            * fmha_config.q_tile_m
+            + inst_idx * fmha_config.peer_q_seq_tile_stride * fmha_config.q_tile_m
         )
         k_max = kv_base + fmha_config.qk_mma_tiler[1] - 1
         if q_min <= k_max:
-            query_idx = TmemSPResource._query_row(
-                stage_info, inst_idx, fmha_config
-            )
+            query_idx = TmemSPResource._query_row(stage_info, inst_idx, fmha_config)
             score0, score1, score2, score3 = chunks
             upper_bound = query_idx + q_offset
-            score0 = _mask_packed_score_chunk(
-                score0, kv_base, upper_bound + 1
-            )
+            score0 = _mask_packed_score_chunk(score0, kv_base, upper_bound + 1)
             score1 = _mask_packed_score_chunk(
                 score1,
                 kv_base + fmha_config.tmem_x_load_s,
@@ -1213,6 +1228,15 @@ class TmemSPResource(ts.MemoryResource):
         inst_idx,
         fmha_config,
     ):
+        if fmha_config.use_paged_kv:
+            return TmemSPResource._exp2_p_store(
+                stage_info,
+                row_max,
+                scale_softmax_log2,
+                score_chunks,
+                inst_idx,
+                fmha_config,
+            )
         # Keep the score transform vector-valued for packed f32x2 FMAs;
         # spelling the subtraction and multiply per scalar makes LLVM emit
         # twice as many scalar arithmetic instructions.
@@ -1319,6 +1343,90 @@ class TmemSPResource(ts.MemoryResource):
         )
         return local_sum_pair[0] + local_sum_pair[1]
 
+    @staticmethod
+    def _exp2_p_store(
+        stage_info,
+        row_max,
+        scale_softmax_log2,
+        score_chunks,
+        inst_idx,
+        fmha_config,
+    ):
+        """Use packed FMA/exp2/early-sum operations for paged KV."""
+        warp_in_group = stage_info.context.warp_index % len(
+            fmha_config.softmax0_warp_ids
+        )
+        p_column = (
+            fmha_config.tmem_p0_offset if inst_idx == 0 else fmha_config.tmem_p1_offset
+        )
+        tmem_p_addr = _tmem_pointer(
+            stage_info.context.tasks_inputs.tmem_base,
+            lane_offset=warp_in_group * WARP_SIZE,
+            column_offset=p_column,
+        )
+        tmem_x = fmha_config.tmem_x_load_s
+        num_chunks = fmha_config.kv_tile_n // tmem_x
+        p_packing_ratio = cl.float32.bitwidth // cl.float16.bitwidth
+        scale = scale_softmax_log2
+        minus_row_max_scale = cl.fma(
+            cl.float32(0.0) - row_max, scale, cl.float32(0.0)
+        )
+        local_sum_pair_0 = cl.Vector(0.0, 0.0, dtype=cl.float32)
+        local_sum_pair_1 = cl.Vector(0.0, 0.0, dtype=cl.float32)
+        s_data = ()
+        for chunk_idx in cl.static_iter(range(num_chunks)):
+            p_vals = ()
+            for elem_idx in cl.static_iter(range(0, tmem_x, 2)):
+                fma_pair = cl.fma(
+                    score_chunks[chunk_idx][elem_idx:elem_idx + 2],
+                    scale,
+                    minus_row_max_scale,
+                )
+                p0 = cl.exp2(fma_pair[0], flush_to_zero=True)
+                p1 = cl.exp2(fma_pair[1], flush_to_zero=True)
+                pair_idx = chunk_idx * (tmem_x // 2) + elem_idx // 2
+                if pair_idx % 2 == 0:
+                    local_sum_pair_0 = cl.add(
+                        local_sum_pair_0,
+                        cl.Vector(p0, p1, dtype=cl.float32),
+                        rounding_mode=cl.RoundingMode.RN,
+                        flush_to_zero=False,
+                    )
+                else:
+                    local_sum_pair_1 = cl.add(
+                        local_sum_pair_1,
+                        cl.Vector(p0, p1, dtype=cl.float32),
+                        rounding_mode=cl.RoundingMode.RN,
+                        flush_to_zero=False,
+                    )
+                p_vals += (p0, p1)
+            s_data += (cl.Vector(*p_vals, dtype=cl.float32),)
+        for pair_idx in cl.static_iter(range(num_chunks // p_packing_ratio)):
+            store_fragment = cl.Vector(
+                *tuple(
+                    s_data[pair_idx * p_packing_ratio + slice_idx][elem_idx:elem_idx + 2]
+                    .astype(cl.float16)
+                    .reinterpret_as_scalar(cl.int32)
+                    for slice_idx in cl.static_iter(range(p_packing_ratio))
+                    for elem_idx in cl.static_iter(range(0, tmem_x, 2))
+                ),
+                dtype=cl.int32,
+            )
+            cl.tcgen05_store(
+                cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                _tmem_pointer(tmem_p_addr, column_offset=pair_idx * tmem_x),
+                store_fragment,
+            )
+        local_sum_pair = cl.add(
+            local_sum_pair_0,
+            local_sum_pair_1,
+            rounding_mode=cl.RoundingMode.RN,
+            flush_to_zero=False,
+        )
+        tile_sum = local_sum_pair[0] + local_sum_pair[1]
+        cl.tcgen05_wait_store()
+        return tile_sum
+
     @ts.consumer_work(work_attrs=ts.WorkAttr.AUXILIARY, outputs=1)
     @staticmethod
     def softmax_aux_reduce(
@@ -1347,11 +1455,10 @@ class TmemStatsResource(ts.MemoryResource):
 
     @staticmethod
     def _view(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float32, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float32,
             (len(fmha_config.softmax0_warp_ids) * WARP_SIZE * 2,),
         )
 
@@ -1456,9 +1563,7 @@ class TmemOResource(ts.MemoryResource):
             and writes_o0
             and section == FmhaStage.Loop
         ):
-            skip_o0_invalid = (
-                stage_info.loop_offset == stage_info.loop_end - 1
-            )
+            skip_o0_invalid = stage_info.loop_offset == stage_info.loop_end - 1
         if skip_o0_invalid:
             return
 
@@ -1558,11 +1663,10 @@ class SmemOResource(ts.MemoryResource):
 
     @staticmethod
     def _view(stage_info, smem_offset, fmha_config):
-        return cl.Array.from_parts(
-            cl.bitcast(
-                stage_info.context.smem_base.pointer() + smem_offset,
-                cl.pointer_dtype(cl.float16, cl.MemorySpace.SHARED),
-            ),
+        return _smem_array(
+            stage_info,
+            smem_offset,
+            cl.float16,
             (fmha_config.sO_stage_elements,),
         )
 
@@ -1639,9 +1743,7 @@ class SmemOResource(ts.MemoryResource):
         if fmha_config.uses_causal_reversed_head_batch_seq_tile_order:
             seq_coord = fmha_config.num_seq_tiles - seq_coord - 1
         seq_coord_q = (
-            seq_coord
-            * fmha_config.q_tile_m
-            * fmha_config.work_tile_q_seq_tiles
+            seq_coord * fmha_config.q_tile_m * fmha_config.work_tile_q_seq_tiles
         )
         return head_coord, batch_coord, seq_coord_q
 
@@ -1698,9 +1800,7 @@ class GmemOResource(ts.MemoryResource):
                             ragged_extent=q_seq_extent,
                         )
                     cl.copy_async_bulk_tensor_shared_to_global(
-                        sO_array.pointer(
-                            i * fmha_config.tma_copy_o_granu_elems
-                        ),
+                        sO_array.pointer(i * fmha_config.tma_copy_o_granu_elems),
                         stage_info.context.tasks_inputs.tma_o_desc,
                         o_coords,
                     )

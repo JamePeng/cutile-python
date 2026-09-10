@@ -256,3 +256,87 @@ def test_fmha_d128_packed_ragged_bounds_exclude_peer_requests():
         rtol=0.0,
         atol=1e-3,
     )
+
+
+@pytest.mark.parametrize(
+    ("page_size", "max_pages"),
+    (
+        pytest.param(16, 24, id="page-16"),
+        pytest.param(32, 12, id="page-32"),
+        pytest.param(64, 6, id="page-64"),
+        pytest.param(128, 3, id="page-128"),
+    ),
+)
+@pytest.mark.parametrize(
+    ("head_paired", "h_r", "heads"),
+    (
+        pytest.param(False, 1, 2, id="query-paired"),
+        pytest.param(True, 4, 8, id="head-paired-gqa"),
+    ),
+)
+@require_available_sm100()
+def test_fmha_d128_paged_ragged_accuracy(
+    page_size, max_pages, head_paired, h_r, heads
+):
+    resources = _module("fmha_resources")
+    run = _module("fmha_run")
+    cfg = resources.FmhaConfig(
+        scheduler="clc_dynamic_persistent",
+        has_varlen=True,
+        use_paged_kv=True,
+        num_tokens_per_page=page_size,
+        max_num_pages_per_seq_kv=max_pages,
+        head_paired=head_paired,
+        h_r=h_r,
+    )
+    tensors = run.prepare_paged_tensors(
+        (33, 257),
+        (65, 257),
+        heads=heads,
+        cfg=cfg,
+        seed=20260909 + page_size,
+    )
+    run.run(tensors, cfg=cfg)
+    torch.cuda.synchronize()
+    run.verify_output(tensors, cfg=cfg)
+
+
+@pytest.mark.parametrize(
+    ("head_paired", "h_r", "window_size_left", "heads"),
+    (
+        pytest.param(False, 1, 0, 2, id="query-paired-causal"),
+        pytest.param(True, 4, 0, 8, id="head-paired-causal"),
+        pytest.param(True, 4, 129, 8, id="head-paired-left-window"),
+    ),
+)
+@require_available_sm100()
+def test_fmha_d128_paged_ragged_causal_accuracy(
+    head_paired,
+    h_r,
+    window_size_left,
+    heads,
+):
+    resources = _module("fmha_resources")
+    run = _module("fmha_run")
+    cfg = resources.FmhaConfig(
+        scheduler="clc_dynamic_persistent",
+        has_varlen=True,
+        use_paged_kv=True,
+        is_causal=True,
+        has_q_offset=True,
+        head_paired=head_paired,
+        h_r=h_r,
+        window_size_left=window_size_left,
+        num_tokens_per_page=32,
+        max_num_pages_per_seq_kv=16,
+    )
+    tensors = run.prepare_paged_tensors(
+        (33, 257),
+        (65, 385),
+        heads=heads,
+        cfg=cfg,
+        seed=20261000 + window_size_left,
+    )
+    run.run(tensors, cfg=cfg)
+    torch.cuda.synchronize()
+    run.verify_output(tensors, cfg=cfg)

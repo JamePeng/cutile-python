@@ -11,18 +11,32 @@ import cuda.lang as cl
 import torch
 
 try:
-    from .fmha_kernel import compute_grid, get_kernel, get_pipeline, make_tma_view
+    from .fmha_kernel import (
+        compute_grid,
+        get_kernel,
+        get_pipeline,
+        make_paged_kv_tma_view,
+        make_tma_view,
+    )
     from .fmha_resources import (
         ATTENTION_SCALE_LOG2,
         HEAD_DIM,
+        SUPPORTED_PAGE_SIZES,
         SUPPORTED_SCHEDULERS,
         FmhaConfig,
     )
 except ImportError:
-    from fmha_kernel import compute_grid, get_kernel, get_pipeline, make_tma_view
+    from fmha_kernel import (
+        compute_grid,
+        get_kernel,
+        get_pipeline,
+        make_paged_kv_tma_view,
+        make_tma_view,
+    )
     from fmha_resources import (
         ATTENTION_SCALE_LOG2,
         HEAD_DIM,
+        SUPPORTED_PAGE_SIZES,
         SUPPORTED_SCHEDULERS,
         FmhaConfig,
     )
@@ -38,16 +52,33 @@ def _validate_tensors(tensors, cfg=FmhaConfig()):
     if missing:
         raise ValueError(f"missing tensors: {missing}")
     q, k, v, out = (tensors[name] for name in ("q", "k", "v", "out"))
-    expected_rank = 3 if cfg.has_varlen else 4
-    if any(tensor.ndim != expected_rank for tensor in (q, k, v, out)):
-        storage = "packed THD rank-3" if cfg.has_varlen else "BSHD rank-4"
-        raise ValueError(f"Q, K, V, and O must use contiguous {storage} storage")
     if q.shape != out.shape:
         raise ValueError("O must have the same shape as Q")
     if k.shape != v.shape:
         raise ValueError("K and V must have identical shapes")
+    if cfg.use_paged_kv:
+        if not cfg.has_varlen:
+            raise ValueError("paged K/V attention requires has_varlen=True")
+        if q.ndim != 3 or out.ndim != 3 or k.ndim != 4 or v.ndim != 4:
+            raise ValueError(
+                "paged attention requires packed THD Q/O and "
+                "[pages, Hkv, page, D] K/V caches"
+            )
+        if q.shape[2] != k.shape[3] or q.shape[1] != k.shape[1] * cfg.h_r:
+            raise ValueError("paged attention requires matching D and Hq == Hkv * h_r")
+        if k.shape[2] != cfg.num_tokens_per_page:
+            raise ValueError(
+                "paged K/V cache page extent must equal num_tokens_per_page"
+            )
+    else:
+        expected_rank = 3 if cfg.has_varlen else 4
+        if any(tensor.ndim != expected_rank for tensor in (q, k, v, out)):
+            storage = "packed THD rank-3" if cfg.has_varlen else "BSHD rank-4"
+            raise ValueError(f"Q, K, V, and O must use contiguous {storage} storage")
     if cfg.has_varlen:
-        if q.shape[2] != k.shape[2] or q.shape[1] != k.shape[1] * cfg.h_r:
+        if not cfg.use_paged_kv and (
+            q.shape[2] != k.shape[2] or q.shape[1] != k.shape[1] * cfg.h_r
+        ):
             raise ValueError(
                 "packed ragged attention requires matching D and Hq == Hkv * h_r"
             )
@@ -67,14 +98,32 @@ def _validate_tensors(tensors, cfg=FmhaConfig()):
                 )
         if tensors["qo_indptr"].numel() != tensors["kv_indptr"].numel():
             raise ValueError("qo_indptr and kv_indptr must describe the same batch")
+        if cfg.use_paged_kv:
+            if "page_idx_kv" not in tensors:
+                raise ValueError("paged K/V attention requires page_idx_kv")
+            page_idx_kv = tensors["page_idx_kv"]
+            batch = tensors["qo_indptr"].numel() - 1
+            expected_shape = (
+                batch,
+                2,
+                cfg.max_num_pages_per_seq_kv,
+            )
+            if (
+                page_idx_kv.shape != expected_shape
+                or page_idx_kv.dtype != torch.int32
+                or not page_idx_kv.is_cuda
+                or not page_idx_kv.is_contiguous()
+            ):
+                raise ValueError(
+                    "page_idx_kv must be a contiguous CUDA int32 tensor with "
+                    f"shape {expected_shape}"
+                )
     elif (
         q.shape[0] != k.shape[0]
         or q.shape[3] != k.shape[3]
         or q.shape[2] != k.shape[2] * cfg.h_r
     ):
-        raise ValueError(
-            "fixed attention requires matching B/D and Hq == Hkv * h_r"
-        )
+        raise ValueError("fixed attention requires matching B/D and Hq == Hkv * h_r")
     if q.shape[-1] != HEAD_DIM:
         raise ValueError(f"the first port requires D={HEAD_DIM}")
     if any(tensor.dtype != torch.float16 for tensor in (q, k, v, out)):
@@ -104,6 +153,8 @@ def prepare_tensors(
     cfg=FmhaConfig(),
     seed=1111,
 ):
+    if cfg.use_paged_kv:
+        raise ValueError("use prepare_paged_tensors() for paged K/V storage")
     if cfg.has_varlen:
         raise ValueError("use prepare_ragged_tensors() for packed ragged storage")
     if len(q_shape) != 4 or len(k_shape) != 4:
@@ -111,9 +162,7 @@ def prepare_tensors(
     batch, seq_q, heads, depth = q_shape
     batch_k, seq_k, heads_k, depth_k = k_shape
     if batch != batch_k or depth != depth_k or heads != heads_k * cfg.h_r:
-        raise ValueError(
-            "fixed attention requires matching B/D and Hq == Hkv * h_r"
-        )
+        raise ValueError("fixed attention requires matching B/D and Hq == Hkv * h_r")
     # Reuse the kernel's strict tile-aligned geometry diagnostics.
     get_pipeline(batch, seq_q, seq_k, heads, cfg)
     torch.manual_seed(seed)
@@ -154,6 +203,8 @@ def prepare_ragged_tensors(
     seed=1111,
 ):
     """Allocate packed THD tensors and live indptrs."""
+    if cfg.use_paged_kv:
+        raise ValueError("use prepare_paged_tensors() for paged K/V storage")
     if not cfg.has_varlen:
         raise ValueError("prepare_ragged_tensors requires has_varlen=True")
     q_lengths = tuple(q_lengths)
@@ -164,7 +215,9 @@ def prepare_ragged_tensors(
         type(length) is not int or length <= 0 for length in (*q_lengths, *k_lengths)
     ):
         raise ValueError("all packed ragged sequence lengths must be positive integers")
-    if cfg.is_causal and any(q_len > k_len for q_len, k_len in zip(q_lengths, k_lengths)):
+    if cfg.is_causal and any(
+        q_len > k_len for q_len, k_len in zip(q_lengths, k_lengths)
+    ):
         raise ValueError(
             "bottom-right causal attention requires every Q length <= K length"
         )
@@ -173,9 +226,7 @@ def prepare_ragged_tensors(
         and not cfg.has_q_offset
         and any(q_len != k_len for q_len, k_len in zip(q_lengths, k_lengths))
     ):
-        raise ValueError(
-            "unequal packed causal Q/K lengths require has_q_offset=True"
-        )
+        raise ValueError("unequal packed causal Q/K lengths require has_q_offset=True")
     if type(heads) is not int or heads <= 0:
         raise ValueError("heads must be a positive integer")
     if heads % cfg.h_r:
@@ -228,6 +279,135 @@ def prepare_ragged_tensors(
     }
 
 
+def prepare_paged_tensors(
+    q_lengths,
+    k_lengths,
+    *,
+    heads=2,
+    kv_heads=None,
+    cfg=FmhaConfig(
+        has_varlen=True,
+        use_paged_kv=True,
+        max_num_pages_per_seq_kv=4,
+    ),
+    seed=1111,
+):
+    """Allocate packed Q/O, paged K/V caches, and a dense page table."""
+    if not cfg.has_varlen or not cfg.use_paged_kv:
+        raise ValueError(
+            "prepare_paged_tensors requires has_varlen=True and use_paged_kv=True"
+        )
+    if cfg.num_tokens_per_page not in SUPPORTED_PAGE_SIZES:
+        raise ValueError(f"num_tokens_per_page must be one of {SUPPORTED_PAGE_SIZES}")
+    q_lengths = tuple(q_lengths)
+    k_lengths = tuple(k_lengths)
+    if not q_lengths or len(q_lengths) != len(k_lengths):
+        raise ValueError("Q and K lengths must describe the same non-empty batch")
+    if any(
+        type(length) is not int or length <= 0 for length in (*q_lengths, *k_lengths)
+    ):
+        raise ValueError("all paged sequence lengths must be positive integers")
+    if cfg.is_causal and any(
+        q_len > k_len for q_len, k_len in zip(q_lengths, k_lengths)
+    ):
+        raise ValueError(
+            "bottom-right causal attention requires every Q length <= K length"
+        )
+    if (
+        cfg.is_causal
+        and not cfg.has_q_offset
+        and any(q_len != k_len for q_len, k_len in zip(q_lengths, k_lengths))
+    ):
+        raise ValueError("unequal paged causal Q/K lengths require has_q_offset=True")
+    if type(heads) is not int or heads <= 0 or heads % cfg.h_r:
+        raise ValueError("heads must be positive and divisible by h_r")
+    expected_kv_heads = heads // cfg.h_r
+    if kv_heads is None:
+        kv_heads = expected_kv_heads
+    if type(kv_heads) is not int or kv_heads != expected_kv_heads:
+        raise ValueError(
+            f"kv_heads must equal heads / h_r ({expected_kv_heads}), got {kv_heads}"
+        )
+
+    page_size = cfg.num_tokens_per_page
+    pages_per_tile = cfg.kv_tile_n // page_size
+    page_counts = tuple((length + page_size - 1) // page_size for length in k_lengths)
+    required_max_pages = max(page_counts)
+    max_pages = cfg.max_num_pages_per_seq_kv
+    if max_pages < required_max_pages or max_pages % pages_per_tile:
+        raise ValueError(
+            "max_num_pages_per_seq_kv must cover every request and be a multiple "
+            f"of pages per K/V tile ({pages_per_tile}); need at least "
+            f"{required_max_pages}, got {max_pages}"
+        )
+
+    batch = len(q_lengths)
+    max_seq_len_q = max(q_lengths)
+    max_seq_len_k = max(k_lengths)
+    get_pipeline(batch, max_seq_len_q, max_seq_len_k, heads, cfg)
+    torch.manual_seed(seed)
+
+    def make(total, num_heads):
+        return (
+            torch.randn(
+                (total, num_heads, HEAD_DIM),
+                device="cuda",
+                dtype=torch.float32,
+            )
+            * 0.2
+        ).to(torch.float16)
+
+    q_offsets = _cumulative(q_lengths)
+    k_offsets = _cumulative(k_lengths)
+    q = make(q_offsets[-1], heads)
+    logical_k = make(k_offsets[-1], kv_heads)
+    logical_v = make(k_offsets[-1], kv_heads)
+    total_pages = sum(page_counts)
+    physical_page_ids = tuple(range(total_pages, 0, -1))
+    k_cache = torch.zeros(
+        (total_pages + 1, kv_heads, page_size, HEAD_DIM),
+        device="cuda",
+        dtype=torch.float16,
+    )
+    v_cache = torch.zeros_like(k_cache)
+    dense_page_rows = []
+    page_cursor = 0
+    for batch_idx, page_count in enumerate(page_counts):
+        request_page_ids = physical_page_ids[page_cursor:page_cursor + page_count]
+        page_cursor += page_count
+        k_begin, k_end = k_offsets[batch_idx:batch_idx + 2]
+        for logical_page, page_id in enumerate(request_page_ids):
+            source_begin = k_begin + logical_page * page_size
+            source_end = min(source_begin + page_size, k_end)
+            tokens = source_end - source_begin
+            k_cache[page_id, :, :tokens, :] = logical_k[
+                source_begin:source_end
+            ].permute(1, 0, 2)
+            v_cache[page_id, :, :tokens, :] = logical_v[
+                source_begin:source_end
+            ].permute(1, 0, 2)
+        padded = request_page_ids + (request_page_ids[-1],) * (max_pages - page_count)
+        dense_page_rows.append((padded, padded))
+
+    return {
+        "q": q,
+        "k": k_cache,
+        "v": v_cache,
+        "out": torch.empty_like(q),
+        "scale": torch.tensor(
+            [ATTENTION_SCALE_LOG2], device="cuda", dtype=torch.float32
+        ),
+        "output_scale": torch.ones(1, device="cuda", dtype=torch.float32),
+        "qo_indptr": torch.tensor(q_offsets, device="cuda", dtype=torch.int32),
+        "kv_indptr": torch.tensor(k_offsets, device="cuda", dtype=torch.int32),
+        "page_idx_kv": torch.tensor(dense_page_rows, device="cuda", dtype=torch.int32),
+        "_logical_k": logical_k,
+        "_logical_v": logical_v,
+        "_max_seq_len_q": max_seq_len_q,
+        "_max_seq_len_k": max_seq_len_k,
+    }
+
+
 def run(
     tensors,
     cfg=FmhaConfig(),
@@ -261,14 +441,16 @@ def run(
         stream = torch.cuda.current_stream()
     arguments = (
         make_tma_view(q),
-        make_tma_view(k),
-        make_tma_view(v),
+        make_paged_kv_tma_view(k) if cfg.use_paged_kv else make_tma_view(k),
+        make_paged_kv_tma_view(v) if cfg.use_paged_kv else make_tma_view(v),
         make_tma_view(out),
         tensors["scale"],
         tensors["output_scale"],
     )
     if cfg.has_varlen:
         arguments += (tensors["qo_indptr"], tensors["kv_indptr"])
+    if cfg.use_paged_kv:
+        arguments += (tensors["page_idx_kv"].reshape(-1),)
     cl.launch(
         stream,
         compute_grid(pipeline),
@@ -283,6 +465,9 @@ def run(
 
 def torch_reference(tensors, cfg=FmhaConfig()):
     q, k, v, _ = _validate_tensors(tensors, cfg)
+    if cfg.use_paged_kv:
+        k = tensors["_logical_k"]
+        v = tensors["_logical_v"]
     softmax_scale = tensors["scale"].item() / math.log2(math.e)
     output_scale = tensors["output_scale"].item()
     if cfg.has_varlen:
@@ -300,12 +485,8 @@ def torch_reference(tensors, cfg=FmhaConfig()):
                 vh = vh.repeat_interleave(cfg.h_r, dim=0)
             scores = torch.matmul(qh, kh.transpose(-2, -1)) * softmax_scale
             if cfg.is_causal:
-                q_idx = torch.arange(
-                    q_end - q_begin, device=scores.device
-                ).unsqueeze(1)
-                k_idx = torch.arange(
-                    k_end - k_begin, device=scores.device
-                ).unsqueeze(0)
+                q_idx = torch.arange(q_end - q_begin, device=scores.device).unsqueeze(1)
+                k_idx = torch.arange(k_end - k_begin, device=scores.device).unsqueeze(0)
                 q_offset = (k_end - k_begin) - (q_end - q_begin)
                 mask = k_idx <= q_idx + q_offset
                 if cfg.window_size_left > 0:
@@ -393,6 +574,38 @@ def verify_ragged(
         f"PASS: {cfg.scheduler}, packed-ragged {pairing} D128 "
         f"dual-instance FMHA; q={tuple(q_lengths)}, k={tuple(k_lengths)}, "
         f"max_abs={metrics['max_abs_error']:.6g}"
+    )
+    return metrics
+
+
+def verify_paged(
+    q_lengths=(33, 257),
+    k_lengths=(65, 257),
+    *,
+    heads=2,
+    cfg=FmhaConfig(
+        has_varlen=True,
+        use_paged_kv=True,
+        max_num_pages_per_seq_kv=12,
+    ),
+    seed=1111,
+    verbose=False,
+):
+    tensors = prepare_paged_tensors(
+        q_lengths,
+        k_lengths,
+        heads=heads,
+        cfg=cfg,
+        seed=seed,
+    )
+    run(tensors, cfg=cfg, verbose=verbose)
+    torch.cuda.synchronize()
+    metrics = verify_output(tensors, cfg=cfg)
+    pairing = "head-paired GQA" if cfg.head_paired else "query-paired MHA"
+    print(
+        f"PASS: {cfg.scheduler}, paged-ragged {pairing} D128 dual-instance "
+        f"FMHA; page={cfg.num_tokens_per_page}, q={tuple(q_lengths)}, "
+        f"k={tuple(k_lengths)}, max_abs={metrics['max_abs_error']:.6g}"
     )
     return metrics
 

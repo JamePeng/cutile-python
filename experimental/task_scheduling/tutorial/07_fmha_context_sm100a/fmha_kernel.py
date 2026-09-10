@@ -17,6 +17,7 @@ try:
         RAGGED_XLARGE_N,
         SCHEDULER_STAGES,
         SMEM_ALIGNMENT,
+        SUPPORTED_PAGE_SIZES,
         FmhaConfig,
         GmemOResource,
         GmemQKVResource,
@@ -47,6 +48,7 @@ except ImportError:
         RAGGED_XLARGE_N,
         SCHEDULER_STAGES,
         SMEM_ALIGNMENT,
+        SUPPORTED_PAGE_SIZES,
         FmhaConfig,
         GmemOResource,
         GmemQKVResource,
@@ -92,6 +94,11 @@ class RaggedTasksInputs(TasksInputs):
 
 
 @dataclass(frozen=True)
+class PagedTasksInputs(RaggedTasksInputs):
+    page_idx_kv: object
+
+
+@dataclass(frozen=True)
 class _ResolvedCausalDomainTask:
     num_kv_tiles: object
     q_offset: object
@@ -126,16 +133,8 @@ class _DeviceCausalDomainTask:
         return _ResolvedCausalDomainTask(
             tasks_inputs.num_kv_tiles,
             tasks_inputs.q_offset,
-            (
-                tasks_inputs.cum_seqlen_q
-                if self.has_varlen
-                else None
-            ),
-            (
-                tasks_inputs.cum_seqlen_k
-                if self.has_varlen
-                else None
-            ),
+            (tasks_inputs.cum_seqlen_q if self.has_varlen else None),
+            (tasks_inputs.cum_seqlen_k if self.has_varlen else None),
             self.cta_m,
             self.kv_n,
             self.seq_idx,
@@ -340,6 +339,24 @@ def _validate_geometry(batch, seq_q, seq_k, heads, fmha_config):
         )
     if fmha_config.is_causal and not fmha_config.has_varlen and seq_q > seq_k:
         raise ValueError("bottom-right causal attention requires seq_q <= seq_k")
+    if fmha_config.use_paged_kv:
+        if not fmha_config.has_varlen:
+            raise ValueError("paged K/V attention requires has_varlen=True")
+        page_size = fmha_config.num_tokens_per_page
+        if page_size not in SUPPORTED_PAGE_SIZES:
+            raise ValueError(
+                f"paged K/V page size must be one of {SUPPORTED_PAGE_SIZES}, "
+                f"got {page_size}"
+            )
+        pages_per_tile = fmha_config.kv_tile_n // page_size
+        max_pages = fmha_config.max_num_pages_per_seq_kv
+        if type(max_pages) is not int or max_pages <= 0:
+            raise ValueError("max_num_pages_per_seq_kv must be a positive integer")
+        if max_pages % pages_per_tile:
+            raise ValueError(
+                "max_num_pages_per_seq_kv must be a multiple of pages per K/V "
+                f"tile ({pages_per_tile})"
+            )
 
 
 def _causal_domain_kwargs(
@@ -447,7 +464,9 @@ def _select_fmha_domain_policy(cfg, num_kv_tiles, q_offset):
         offset=2,
         runtime_kv_tile_multiple=runtime_multiple,
     )
-    softmax0_base = domain_n_minus_2 if cfg.skip_causal_invalid_peer0 else domain_n_minus_1
+    softmax0_base = (
+        domain_n_minus_2 if cfg.skip_causal_invalid_peer0 else domain_n_minus_1
+    )
     return FmhaDomainPolicy(
         domain_n,
         domain_n_minus_1,
@@ -497,9 +516,7 @@ def build_fmha_task_manager(
             and num_kv_tiles == 1
         ),
         fixed_dense_k_tail=(
-            seq_k % cfg.kv_tile_n
-            if not cfg.is_causal and not cfg.has_varlen
-            else 0
+            seq_k % cfg.kv_tile_n if not cfg.is_causal and not cfg.has_varlen else 0
         ),
     )
     q_offset = seq_k - seq_q if cfg.is_causal and not cfg.has_varlen else 0
@@ -992,6 +1009,7 @@ def make_fmha_kernel(device_task_manager, num_kv_tiles, q_offset, cfg, heads):
         output_scale,
         cum_seqlen_q=None,
         cum_seqlen_k=None,
+        page_idx_kv=None,
     ):
         warp_idx = cl.shfl_sync(cl.thread_index(0) // 32, 0)
         if warp_idx == fmha_config.load_warp_id and cl.elect_sync():
@@ -1026,7 +1044,22 @@ def make_fmha_kernel(device_task_manager, num_kv_tiles, q_offset, cfg, heads):
             num_kv_tiles=num_kv_tiles,
             q_offset=q_offset,
         )
-        if cl.ensure_constant(fmha_config.has_varlen):
+        if cl.ensure_constant(fmha_config.use_paged_kv):
+            tasks_inputs = PagedTasksInputs(
+                tma_q_desc=tma_q_desc,
+                tma_k_desc=tma_k_desc,
+                tma_v_desc=tma_v_desc,
+                tma_o_desc=tma_o_desc,
+                scale_softmax_log2=scale_softmax_log2,
+                output_scale=output_scale,
+                tmem_base=tmem_base,
+                num_kv_tiles=num_kv_tiles,
+                q_offset=q_offset,
+                cum_seqlen_q=cum_seqlen_q,
+                cum_seqlen_k=cum_seqlen_k,
+                page_idx_kv=page_idx_kv,
+            )
+        elif cl.ensure_constant(fmha_config.has_varlen):
             tasks_inputs = RaggedTasksInputs(
                 tma_q_desc=tma_q_desc,
                 tma_k_desc=tma_k_desc,
@@ -1050,7 +1083,84 @@ def make_fmha_kernel(device_task_manager, num_kv_tiles, q_offset, cfg, heads):
                 cta_group=cl.CTAGroup.CTA_1,
             )
 
-    if cfg.has_varlen:
+    if cfg.use_paged_kv:
+
+        @cl.kernel(
+            max_threads_per_block=(cfg.block_threads,),
+            min_blocks_per_sm=1,
+        )
+        def fmha_kernel(
+            q,
+            k,
+            v,
+            o,
+            scale_softmax_log2,
+            output_scale,
+            cum_seqlen_q,
+            cum_seqlen_k,
+            page_idx_kv,
+        ):
+            ragged_q = _make_ragged_tma_array(q, heads, fmha_config)
+            ragged_o = _make_ragged_tma_array(o, heads, fmha_config)
+            tma_q_desc = cl.tensor_map_tiled(
+                ragged_q,
+                (
+                    fmha_config.tma_copy_q_granu_inner,
+                    1,
+                    fmha_config.q_tile_m,
+                    1,
+                    1,
+                ),
+                order=(0, 1, 2, 3, 4),
+                swizzle=cl.SwizzleMode.SWIZZLE_128B,
+                l2_promotion=cl.TensorMapL2Promotion.NONE,
+            )
+            paged_kv_box = (
+                fmha_config.tma_copy_kv_granu_inner,
+                fmha_config.num_tokens_per_page,
+                1,
+                1,
+            )
+            tma_k_desc = cl.tensor_map_tiled(
+                k,
+                paged_kv_box,
+                order=(0, 1, 2, 3),
+                swizzle=cl.SwizzleMode.SWIZZLE_128B,
+                l2_promotion=cl.TensorMapL2Promotion.L2_128B,
+            )
+            tma_v_desc = cl.tensor_map_tiled(
+                v,
+                paged_kv_box,
+                order=(0, 1, 2, 3),
+                swizzle=cl.SwizzleMode.SWIZZLE_128B,
+                l2_promotion=cl.TensorMapL2Promotion.L2_128B,
+            )
+            tma_o_desc = cl.tensor_map_tiled(
+                ragged_o,
+                (
+                    fmha_config.tma_copy_o_granu_inner,
+                    1,
+                    fmha_config.q_tile_m,
+                    1,
+                    1,
+                ),
+                order=(0, 1, 2, 3, 4),
+                swizzle=cl.SwizzleMode.SWIZZLE_128B,
+                l2_promotion=cl.TensorMapL2Promotion.NONE,
+            )
+            kernel_body(
+                tma_q_desc,
+                tma_k_desc,
+                tma_v_desc,
+                tma_o_desc,
+                scale_softmax_log2,
+                output_scale,
+                cum_seqlen_q,
+                cum_seqlen_k,
+                page_idx_kv,
+            )
+
+    elif cfg.has_varlen:
 
         @cl.kernel(
             max_threads_per_block=(cfg.block_threads,),
@@ -1221,6 +1331,18 @@ def make_tma_view(tensor):
         tensor,
         size=(depth, heads, sequence, batch),
         stride=(1, depth, heads * depth, sequence * heads * depth),
+    )
+
+
+def make_paged_kv_tma_view(tensor):
+    """Present contiguous [pages, Hkv, page, D] cache storage to TMA."""
+    if tensor.ndim != 4:
+        raise ValueError("paged K/V TMA view requires [pages, Hkv, page, D]")
+    pages, heads, page_size, depth = tensor.shape
+    return torch.as_strided(
+        tensor,
+        size=(depth, page_size, heads, pages),
+        stride=(1, depth, page_size * depth, heads * page_size * depth),
     )
 
 
