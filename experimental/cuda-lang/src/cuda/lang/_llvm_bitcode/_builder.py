@@ -129,6 +129,7 @@ class ArrayType(Type):
 class Value:
     type: Type
     id: int | None = None
+    forward_reference: "Value | None" = None
 
 
 @dataclass
@@ -290,6 +291,9 @@ class ConstantTable:
 
     def undef(self, ty: Type) -> Value:
         return self._append(ty, codes.CST_CODE_UNDEF)
+
+    def poison(self, ty: Type) -> Value:
+        return self._append(ty, codes.CST_CODE_POISON)
 
     def _append(self, ty: Type, *rec: int) -> Value:
         ret = Value(ty)
@@ -509,7 +513,7 @@ class BitcodeBuilder:
             *args
         )
 
-    def get_element_ptr(self, element_ty: Type, ptr: Value, *indices: Value):
+    def get_element_ptr(self, element_ty: Type, ptr: Value, *indices: Value) -> Value:
         return self._instruction(
             ptr.type,
             codes.FUNC_CODE_INST_GEP,
@@ -520,7 +524,7 @@ class BitcodeBuilder:
             *indices
         )
 
-    def extract_value(self, result_ty: Type, src: Value, *indices: int):
+    def extract_value(self, result_ty: Type, src: Value, *indices: int) -> Value:
         return self._instruction(
             result_ty,
             codes.FUNC_CODE_INST_EXTRACTVAL,
@@ -528,7 +532,7 @@ class BitcodeBuilder:
             src, *indices
         )
 
-    def select(self, cond: Value, true_value: Value, false_value: Value):
+    def select(self, cond: Value, true_value: Value, false_value: Value) -> Value:
         return self._instruction(
             true_value.type,
             codes.FUNC_CODE_INST_SELECT,
@@ -536,9 +540,31 @@ class BitcodeBuilder:
             true_value, false_value, cond
         )
 
+    def phi(self, incoming: Sequence[tuple[Value, int]]) -> Value:
+        ty = incoming[0][0].type
+        return self._instruction(ty, codes.FUNC_CODE_INST_PHI,
+                                 "i" + "si" * len(incoming),
+                                 ty.type_id, *(x for inc in incoming for x in inc))
+
+    def uncond_br(self, target_block: int):
+        return self._instruction(None, codes.FUNC_CODE_INST_BR, "i", target_block, terminator=True)
+
+    def cond_br(self, cond: Value, true_block: int, false_block: int):
+        return self._instruction(None, codes.FUNC_CODE_INST_BR,
+                                 "iiv", true_block, false_block, cond,
+                                 terminator=True)
+
     def ret(self, *values: Value):
         self._instruction(None, codes.FUNC_CODE_INST_RET, "V" * len(values), *values,
                           terminator=True)
+
+    def forward_reference(self, ty: Type) -> Value:
+        return Value(ty)
+
+    def resolve_forward_reference(self, fwd_ref: Value, actual: Value):
+        assert actual.forward_reference is None
+        assert fwd_ref.forward_reference is None
+        actual.forward_reference = fwd_ref
 
     def _instruction(self, result_ty: Type | None, code: int,
                      format: str, *instruction: int | Value | Metadata,
@@ -548,6 +574,7 @@ class BitcodeBuilder:
             i: an immediate int
             v: a Value
             V: an optionally typed Value (for handling forward references)
+            s: a Value encoded as a signed int
         """
         f = self._cur_function
         assert f is not None
@@ -752,11 +779,16 @@ def _write_function_body(func: Function, first_instruction_id: int, writer: _Bit
                 assert isinstance(operand, int)
                 operands.append(operand)
             else:
-                assert f in "vV"
-                assert isinstance(operand, Value | Metadata)
+                assert f in "vVs"
+                assert isinstance(operand, Value | Metadata), operand
                 assert operand.id is not None
                 relative_id = instruction_id - operand.id
-                operands.append(relative_id & 0xffff_ffff)
+
+                if f == "s":
+                    operands.append(_transform_signed_int(relative_id))
+                else:
+                    operands.append(relative_id & 0xffff_ffff)
+
                 if f == "V" and relative_id <= 0:
                     assert isinstance(operand, Value)
                     operands.append(operand.type.type_id)
@@ -820,8 +852,13 @@ class _IdMapper:
     def __call__(self, value: Value | Metadata):
         if value.id is None:
             value.id = self.next_id
+            if not isinstance(value, Metadata) and value.forward_reference is not None:
+                assert value.forward_reference.id is None
+                value.forward_reference.id = self.next_id
         else:
             assert value.id == self.next_id
+            if not isinstance(value, Metadata) and value.forward_reference is not None:
+                assert value.forward_reference.id == self.next_id
         self.next_id += 1
 
 

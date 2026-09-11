@@ -591,6 +591,9 @@ class MakeDummy(Operation, opcode="make_dummy"):
             return bc.encode_IntToPtrOp(ctx.builder, typeid(ctx.type_table, ty), const)
         return ctx.constant(0, ty)
 
+    def generate_llvm(self, ctx):
+        return ctx.builder.constants.poison(ctx.typeof(self.result_var))
+
 
 def _add_dummy_op_to_invalid_vars(vars: Sequence[Var],
                                   actual_types: Sequence[Type]) -> tuple[Var, ...]:

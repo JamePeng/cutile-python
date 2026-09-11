@@ -503,6 +503,7 @@ class _FieldKind(enum.IntEnum):
     OPERAND = 0
     ATTRIBUTE = 1
     NESTED_BLOCK = 2
+    SUCCESSOR_BLOCK = 3
 
 
 _FIELD_METADATA_KEY = "operation_field_kind"
@@ -520,6 +521,11 @@ def operand(*, default=dataclasses.MISSING) -> dataclasses.Field:
 
 def nested_block() -> dataclasses.Field:
     return dataclasses.field(metadata={_FIELD_METADATA_KEY: _FieldKind.NESTED_BLOCK},
+                             kw_only=True)
+
+
+def successor() -> dataclasses.Field:
+    return dataclasses.field(metadata={_FIELD_METADATA_KEY: _FieldKind.SUCCESSOR_BLOCK},
                              kw_only=True)
 
 
@@ -543,6 +549,7 @@ class Operation:
         operand_names = []
         attribute_names = []
         nested_block_names = []
+        successor_block_names = []
         for field_name in cls.__annotations__.keys():
             f = getattr(cls, field_name, None)
             kind = f.metadata.get(_FIELD_METADATA_KEY) if isinstance(f, dataclasses.Field) else None
@@ -552,6 +559,8 @@ class Operation:
                 attribute_names.append(field_name)
             elif kind == _FieldKind.NESTED_BLOCK:
                 nested_block_names.append(field_name)
+            elif kind == _FieldKind.SUCCESSOR_BLOCK:
+                successor_block_names.append(field_name)
             else:
                 raise TypeError(f"Field {field_name} of {cls} must be annotated with either"
                                 f" operand(), attribute() or nested_block()")
@@ -559,6 +568,7 @@ class Operation:
         cls._operand_names = tuple(operand_names)
         cls._attribute_names = tuple(attribute_names)
         cls._nested_block_names = tuple(nested_block_names)
+        cls._successor_block_names = tuple(successor_block_names)
 
     def __post_init__(self):
         for var in self.all_inputs():
@@ -582,6 +592,8 @@ class Operation:
         return self._clone_impl(mapper, result_vars)
 
     def _clone_impl(self, mapper: Mapper, result_vars: Sequence[Var]) -> Operation:
+        assert len(self._successor_block_names) == 0
+
         new_fields = {}
 
         for name in self._attribute_names:
@@ -634,6 +646,10 @@ class Operation:
     @property
     def nested_blocks(self):
         return tuple(getattr(self, name) for name in self._nested_block_names)
+
+    @property
+    def successors(self):
+        return tuple(getattr(self, name) for name in self._successor_block_names)
 
     def all_inputs(self) -> Iterator[Var]:
         for name in self._operand_names:

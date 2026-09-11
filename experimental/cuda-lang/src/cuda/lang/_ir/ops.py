@@ -67,7 +67,8 @@ from cuda.tile._ir.control_flow_ops import (
     return_,
     MakeDummy,
 )
-from cuda.tile._ir.ir import MemoryEffect, make_aggregate, add_operation_variadic, Builder
+from cuda.tile._ir.ir import MemoryEffect, make_aggregate, add_operation_variadic, Builder, \
+    successor
 from cuda.lang._exception import TypeCheckingError
 import cuda.lang._datatype as datatype
 from cuda.tile._datatype import (
@@ -408,11 +409,14 @@ def vector_dtype_impl(object: Var[VectorTy], name: Var):
 
 @dataclass(eq=False)
 class Branch(Operation, opcode="br", terminator=True):
-    target: Block = attribute()
+    target: Block = successor()
     args: tuple[Var, ...] = operand()
 
     def _to_string_rhs(self) -> str:
         return f"{self.op} ^{self.target._name}({', '.join(format_var(arg) for arg in self.args)})"
+
+    def generate_llvm(self, ctx):
+        ctx.builder.uncond_br(ctx.block(self.target))
 
 
 def branch(target: Block, args: tuple[Var, ...]) -> None:
@@ -424,8 +428,12 @@ class CondBranch(Operation, opcode="cond_br", terminator=True):
     cond: Var = operand()
     true_args: tuple[Var, ...] = operand()
     false_args: tuple[Var, ...] = operand()
-    true_target: Block = attribute()
-    false_target: Block = attribute()
+    true_target: Block = successor()
+    false_target: Block = successor()
+
+    def generate_llvm(self, ctx):
+        ctx.builder.cond_br(ctx.value(self.cond),
+                            ctx.block(self.true_target), ctx.block(self.false_target))
 
     def _to_string_rhs(self) -> str:
         formatted = f"{self.op} {format_var(self.cond)}"

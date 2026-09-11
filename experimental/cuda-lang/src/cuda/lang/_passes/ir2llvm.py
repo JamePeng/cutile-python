@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) <2026> NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 #
 # SPDX-License-Identifier: Apache-2.0
-
-from typing import Sequence
+from dataclasses import dataclass
+from typing import Sequence, Mapping
 
 from cuda.lang._ir import ir
 from cuda.lang._ir import type as ir_type
@@ -14,7 +14,8 @@ from cuda.lang import _datatype as datatype
 from cuda.tile._numeric_semantics import RoundingMode
 from cuda.tile._bytecode import float_to_bits
 from cuda.tile._datatype import dtype_simple_bytecode_type, is_integral, is_signed, is_boolean
-
+from cuda.tile._exception import InternalError
+from cuda.tile._ir.control_flow_ops import Return
 
 DIRECTLY_SUPPORTED_FLOATS = {
     datatype.float16: llvm.FloatKind.f16,
@@ -64,21 +65,31 @@ class LLVMLoweringContext:
                  builder: BitcodeBuilder,
                  ir_ctx: ir.IRContext,
                  target_info: TargetInfo | None,  # None for host
+                 all_blocks: Sequence[ir.Block],
                  ):
         self.ir_ctx = ir_ctx
         self.builder = builder
         self.target_info = target_info
         self._value_map: dict[str, llvm.Value] = dict()
+        self._block_map: dict[ir.Block, int] = {block: i for i, block in enumerate(all_blocks)}
         self._used_instrinsics: dict[str, llvm.Value] = dict()
 
+    def block(self, b: ir.Block) -> int:
+        return self._block_map[b]
+
     def value(self, var: ir.Var) -> llvm.Value:
-        return self._value_map[var.name]
+        val = self._value_map.get(var.name)
+        if val is None:
+            self._value_map[var.name] = val = self.builder.forward_reference(self.typeof(var))
+        return val
 
     def set_value(self, var: ir.Var, value: llvm.Value):
         name = var.name
-        if name in self._value_map:
-            raise ValueError(f"Variable {name} is already in the value map")
+        fwd_ref = self._value_map.get(name)
+        if fwd_ref is not None:
+            self.builder.resolve_forward_reference(fwd_ref, value)
         self._value_map[name] = value
+        assert self.typeof(var).type_id == value.type.type_id
 
     def typeof(self, var: ir.Var) -> llvm.Type:
         return type_to_llvm(var.get_type(), self.builder.type_table, storage=False)
@@ -360,7 +371,8 @@ def generate_nvvm_bitcode_for_kernel(body: ir.Region,
     builder = BitcodeBuilder(target_triple="nvptx64-nvidia-cuda", data_layout=DATALAYOUT_PTX)
     ctx = LLVMLoweringContext(builder=builder,
                               ir_ctx=body.ctx,
-                              target_info=target_info)
+                              target_info=target_info,
+                              all_blocks=body.blocks)
     builder.append_nvvm_version_metadata(2, 0)
     _lower_function(body=body,
                     name=symbol,
@@ -376,20 +388,67 @@ def _lower_function(body: ir.Region,
                     ) -> llvm.Function:
     tt = ctx.builder.type_table
     func_ty = tt.function(tt.VOID, [ctx.typeof(p) for p in body.blocks[0].params])
+    predecessors_by_block_id = _get_predecessors(body.blocks, ctx._block_map)
     with ctx.builder.function(name, func_ty, calling_convention=calling_convention) as func:
         for param, llvm_value in zip(body.blocks[0].params, func.parameters, strict=True):
             ctx.set_value(param, llvm_value)
 
-        for block in body.blocks:
+        for block_id, (block, predecessors) in enumerate(zip(body.blocks, predecessors_by_block_id,
+                                                             strict=True)):
+            # Convert block parameters to PHI nodes
+            if block_id > 0:
+                for pred in predecessors:
+                    assert len(pred.incoming_values) == len(block.params)
+                for param_idx, param in enumerate(block.params):
+                    incoming = [
+                        (ctx.value(pred.incoming_values[param_idx]), pred.incoming_block_id)
+                        for pred in predecessors
+                    ]
+                    phi = ctx.builder.phi(incoming)
+                    ctx.set_value(param, phi)
+
             for op in block:
-                result_values = op.generate_llvm(ctx)
+                with op.loc:
+                    try:
+                        result_values = op.generate_llvm(ctx)
 
-                if isinstance(result_values, llvm.Value):
-                    result_values = (result_values,)
-                elif result_values is None:
-                    result_values = ()
+                        if isinstance(result_values, llvm.Value):
+                            result_values = (result_values,)
+                        elif result_values is None:
+                            result_values = ()
 
-                for result_var, val in zip(op.result_vars, result_values, strict=True):
-                    assert isinstance(val, llvm.Value)
-                    ctx.set_value(result_var, val)
+                        for result_var, val in zip(op.result_vars, result_values, strict=True):
+                            assert isinstance(val, llvm.Value)
+                            ctx.set_value(result_var, val)
+                    except Exception as e:
+                        raise InternalError(f"Internal error: {e}") from e
     return func
+
+
+@dataclass(frozen=True)
+class _Predecessor:
+    incoming_block_id: int
+    incoming_values: tuple[ir.Var, ...]
+
+
+def _get_predecessors(blocks: Sequence[ir.Block],
+                      block_map: Mapping[ir.Block, int]) -> list[list[_Predecessor]]:
+    from .._ir.ops import CondBranch, Branch
+    ret = [[] for _ in blocks]
+    for pred_id, predecessor in enumerate(blocks):
+        terminator = predecessor[-1]
+        if isinstance(terminator, CondBranch):
+            successors = ((terminator.true_target, terminator.true_args),
+                          (terminator.false_target, terminator.false_args))
+        elif isinstance(terminator, Branch):
+            successors = ((terminator.target, terminator.args),)
+        else:
+            assert isinstance(terminator, Return)
+            successors = ()
+
+        for succ, args in successors:
+            succ_id = block_map[succ]
+            ret[succ_id].append(_Predecessor(pred_id, args))
+    # The entry block can't be jumped back to
+    assert len(ret[0]) == 0
+    return ret
