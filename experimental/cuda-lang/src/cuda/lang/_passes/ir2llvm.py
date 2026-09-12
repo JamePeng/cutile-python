@@ -140,6 +140,11 @@ class LLVMLoweringContext:
             self._function_declarations[name] = fptr
         return fptr
 
+    def unpack_struct(self, struct_value: llvm.Value) -> tuple[llvm.Value, ...]:
+        assert isinstance(struct_value.type, llvm.AnonStructType)
+        return tuple(self.builder.extract_value(struct_value, i)
+                     for i in range(len(struct_value.type.fields)))
+
 
 def generate_nvvm_bitcode_for_kernel(body: ir.Region,
                                      symbol: str,

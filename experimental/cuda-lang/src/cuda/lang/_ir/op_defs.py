@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from typing import Optional, Any, TYPE_CHECKING
 
@@ -22,6 +23,7 @@ from typing_extensions import override
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.ir import MemoryEffect, add_operation_variadic
 from cuda.tile._ir.type import TensorLikeTy
+from cuda.lang import _datatype as datatype
 from cuda.lang._enums import VectorReduction
 from .ir import Operation, Var, attribute, operand
 from .type import Type, VectorTy, ScalarTy, PointerTy
@@ -83,8 +85,7 @@ class RawLLVMIntrinsic(
         elif len(self.result_vars) == 1:
             return (result,)
         else:
-            return tuple(ctx.builder.extract_value(ctx.typeof(r), result, i)
-                         for i, r in enumerate(self.result_vars))
+            return ctx.unpack_struct(result)
 
 
 def call_intrinsic(stub, *args: Var):
@@ -199,6 +200,71 @@ InlineAsmPiece = str | InlineAsmInput | InlineAsmOutput
 class InlinePTX(Operation, opcode="inline_ptx", memory_effect=MemoryEffect.STORE):
     text: tuple[InlineAsmPiece, ...] = attribute()
     inputs: tuple[Var, ...] = operand()
+
+    @override
+    def generate_llvm(self, ctx):
+        num_outputs = len(self.result_vars)
+        llvm_types = []
+        constraints = []
+        for i, var in enumerate(itertools.chain(self.result_vars, self.inputs)):
+            ty = var.get_type()
+            assert ty.tensor_shape() == ()
+            dtype = ty.tensor_dtype()
+            code = _dtype_to_inline_ptx_constraint(dtype)
+            prefix = "=" if i < num_outputs else ""
+            constraints.append(prefix + code)
+            llvm_types.append(ctx.typeof(var))
+
+        pieces = []
+        for p in self.text:
+            if isinstance(p, str):
+                pieces.append(p)
+            else:
+                if isinstance(p, InlineAsmInput):
+                    linear_index = num_outputs + p.index
+                else:
+                    assert isinstance(p, InlineAsmOutput)
+                    linear_index = p.index
+                pieces.append(f"${linear_index}")
+
+        tt = ctx.builder.type_table
+        if num_outputs == 0:
+            ret_ty = tt.VOID
+        elif num_outputs == 1:
+            ret_ty = llvm_types[0]
+        else:
+            ret_ty = tt.struct_anonymous(llvm_types[:num_outputs])
+
+        func_ty = tt.function(ret_ty, llvm_types[num_outputs:])
+
+        asm = ctx.builder.constants.inline_asm(func_ty, "".join(pieces), ",".join(constraints),
+                                               side_effects=True)
+        r = ctx.builder.call(func_ty, asm, [ctx.value(x) for x in self.inputs])
+
+        if num_outputs == 0:
+            return ()
+        elif num_outputs == 1:
+            return (r,)
+        else:
+            return ctx.unpack_struct(r)
+
+
+def _dtype_to_inline_ptx_constraint(dtype: datatype.DType) -> str:
+    if dtype == datatype.float32:
+        return "f"
+    elif dtype == datatype.float64:
+        return "d"
+    elif dtype == datatype.bool_:
+        return "b"
+    elif dtype.bitwidth == 16:
+        return "h"
+    elif dtype.bitwidth == 32:
+        return "r"
+    elif dtype.bitwidth == 64:
+        return "l"
+    elif dtype.bitwidth == 128:
+        return "q"
+    raise NotImplementedError(f"Can't map dtype {dtype} to InlineAsm constraint")
 
 
 @dataclass(eq=False)

@@ -87,8 +87,8 @@ def _make_inline_ptx_bitcode() -> bytes:
             side_effects=False
         )
         r = builder.call(ptx_functy, ptx_func, [a, b])
-        radd = builder.extract_value(tt.F32, r, 0)
-        rsub = builder.extract_value(tt.F32, r, 1)
+        radd = builder.extract_value(r, 0)
+        rsub = builder.extract_value(r, 1)
         builder.store(cp0, radd, alignment=4)
         builder.store(cp1, rsub, alignment=4)
         builder.ret()

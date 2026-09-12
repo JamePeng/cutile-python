@@ -366,7 +366,8 @@ class Function:
 @dataclass
 class GlobalVariable:
     name: str
-    value: Value
+    value: Value  # Has a pointer type
+    value_type: Type  # Actual type of the global
     address_space: int
     is_constant: bool
     initializer: Value | None
@@ -428,10 +429,11 @@ class BitcodeBuilder:
                         linkage: Linkage = Linkage.External,
                         alignment: int | None = None) -> Value:
         assert self._cur_function is None, "Global variables must be put at the global scope"
-        value = Value(type)
+        value = Value(self.type_table.pointer(address_space))
         self._global_variables.append(GlobalVariable(
             name=name,
             value=value,
+            value_type=type,
             address_space=address_space,
             is_constant=is_constant,
             initializer=initializer,
@@ -524,9 +526,16 @@ class BitcodeBuilder:
             *indices
         )
 
-    def extract_value(self, result_ty: Type, src: Value, *indices: int) -> Value:
+    def extract_value(self, src: Value, *indices: int) -> Value:
+        ty = src.type
+        for i in indices:
+            if isinstance(ty, AnonStructType):
+                ty = ty.fields[i]
+            else:
+                raise NotImplementedError()
+
         return self._instruction(
-            result_ty,
+            ty,
             codes.FUNC_CODE_INST_EXTRACTVAL,
             "V" + "i" * len(indices),
             src, *indices
@@ -804,7 +813,7 @@ def _write_global_variable_record(global_var: GlobalVariable, writer: _BitcodeWr
     writer.unabbrev_record(
         codes.MODULE_CODE_GLOBALVAR,
         *string_table[global_var.name.encode()],  # STRTAB offset & size
-        global_var.value.type.type_id,
+        global_var.value_type.type_id,
         (global_var.address_space << 2) | 2 | global_var.is_constant,
         0 if global_var.initializer is None else global_var.initializer.id + 1,
         global_var.linkage._value_,
