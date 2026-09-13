@@ -5,13 +5,14 @@
 import ctypes
 from dataclasses import dataclass
 import struct
-from typing import Any
+from typing import Any, Annotated
 
 import cuda.lang as cl
 import pytest
 import torch
 
 from cuda.tile import ScalarInt64
+from cuda.tile._stub import ScalarAnnotation
 from cuda.tile._annotated_function import get_annotated_function
 from cuda.tile._cext import (
     CallingConvention,
@@ -29,6 +30,8 @@ from cuda.lang.compilation import (
     ScalarConstraint,
 )
 from cuda.tile.compilation import TupleConstraint
+
+ScalarInt32 = Annotated[int, ScalarAnnotation(dtype=cl.int32)]
 
 
 def _signature_from_pyargs(function, *pyargs):
@@ -369,7 +372,7 @@ def test_kernel_launch_scalar_overflow(
             output[0] = cl.bitcast(value, cl.uint64)
     else:
         @cl.kernel
-        def kernel(value, output):
+        def kernel(value: ScalarInt32, output):
             cl.static_assert(cl.dtype_of(value) == cl.int32)
             output[0] = cl.uint64(cl.bitcast(value, cl.uint32))
 

@@ -301,22 +301,27 @@ def test_dataclass_with_old_cconv_raises(cconv, version):
             cconv)
 
 
+@ct.kernel
+def kernel_3_constant_add(args, out):
+    ct.ensure_constant(args.add)
+    ct.scatter(out, (), args.mul * 10 + args.add)
+
+
 @pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
-def test_dataclass_with_invalid_field_constraint():
+def test_dataclass_with_constant_field_constraint():
     sig = ct.compilation.KernelSignature(
         [
             ct.compilation._signature.DataclassConstraint(
                 Kernel3Args,
                 [ct.compilation.ScalarConstraint(ct.int32), 123]),
-            ct.compilation.ScalarConstraint(ct.int32),
+            ct.compilation.ArrayConstraint(ct.float32, 0, index_dtype=ct.int32,
+                                           stride_lower_bound_incl=0,
+                                           alias_groups=(), may_alias_internally=False),
         ],
         ct.compilation.CallingConvention.cutile_python_v3())
     io = BytesIO()
-    expected_msg = re.escape("Invalid field 'add' of kernel parameter 'args': ConstantConstraint"
-                             " is only valid for parameters annotated as Constant.")
-    with pytest.raises(TypeError, match=expected_msg):
-        ct.compilation.export_kernel(kernel_3, [sig], gpu_code=get_sm_arch(), output_file=io,
-                                     output_format="cubin")
+    ct.compilation.export_kernel(kernel_3_constant_add, [sig], gpu_code=get_sm_arch(),
+                                 output_file=io, output_format="cubin")
 
 
 @ct.kernel

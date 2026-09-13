@@ -158,9 +158,10 @@ int CompiledHostProgram_init(PyObject* self, PyObject* args, PyObject* kwargs) {
                 PyTuple_GET_ITEM(py_launch_descriptions, i);
         PyObject* dispatcher;
         PyObject* arguments;
+        PyObject* host_constant_args;
         if (!PyArg_ParseTuple(
-                    launch_description, "OO:native launch description",
-                    &dispatcher, &arguments))
+                    launch_description, "OOO:native launch description",
+                    &dispatcher, &arguments, &host_constant_args))
             return -1;
         if (!PyTuple_Check(arguments)) {
             PyErr_SetString(
@@ -172,7 +173,8 @@ int CompiledHostProgram_init(PyObject* self, PyObject* args, PyObject* kwargs) {
                 native_launch_site_create(
                         dispatcher,
                         reinterpret_cast<PyTupleObject*>(arguments)->ob_item,
-                        PyTuple_GET_SIZE(arguments));
+                        PyTuple_GET_SIZE(arguments),
+                        host_constant_args);
         if (!launch_site.is_ok()) return -1;
         program.runtime.launch_sites.push_back(*launch_site);
     }

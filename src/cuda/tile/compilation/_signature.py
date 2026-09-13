@@ -292,8 +292,11 @@ ConstantValue: TypeAlias = bool | int | float
 @dataclass(frozen=False, eq=False)
 class ConstantConstraint:
     """
-    Specifies the constant value of a kernel parameter
-    marked with :py:class:`ct.Constant <cuda.tile.Constant>`.
+    Specifies the compile-time value of a kernel parameter or aggregate field.
+
+    A constant constraint makes an unannotated parameter or field constant. A
+    parameter marked with :py:class:`ct.Constant <cuda.tile.Constant>` must
+    likewise receive a constant constraint.
 
     Args:
         value (ConstantValue):

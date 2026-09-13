@@ -2494,6 +2494,7 @@ static Status flatten_parameter_annotation_node(ParameterAnnotationNode* node,
 
 struct LeafAnnotationNode : ParameterAnnotationNode {
     bool constant = false;
+    bool is_unannotated = true;
     ScalarAnnotation scalar;
     ArrayAnnotation array;
     ListAnnotation list;
@@ -3587,6 +3588,25 @@ get_pyarg_kinds(const Vec<PyTypeObject*>& pyarg_types_depth_first,
     return ret;
 }
 
+static Status patch_host_constant_annotations(
+        Vec<RefPtr<LeafAnnotationNode>>* flat_param_annotations,
+        const Vec<uint8_t>& host_constant_args) {
+    if (host_constant_args.size() != flat_param_annotations->size())
+        return raise(PyExc_RuntimeError,
+                     "host kernel argument constness does not match argument structure");
+
+    for (size_t i = 0; i < host_constant_args.size(); ++i) {
+        if (!host_constant_args[i] || !(*flat_param_annotations)[i]->is_unannotated)
+            continue;
+
+        RefPtr<LeafAnnotationNode> patched = steal(new LeafAnnotationNode);
+        patched->constant = true;
+        patched->is_unannotated = false;
+        (*flat_param_annotations)[i] = std::move(patched);
+    }
+    return OK;
+}
+
 static Vec<ParameterKind>
 get_parameter_kinds(const Vec<ArgumentStructureEntry>& argument_structure,
                     const Vec<PythonArgKind>& pyarg_kinds) {
@@ -3812,6 +3832,7 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
         PyObject* const* pyargs,
         Py_ssize_t num_pyargs,
         const Vec<RefPtr<ParameterAnnotationNode>>& param_annotations,
+        const Vec<uint8_t>* host_constant_args,
         Vec<RefPtr<ArgumentFamily>>* argument_families,
         Vec<PyObject*>* pyarg_objs_breadth_first,
         Vec<PyTypeObject*>* pyarg_types_breadth_first,
@@ -3883,6 +3904,11 @@ static PythonArgProfile* python_arg_profile_lookup_impl(
                 if (!flat_param_annotations.is_ok())
                     return nullptr;
 
+                if (host_constant_args
+                        && !patch_host_constant_annotations(
+                                &*flat_param_annotations, *host_constant_args))
+                    return nullptr;
+
                 // Classify the arguments and get the matching ArgumentFamily.
                 Result<Vec<PythonArgKind>> arg_kinds = get_pyarg_kinds(
                         pyarg_types_depth_first, aggregate_types,
@@ -3939,6 +3965,7 @@ static PythonArgProfile* python_arg_profile_lookup(
             pyargs,
             num_pyargs,
             dispatcher.param_annotations,
+            nullptr,
             &dispatcher.argument_families,
             &helper.pyarg_objs_breadth_first,
             &helper.pyarg_types_breadth_first,
@@ -4236,17 +4263,47 @@ static Result<Vec<NativeArgument>> parse_native_arguments(
 Result<NativeLaunchSite*> native_launch_site_create(
         PyObject* dispatcher_object,
         PyObject* const* pyargs,
-        Py_ssize_t num_pyargs) {
+        Py_ssize_t num_pyargs,
+        PyObject* py_host_constant_args) {
 #ifdef Py_GIL_DISABLED
     PyCriticalSectionGuard guard(&g_launch_mutex);
 #endif
 
+    if (!PyTuple_Check(py_host_constant_args))
+        return raise(PyExc_TypeError,
+                     "host kernel argument constness must be a tuple");
+    Vec<uint8_t> host_constant_args;
+    Py_ssize_t host_constant_count = PyTuple_GET_SIZE(py_host_constant_args);
+    host_constant_args.reserve(host_constant_count);
+    for (Py_ssize_t i = 0; i < host_constant_count; ++i) {
+        PyObject* value = PyTuple_GET_ITEM(py_host_constant_args, i);
+        if (!PyBool_Check(value))
+            return raise(PyExc_TypeError,
+                         "host kernel argument constness values must be bool");
+        host_constant_args.push_back(value == Py_True);
+    }
+
     LaunchHelperPtr helper = launch_helper_get();
     Dispatcher& dispatcher = py_unwrap<Dispatcher>(dispatcher_object);
 
-    // pyargs contains symbolic array and symbolic scalar
-    PythonArgProfile* profile = python_arg_profile_lookup(
-            pyargs, num_pyargs, dispatcher, *helper);
+    // Use a temporary ProfileMap instead of the one from dispatcher.
+    // This is a slow compile time path, so we do not care about caching PythonArgProfile.
+    // Furthermore, ProfileMap cache by Python type only, ignoring
+    // the fact that compiled host entry uses argument constantness
+    // to patch the flattened annotation. Reusing dispatcher's profile_map
+    // would be incorrect.
+    ProfileMap transient_profiles;
+    PythonArgProfile* profile = python_arg_profile_lookup_impl(
+            &transient_profiles,
+            pyargs,
+            num_pyargs,
+            dispatcher.param_annotations,
+            &host_constant_args,
+            &dispatcher.argument_families,
+            &helper->pyarg_objs_breadth_first,
+            &helper->pyarg_types_breadth_first,
+            &helper->leaf_pyarg_objs,
+            &helper->pyarg_refs);
     if (!profile) return ErrorRaised;
 
     Result<const DriverApi*> driver_result = get_driver_api();
@@ -4818,6 +4875,11 @@ static RefPtr<ParameterAnnotationNode> parse_parameter_annotation_node(PyObject*
 
         RefPtr<LeafAnnotationNode> node = steal(new LeafAnnotationNode);
         node->constant = (constant.get() == Py_True);
+        node->is_unannotated = (
+                !node->constant
+                && scalar.get() == Py_None
+                && array.get() == Py_None
+                && list.get() == Py_None);
 
         if (!parse_scalar_annotation(scalar.get(), &node->scalar))
             return {};

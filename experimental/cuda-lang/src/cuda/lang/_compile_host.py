@@ -15,9 +15,7 @@ from typing import Iterable, Iterator
 
 from cuda.tile import _cext
 from cuda.tile import _datatype as datatype
-from cuda.tile._annotated_function import (
-    get_annotated_function,
-)
+from cuda.tile._annotated_function import get_annotated_function
 from cuda.tile._compile import _create_kernel_parameters
 from cuda.tile._ir.ir import Var
 from cuda.tile._ir.type import ArrayTy, DataclassTy, ListTy, TupleTy, Type
@@ -53,6 +51,7 @@ class _BoundKernelLaunch:
     argument_sources: tuple[Var, ...]
     kernel: object
     arguments: tuple[object, ...]
+    host_constant_args: tuple[bool, ...]
 
 
 def _all_ops(block: ir.Block) -> Iterable[ir.Operation]:
@@ -106,24 +105,31 @@ def _make_fake_launch_argument(
     argument_type: Type,
     argument_leaves: Iterator[Var],
     sources: list[Var],
+    host_constant_args: list[bool],
 ) -> object:
     if isinstance(argument_type, TupleTy):
         item_types = tuple(argument_type)
         return tuple(
-                _make_fake_launch_argument(
-                    item_type,
-                    argument_leaves,
-                    sources,
-                ) for item_type in item_types)
+            _make_fake_launch_argument(
+                item_type,
+                argument_leaves,
+                sources,
+                host_constant_args,
+            )
+            for item_type in item_types
+        )
 
     if isinstance(argument_type, DataclassTy):
         cls = argument_type.cls
         item_names = tuple(f.name for f in fields(cls))
         item_types = argument_type.field_types
         return cls(**{
-            item_name: _make_fake_launch_argument(item_type,
-                                                  argument_leaves,
-                                                  sources)
+            item_name: _make_fake_launch_argument(
+                item_type,
+                argument_leaves,
+                sources,
+                host_constant_args,
+            )
             for item_name, item_type in zip(item_names, item_types, strict=True)})
 
     if isinstance(argument_type, ListTy):
@@ -135,9 +141,11 @@ def _make_fake_launch_argument(
         sources.extend(
             next(argument_leaves) for _ in argument_type.flatten_aggregate()
         )
+        host_constant_args.append(False)
         return _fake_array(argument_type.dtype, argument_type.ndim,)
 
     argument = next(argument_leaves)
+    host_constant_args.append(argument.is_constant())
 
     if isinstance(argument_type, ScalarTy):
         sources.append(argument)
@@ -157,22 +165,29 @@ def _bind_kernel_launch(
     kernel_launch: KernelLaunch,
     launch_site_index: int,
 ) -> _BoundKernelLaunch:
+    target = kernel_launch.launched_kernel
+    argument_types = kernel_launch.kernel_argument_types
+
     argument_leaves = iter(kernel_launch.kernel_argument_leaves)
     sources: list[Var] = []
     arguments: list[object] = []
-    for argument_type in kernel_launch.kernel_argument_types:
+    host_constant_args: list[bool] = []
+    for argument_type in argument_types:
         arg = _make_fake_launch_argument(
             argument_type,
             argument_leaves,
             sources,
+            host_constant_args,
         )
         arguments.append(arg)
     assert next(argument_leaves, None) is None
+    arguments_tuple = tuple(arguments)
     return _BoundKernelLaunch(
         launch_site_index=launch_site_index,
         argument_sources=tuple(sources),
-        kernel=kernel_launch.launched_kernel,
-        arguments=tuple(arguments),
+        kernel=target,
+        arguments=arguments_tuple,
+        host_constant_args=tuple(host_constant_args),
     )
 
 
@@ -262,6 +277,7 @@ def _compile(
         (
             bound_launch.kernel,
             bound_launch.arguments,
+            bound_launch.host_constant_args,
         )
         for bound_launch in bound_launches
     )

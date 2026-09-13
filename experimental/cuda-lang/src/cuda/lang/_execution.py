@@ -100,7 +100,9 @@ class host_entry(_cext.HostDispatcher):
 
     Array arguments specialize by dtype and rank. Explicit annotations such as
     :class:`cuda.lang.Constant` and static-shape annotations add the requested
-    specialization properties.
+    specialization properties. Values known to be constant in compiled host
+    code remain constant when passed to unannotated kernel parameters; an
+    explicit scalar annotation on the kernel parameter keeps a scalar dynamic.
     """
 
     def __new__(cls, function=None, /, **kwargs):

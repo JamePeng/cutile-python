@@ -230,10 +230,6 @@ def _create_parameter(
                                      " as implied by the Constant annotation.", path)
 
     if isinstance(constraint, ConstantConstraint):
-        if not annotation.constant:
-            raise _make_constraint_error("ConstantConstraint is only valid for parameters"
-                                         " annotated as Constant.", path)
-
         loosely_typed_const(constraint.value, result_var=var)
         return
 

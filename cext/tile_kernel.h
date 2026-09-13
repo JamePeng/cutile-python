@@ -28,7 +28,8 @@ struct NativeLaunchConfig {
 Result<NativeLaunchSite*> native_launch_site_create(
         PyObject* dispatcher,
         PyObject* const* pyargs,
-        Py_ssize_t num_pyargs);
+        Py_ssize_t num_pyargs,
+        PyObject* host_constant_args);
 void native_launch_site_destroy(NativeLaunchSite* site);
 int32_t native_launch_site_launch(
         NativeLaunchSite* site,
