@@ -31,7 +31,8 @@ from cuda.tile._annotated_function import (
 from cuda.tile._bytecode.version import BytecodeVersion
 from cuda.tile._cext import get_compute_capability, TileContext, default_tile_context
 from cuda.tile._compiler_options import CompilerOptions
-from cuda.tile._datatype import DType
+from cuda.tile._datatype import DType, pointer_dtype
+from cuda.tile._memory_model import MemorySpace
 from cuda.tile._exception import (
     TileCompilerError,
     TileCompilerExecutionError,
@@ -73,7 +74,7 @@ from cuda.tile._version import __version__ as cutile_version
 import cuda.tile._bytecode as bc
 from cuda.tile.compilation._signature import KernelSignature, ParameterConstraint, \
     ScalarConstraint, ArrayConstraint, ListConstraint, TupleConstraint, ConstantConstraint, \
-    DataclassConstraint
+    DataclassConstraint, PointerConstraint
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,10 @@ def _create_parameter(
             raise _make_constraint_error(f"ScalarConstraint.dtype {constraint.dtype} does not match"
                                          f" the annotated dtype {annotation.scalar.dtype}.", path)
         ty = var.ctx.typing_hooks.get_tensor_like_type(constraint.dtype, ())
+    elif isinstance(constraint, PointerConstraint):
+        ty = var.ctx.typing_hooks.get_tensor_like_type(
+            pointer_dtype(constraint.pointee_dtype, MemorySpace.GLOBAL), ()
+        )
     elif isinstance(constraint, ArrayConstraint):
         ty = _get_array_ty(constraint, annotation.array, path, var.ctx.typing_hooks)
     elif isinstance(constraint, ListConstraint):

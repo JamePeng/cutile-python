@@ -115,6 +115,27 @@ def test_host_jit_two_kernel_specializations():
     assert compile_kernel_mock.call_count == 2
 
 
+@pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
+def test_host_jit_passes_pointer_to_kernel():
+    @cl.kernel
+    def kernel(pointer):
+        cl.static_assert(pointer.memory_space == cl.MemorySpace.GLOBAL)
+        pointer.store(42)
+
+    @cl.host_entry
+    def launcher(output):
+        view = cl.Array.from_parts(
+            output.pointer(1), output.shape, output.strides
+        )
+        cl.static_assert(view.dtype == cl.int32)
+        cl.launch(None, (1,), (1,), kernel, (view.pointer(),))
+
+    output = torch.zeros(2, dtype=torch.int32, device="cuda")
+    launcher(output)
+    torch.cuda.synchronize()
+    assert output.tolist() == [0, 42]
+
+
 def test_host_jit_preserves_argument_constness():
     @cl.kernel
     def kernel(value, output):

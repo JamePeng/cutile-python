@@ -21,7 +21,7 @@ from cuda.tile._ir.ops import GetArrayListItem, \
     TileReshape, AssumeDivBy, TileReduce, TileScan, AssumeBounded
 from cuda.tile._ir.control_flow_ops import Loop, IfElse, Continue, Break
 from cuda.tile.compilation._signature import ParameterConstraint, \
-    ArrayConstraint, ListConstraint, TupleConstraint, ScalarConstraint
+    ArrayConstraint, ListConstraint, TupleConstraint, ScalarConstraint, PointerConstraint
 
 
 ALIAS_UNIVERSE = -1
@@ -62,8 +62,9 @@ class DataflowResult:
         return None if pred is None else pred.const_value
 
 
-def _register_leaf_param(state, constraint: ArrayConstraint | ScalarConstraint,
-                         vars, alias_set_mapper):
+def _register_leaf_param(
+        state, constraint: ArrayConstraint | ScalarConstraint | PointerConstraint,
+        vars, alias_set_mapper):
     if isinstance(constraint, ArrayConstraint):
         predicates = _get_array_predicates(constraint, alias_set_mapper)
         for var, pred in zip(vars, predicates, strict=True):
@@ -77,7 +78,7 @@ def _register_leaf_param(state, constraint: ArrayConstraint | ScalarConstraint,
 def _register_tuple_params(state, constraint: TupleConstraint, flat_params, offset: int,
                            alias_set_mapper) -> int:
     for item in constraint.items:
-        if isinstance(item, (ArrayConstraint, ScalarConstraint)):
+        if isinstance(item, (ArrayConstraint, ScalarConstraint, PointerConstraint)):
             n = 1 + 2 * item.ndim if isinstance(item, ArrayConstraint) else 1
             _register_leaf_param(state, item, flat_params[offset:offset + n], alias_set_mapper)
             offset += n
@@ -104,7 +105,7 @@ def dataflow_analysis(root_block: Block,
     state = _State(_Tracker(), _Tracker())
     alias_set_mapper = _AliasSetMapper()
     for flat_params, constraint in parameter_constraints:
-        if isinstance(constraint, (ArrayConstraint, ScalarConstraint)):
+        if isinstance(constraint, (ArrayConstraint, ScalarConstraint, PointerConstraint)):
             _register_leaf_param(state, constraint, flat_params, alias_set_mapper)
         elif isinstance(constraint, ListConstraint):
             assert isinstance(constraint.element, ArrayConstraint)

@@ -52,6 +52,7 @@ static PyObject* g_default_tile_context;
 
 static constexpr const char* kFakeArrayDTypeAttr = "_cuda_lang_fake_array_dtype";
 static constexpr const char* kFakeArrayNdimAttr = "_cuda_lang_fake_array_ndim";
+static constexpr const char* kFakePointerDTypeAttr = "_cuda_lang_fake_pointer_dtype";
 static constexpr const char* kNativeSourceDTypeAttr = "_native_source_dtype";
 
 
@@ -632,6 +633,7 @@ struct ParameterKind {
         ConstantNone,
         IdentityConstant,  // constant that can be compared via object identity, e.g. an Enum value
         Array,
+        Pointer,
         Boolean,
         Integer,
         Float,
@@ -679,6 +681,8 @@ enum class PythonArgKind : uint8_t {
     CudaArray,
     // Internal fake array used when creating a compiled-host native launch site.
     FakeArray,
+    // Internal fake pointer used when creating a compiled-host native launch site.
+    FakePointer,
     // Python `bool`,
     PyBool,
     // Python `int`,
@@ -717,6 +721,7 @@ static ParameterKind::Category param_category_from_pyarg_kind(PythonArgKind k) {
     case PythonArgKind::DlpackArray: return ParameterKind::Array;
     case PythonArgKind::CudaArray: return ParameterKind::Array;
     case PythonArgKind::FakeArray: return ParameterKind::Array;
+    case PythonArgKind::FakePointer: return ParameterKind::Pointer;
     case PythonArgKind::PyBool: return ParameterKind::Boolean;
     case PythonArgKind::PyLong: return ParameterKind::Integer;
     case PythonArgKind::PyFloat: return ParameterKind::Float;
@@ -994,6 +999,11 @@ static std::optional<PythonArgKind> classify_nonconstant_arg(PyObject* arg) {
 
     if (PyObject_HasAttrString(arg, kFakeArrayDTypeAttr))
         return PythonArgKind::FakeArray;
+
+#ifdef ENABLE_CCONV_V3
+    if (PyObject_HasAttrString(arg, kFakePointerDTypeAttr))
+        return PythonArgKind::FakePointer;
+#endif
 
     if (PyObject_HasAttr(arg, g___dlpack___pyunicode))
         return PythonArgKind::DlpackArray;
@@ -2604,6 +2614,22 @@ flatten_parameter_annotation_nodes(const Vec<RefPtr<ParameterAnnotationNode>>& n
     return ret;
 }
 
+static Status extract_fake_pointer(PyObject* pyobj, LaunchHelper& helper) {
+    PyPtr py_dtype = getattr(pyobj, kFakePointerDTypeAttr);
+    if (!py_dtype) return ErrorRaised;
+
+    Result<std::optional<DLDataType>> dtype = dtype_from_python(py_dtype.get());
+    if (!dtype.is_ok()) return ErrorRaised;
+    if (!*dtype)
+        return raise(
+                PyExc_TypeError,
+                "unsupported fake pointer dtype ", use_repr(py_dtype.get()));
+
+    helper.constants.push_back(dtype_as_uint(**dtype));
+    push_single_word_cuarg(helper, {.device_ptr = nullptr});
+    return OK;
+}
+
 static RefPtr<ParameterAnnotationNode> parse_parameter_annotation_node(PyObject* obj);
 
 static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind kind,
@@ -2635,6 +2661,8 @@ static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind 
         return extract_array<arrayrepr_cuda_array_iface>(driver, obj, annotation->array, helper);
     case PythonArgKind::FakeArray:
         return extract_array<arrayrepr_fake_array>(driver, obj, annotation->array, helper);
+    case PythonArgKind::FakePointer:
+        return extract_fake_pointer(obj, helper);
     case PythonArgKind::PyBool:
         return extract_py_bool(obj, helper);
     case PythonArgKind::PyLong:
@@ -2674,6 +2702,25 @@ static Status extract_cuda_args(const DriverApi* driver,
     return OK;
 }
 
+static PyPtr parse_pointer_constraint(
+        ConstantCursor& cursor, CallConvVersion* minimum_cconv) {
+#ifdef ENABLE_CCONV_V3
+    require_min_cconv(minimum_cconv, CallConvVersion::CutilePython_V3);
+    PyPtr dtype = dtype_to_python(dtype_from_uint(cursor.next()));
+    if (!dtype) return {};
+    PyObject* signature_module = get_signature_module();
+    if (!signature_module) return {};
+    return steal(PyObject_CallMethod(
+            signature_module, "PointerConstraint", "(O)", dtype.get()));
+#else
+    (void)cursor;
+    (void)minimum_cconv;
+    raise(PyExc_NotImplementedError,
+          "pointer constraints require calling convention version 3");
+    return {};
+#endif
+}
+
 static PyPtr parse_element_constraint(
         ConstantCursor& cursor,
         ParameterKind::Category category,
@@ -2697,6 +2744,8 @@ static PyPtr parse_element_constraint(
                                       annotation.array.static_shape_dims,
                                       annotation.array.static_stride_dims,
                                       minimum_cconv);
+    case ParameterKind::Pointer:
+        return parse_pointer_constraint(cursor, minimum_cconv);
     case ParameterKind::Boolean:
         return make_scalar_constraint(DLDataType{kDLBool, 8, 1});
     case ParameterKind::Integer:
@@ -4093,6 +4142,7 @@ static Result<PreparedLaunch> prepare_launch(
 struct NativeArgument {
     ParameterKind::Category parameter_category = ParameterKind::AggregateEnd;
     ArrayType arrty{};
+    DLDataType pointer_pointee_dtype{};
     bool host_integer_is_unsigned = false;
     PyPtr identity_constant;
 };
@@ -4148,6 +4198,14 @@ static Result<NativeArgument> parse_native_array_argument(
                 annotation.array.static_stride_dims, cursor,
                 argument.arrty.ndim, "static_stride_dims"))
         return ErrorRaised;
+    return argument;
+}
+
+static Result<NativeArgument> parse_native_pointer_argument(
+        ConstantCursor& cursor) {
+    NativeArgument argument;
+    argument.parameter_category = ParameterKind::Pointer;
+    argument.pointer_pointee_dtype = dtype_from_uint(cursor.next());
     return argument;
 }
 
@@ -4210,6 +4268,8 @@ static Result<NativeArgument> parse_native_leaf_argument(
         return parse_native_identity_constant_argument(cursor, identity_constants);
     case ParameterKind::Array:
         return parse_native_array_argument(cursor, annotation);
+    case ParameterKind::Pointer:
+        return parse_native_pointer_argument(cursor);
     case ParameterKind::List:
         return raise(PyExc_TypeError,
                      "kernel launch with list argument is not supported in compiled host code");
@@ -4401,6 +4461,7 @@ static Status extract_native_scalar(
         return OK;
     }
     case ParameterKind::IdentityConstant:
+    case ParameterKind::Pointer:
     case ParameterKind::Array:
     case ParameterKind::List:
     case ParameterKind::AggregateBegin:
@@ -4433,6 +4494,24 @@ static Status extract_native_array(
     return extract_array_repr(driver, array, annotation.array, helper);
 }
 
+static Status extract_native_pointer(
+        const DriverApi* driver,
+        const NativeArgument& argument,
+        void** argument_addresses,
+        size_t* index,
+        LaunchHelper& helper) {
+    helper.constants.push_back(dtype_as_uint(argument.pointer_pointee_dtype));
+    void* pointer = *reinterpret_cast<void**>(argument_addresses[(*index)++]);
+    push_single_word_cuarg(helper, {.device_ptr = pointer});
+    if (!helper.cuda_context) {
+        driver->cuPointerGetAttribute(
+                &helper.cuda_context,
+                CU_POINTER_ATTRIBUTE_CONTEXT,
+                reinterpret_cast<CUdeviceptr>(pointer));
+    }
+    return OK;
+}
+
 
 static Status extract_native_launch_arguments(
         const DriverApi* driver,
@@ -4456,6 +4535,11 @@ static Status extract_native_launch_arguments(
             if (!extract_native_array(
                         driver, argument, annotation, argument_addresses,
                         &index, helper))
+                return ErrorRaised;
+            break;
+        case ParameterKind::Pointer:
+            if (!extract_native_pointer(
+                        driver, argument, argument_addresses, &index, helper))
                 return ErrorRaised;
             break;
         case ParameterKind::ConstantBool:

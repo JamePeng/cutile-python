@@ -30,6 +30,7 @@ from cuda.lang.compilation import (
     ScalarConstraint,
 )
 from cuda.tile.compilation import TupleConstraint
+from cuda.tile.compilation._signature import PointerConstraint
 
 ScalarInt32 = Annotated[int, ScalarAnnotation(dtype=cl.int32)]
 
@@ -85,6 +86,8 @@ def _scalar_ctype(dtype):
 def _append_arg_ctypes(constraint, ctypes_out):
     if isinstance(constraint, ScalarConstraint):
         ctypes_out.append(_scalar_ctype(constraint.dtype))
+    elif isinstance(constraint, PointerConstraint):
+        ctypes_out.append(ctypes.c_void_p)
     elif isinstance(constraint, ArrayConstraint):
         ctypes_out.append(ctypes.c_void_p)
         ctypes_out.extend(

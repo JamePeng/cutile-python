@@ -10,7 +10,7 @@ from typing import Sequence, Protocol, Iterable, Any, TypeVar
 
 from ._signature import ArrayConstraint, ParameterConstraint, ListConstraint, TupleConstraint, \
     ScalarConstraint, KernelSignature, _collect_alias_groups, ConstantConstraint, \
-    DataclassConstraint
+    DataclassConstraint, PointerConstraint
 from cuda.tile._datatype import DType, bool_, uint8, uint16, uint32, uint64, int64, int32, int16, \
     int8, float16, float32, float64, bfloat16, float8_e4m3fn, float8_e5m2, float8_e8m0fnu, \
     tfloat32
@@ -199,6 +199,8 @@ def _mangle_constraint(p: ParameterConstraint, alias_group_map: dict[str, int],
         return "D" + _mangle_dataclass_constraint(p, alias_group_map, collected_globals)
     elif isinstance(p, ScalarConstraint):
         return "S" + _mangle_dtype(p.dtype)
+    elif isinstance(p, PointerConstraint):
+        return "P" + _mangle_dtype(p.pointee_dtype)
     elif isinstance(p, ConstantConstraint):
         kind = classify_constant(p.value, True)
         assert kind is not None  # validated in ConstantConstraint.__post_init__()
@@ -241,6 +243,9 @@ def _demangle_constraint(cursor: _Cursor,
     elif c == "S":
         dtype = _demangle_dtype(cursor)
         return ScalarConstraint(dtype)
+    elif c == "P" and cconv_v3_enabled():
+        dtype = _demangle_dtype(cursor)
+        return PointerConstraint(dtype)
     elif c == "B":
         return ConstantConstraint(bool(int(cursor.expect("[01]", "Expected 0 or 1"))))
     elif c == "I":

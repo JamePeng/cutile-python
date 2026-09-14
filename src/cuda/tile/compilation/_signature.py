@@ -11,7 +11,7 @@ from typing import Sequence, Iterator, TypeAlias, Any, Protocol, ClassVar
 from cuda.tile._execution import kernel
 from cuda.tile._cext import CallingConvention, get_parameter_constraints_from_pyargs, \
     classify_constant, cconv_v3_enabled, ConstantKind
-from cuda.tile._datatype import DType, int32, int64, uint32
+from cuda.tile._datatype import DType, int32, int64, uint32, is_pointer_dtype
 
 
 @dataclass(frozen=True, init=False)
@@ -27,7 +27,29 @@ class ScalarConstraint:
     def __init__(self, dtype: DType):
         if not isinstance(dtype, DType):
             raise TypeError(f"Expected a DType for the `dtype` parameter, got '{dtype}'")
+        if is_pointer_dtype(dtype):
+            raise TypeError("ScalarConstraint dtype cannot be a pointer dtype")
         object.__setattr__(self, "dtype", dtype)
+
+
+@dataclass(frozen=True, init=False)
+class PointerConstraint:
+    """Describes a pointer for kernel parameter.
+
+    Args:
+        dtype: Data type pointed to by the pointer.
+    """
+    pointee_dtype: DType
+
+    def __init__(self, dtype: DType):
+        if not cconv_v3_enabled():
+            raise NotImplementedError("PointerConstraint is a development-only feature")
+
+        if not isinstance(dtype, DType):
+            raise TypeError(f"Expected a DType for the `dtype` parameter, got '{dtype}'")
+        if is_pointer_dtype(dtype):
+            raise TypeError("PointerConstraint dtype must be a pointee dtype")
+        object.__setattr__(self, "pointee_dtype", dtype)
 
 
 @dataclass(frozen=True, init=False)
@@ -324,7 +346,8 @@ class ConstantConstraint:
         return self.value == other.value
 
 
-ParameterConstraint: TypeAlias = (ScalarConstraint | ArrayConstraint | ListConstraint
+ParameterConstraint: TypeAlias = (ScalarConstraint | ArrayConstraint
+                                  | ListConstraint
                                   | TupleConstraint | DataclassConstraint | ConstantConstraint)
 
 
@@ -337,6 +360,9 @@ ParameterConstraintLike = ParameterConstraint | ConstantValue | tuple | Dataclas
 
 def _to_constraint(c: ParameterConstraintLike) -> ParameterConstraint:
     if isinstance(c, ParameterConstraint):
+        return c
+    elif isinstance(c, PointerConstraint):
+        # TODO: Fold this into ParameterConstraint when cconv3 is public.
         return c
     elif classify_constant(c, True) is not None:
         return ConstantConstraint(c)
@@ -362,7 +388,8 @@ class KernelSignature:
             :py:class:`ParameterConstraint` instance.
 
             Possible constraint classes are: :py:class:`ScalarConstraint`,
-            :py:class:`ArrayConstraint`, :py:class:`ListConstraint`, :py:class:`TupleConstraint`,
+            :py:class:`PointerConstraint`, :py:class:`ArrayConstraint`,
+            :py:class:`ListConstraint`, :py:class:`TupleConstraint`,
             :py:class:`ConstantConstraint`, :py:class:`DataclassConstraint`.
 
             A plain :py:class:`ConstantValue` (for example, a literal ``10``), can be used
@@ -579,6 +606,10 @@ def _remove_redundant_divisibility_constraints(static_values: tuple[int, ...],
 def _validate_constraint_support(constraint: ParameterConstraint, cconv: CallingConvention):
     if isinstance(constraint, ScalarConstraint):
         pass
+    elif isinstance(constraint, PointerConstraint):
+        if cconv.version < 3:
+            raise ValueError(f"Pointer parameters are not supported by calling convention"
+                             f" {cconv.name}; version >= 3 is required")
     elif isinstance(constraint, ArrayConstraint):
         if any(x is not None for x in constraint.shape_constant) and cconv.version < 2:
             raise ValueError(f"Static array shapes are not supported by calling convention"

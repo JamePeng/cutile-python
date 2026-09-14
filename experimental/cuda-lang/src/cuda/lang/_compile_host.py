@@ -29,7 +29,7 @@ from cuda.lang._exception import CompilerExecutionError, TypeCheckingError
 from cuda.lang._ir import ir
 from cuda.lang._ir.op_defs import KernelLaunch
 from cuda.lang._ir.ops import cuda_lang_impl_registry
-from cuda.lang._ir.type import ScalarTy
+from cuda.lang._ir.type import PointerTy, ScalarTy
 from cuda.lang._passes.ast2hir import get_function_hir
 from cuda.lang._passes.flatten_cfg import flatten_cfg
 from cuda.lang._passes.ir2mlir.host import HostIR2MLIR, _KernelLaunchBinding
@@ -77,6 +77,26 @@ class _FakeArray:
 
 def _fake_array(dtype: datatype.DType, ndim: int):
     return _FakeArray(dtype, ndim)
+
+
+class _FakePointer:
+    def __init__(self, dtype: datatype.DType):
+        if not datatype.is_pointer_dtype(dtype):
+            raise TypeError(f"fake pointer dtype must be a pointer dtype, got {dtype}")
+        info = datatype.PointerInfo(dtype)
+        if info.opaque:
+            raise TypeCheckingError(
+                "opaque pointers are not supported by native launch sites"
+            )
+        if info.memory_space != datatype.MemorySpace.GENERIC:
+            raise TypeCheckingError(
+                "native launch sites only support generic pointers"
+            )
+        self._cuda_lang_fake_pointer_dtype = info.pointee_dtype
+
+
+def _fake_pointer(dtype: datatype.DType):
+    return _FakePointer(dtype)
 
 
 class _FakeInt(int):
@@ -146,6 +166,10 @@ def _make_fake_launch_argument(
 
     argument = next(argument_leaves)
     host_constant_args.append(argument.is_constant())
+
+    if isinstance(argument_type, PointerTy):
+        sources.append(argument)
+        return _fake_pointer(argument_type.pointer_dtype)
 
     if isinstance(argument_type, ScalarTy):
         sources.append(argument)
