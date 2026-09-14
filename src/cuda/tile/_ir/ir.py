@@ -681,6 +681,9 @@ class Operation:
     def generate_llvm(self, ctx):
         raise NotImplementedError(f"generate_llvm() not implemented for {type(self)}")
 
+    def rewrite_before_llvm_gen(self):
+        return NotImplemented
+
     def _to_string_block_prefixes(self) -> List[str]:
         return []
 

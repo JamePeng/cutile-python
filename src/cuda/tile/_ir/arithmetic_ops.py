@@ -16,7 +16,7 @@ from typing_extensions import override
 
 from cuda.tile import _datatype as datatype
 from cuda.tile._datatype import numeric_dtype_category, DType, bool_, is_integral, is_boolean, \
-    int8, get_signedness, is_float, is_unrestricted_float, is_arithmetic
+    int8, get_signedness, is_float, is_unrestricted_float, is_arithmetic, is_signed
 from cuda.tile._exception import TileTypeError, TypeCheckingError
 from cuda.tile._numeric_semantics import RoundingMode
 from cuda.tile._ir.core_ops import loosely_typed_const, strictly_typed_const, \
@@ -137,9 +137,83 @@ class TileAsType(Operation, opcode="tile_astype"):
                              rounding_mode=self.rounding_mode)
 
     @override
+    def rewrite_before_llvm_gen(self):
+        from_type = self.x.get_type()
+        to_type = self.result_var.get_type()
+        from_dtype = from_type.tensor_dtype()
+        to_dtype = to_type.tensor_dtype()
+
+        # float16 <-> bfloat32 via an intermediate float32
+        if (from_dtype in (datatype.float16, datatype.bfloat16)
+                and to_dtype in (datatype.float16, datatype.bfloat16)):
+            f32_value = astype(self.x, datatype.float32)
+            return astype(f32_value, to_dtype, rounding_mode=self.rounding_mode)
+
+        return NotImplemented
+
+    @override
     def generate_llvm(self, ctx):
-        return ctx.cast(ctx.value(self.x), self.x.get_type(), self.result_var.get_type(),
-                        self.rounding_mode)
+        from cuda.lang._llvm_bitcode import Cast
+        from cuda.lang._passes.ir2llvm import DIRECTLY_SUPPORTED_FLOATS
+
+        value = ctx.value(self.x)
+        from_type = self.x.get_type()
+        to_type = self.result_var.get_type()
+
+        assert from_type.tensor_shape() == to_type.tensor_shape()
+        from_dtype = from_type.tensor_dtype()
+        to_dtype = to_type.tensor_dtype()
+        assert datatype.is_numeric(from_dtype)
+        assert datatype.is_numeric(to_dtype)
+        if from_dtype == to_dtype:
+            return value
+
+        res_ty = ctx.type(to_type, storage=False)
+
+        # Handle integer-to-integer and boolean-to-integer first
+        if ((is_integral(from_dtype) or is_boolean(from_dtype))
+                and is_integral(to_dtype)):
+            actual_src_width = 1 if is_boolean(from_dtype) else from_dtype.bitwidth
+            if actual_src_width == to_dtype.bitwidth:
+                return value
+            elif actual_src_width > to_dtype.bitwidth:
+                return ctx.builder.cast(res_ty, Cast.TRUNC, value)
+            elif datatype.is_signed(from_dtype):
+                return ctx.builder.cast(res_ty, Cast.SEXT, value)
+            else:
+                return ctx.builder.cast(res_ty, Cast.ZEXT, value)
+
+        # Integer/float to boolean
+        if is_boolean(to_dtype):
+            from cuda.lang._llvm_bitcode import CmpPredicate
+            zero = ctx.constant(0, from_type)
+            predicate = (CmpPredicate.FCMP_UNE if from_dtype in DIRECTLY_SUPPORTED_FLOATS
+                         else CmpPredicate.ICMP_NE)
+            return ctx.builder.cmp(predicate, value, zero)
+
+        if self.rounding_mode is not None:
+            raise NotImplementedError("Non-default rounding mode is not supported")
+
+        # Direct float-to-float
+        if from_dtype in DIRECTLY_SUPPORTED_FLOATS and to_dtype in DIRECTLY_SUPPORTED_FLOATS:
+            if from_dtype.bitwidth > to_dtype.bitwidth:
+                return ctx.builder.cast(res_ty, Cast.FPTRUNC, value)
+            elif from_dtype.bitwidth < to_dtype.bitwidth:
+                return ctx.builder.cast(res_ty, Cast.FPEXT, value)
+
+        # Direct float to integer
+        if from_dtype in DIRECTLY_SUPPORTED_FLOATS and is_integral(to_dtype):
+            cast = Cast.FPTOSI if datatype.is_signed(to_dtype) else Cast.FPTOUI
+            return ctx.builder.cast(res_ty, cast, value)
+
+        # Int/bool to direct float
+        if ((is_integral(from_dtype) or is_boolean(from_dtype))
+                and to_dtype in DIRECTLY_SUPPORTED_FLOATS):
+            cast = Cast.SITOFP if datatype.is_signed(from_dtype) else Cast.UITOFP
+            return ctx.builder.cast(res_ty, cast, value)
+
+        raise NotImplementedError(f"Unsupported type conversion"
+                                  f" from {from_dtype} to {to_dtype}")
 
 
 def astype(x: Var[TensorLikeTy], dtype: DType, *,
@@ -190,9 +264,47 @@ class RawComparisonOperation(Operation, opcode="raw_cmp"):
         result_typeid = ctx.typeid_of(self.result_var)
         return encode_comparison(ctx.builder, self.fn, lhs, rhs, dtype, result_typeid)
 
+    @override
     def generate_llvm(self, ctx):
-        return ctx.comparison(
-                self.fn, self.lhs.get_type(), ctx.value(self.lhs), ctx.value(self.rhs))
+        def is_uint_or_bool(dtype: datatype.DType) -> bool:
+            return (is_integral(dtype) and not is_signed(dtype)) or is_boolean(dtype)
+
+        from cuda.lang._llvm_bitcode import CmpPredicate as P
+        from cuda.lang._passes.ir2llvm import DIRECTLY_SUPPORTED_FLOATS
+
+        ty = self.lhs.get_type()
+        dtype = ty.tensor_dtype()
+        match self.fn:
+            case "eq" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OEQ
+            case "eq" if is_integral(dtype) or is_boolean(dtype): pred = P.ICMP_EQ
+
+            case "ne" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_ONE
+            case "ne" if is_integral(dtype) or is_boolean(dtype): pred = P.ICMP_NE
+
+            case "ge" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OGE
+            case "ge" if is_integral(dtype) and is_signed(dtype): pred = P.ICMP_SGE
+            case "ge" if is_uint_or_bool(dtype): pred = P.ICMP_UGE
+
+            case "gt" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OGT
+            case "gt" if is_integral(dtype) and is_signed(dtype): pred = P.ICMP_SGT
+            case "gt" if is_uint_or_bool(dtype): pred = P.ICMP_UGT
+
+            case "ge" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OGE
+            case "ge" if is_integral(dtype) and is_signed(dtype): pred = P.ICMP_SGE
+            case "ge" if is_uint_or_bool(dtype): pred = P.ICMP_UGE
+
+            case "lt" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OLT
+            case "lt" if is_integral(dtype) and is_signed(dtype): pred = P.ICMP_SLT
+            case "lt" if is_uint_or_bool(dtype): pred = P.ICMP_ULT
+
+            case "le" if dtype in DIRECTLY_SUPPORTED_FLOATS: pred = P.FCMP_OLE
+            case "le" if is_integral(dtype) and is_signed(dtype): pred = P.ICMP_SLE
+            case "le" if is_uint_or_bool(dtype): pred = P.ICMP_ULE
+
+            case _:
+                raise NotImplementedError(f"Missing comparison implementation for {self.fn}[{ty}]")
+
+        return ctx.builder.cmp(pred, ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def compare_tensorlike_raw(fn: str,
@@ -246,8 +358,16 @@ class RawBinaryBitwiseOperation(Operation, opcode="raw_binary_bitwise"):
             case _:
                 raise NotImplementedError(f"Missing binary bitwise implementation for {self.fn}")
 
+    @override
     def generate_llvm(self, ctx):
-        return ctx.binary_bitwise(self.fn, ctx.value(self.lhs), ctx.value(self.rhs))
+        from cuda.lang._llvm_bitcode import Binop
+        match self.fn:
+            case "and_": op = Binop.AND
+            case "or_": op = Binop.OR
+            case "xor": op = Binop.XOR
+            case _:
+                raise NotImplementedError(f"Missing bitwise binary implementation for {self.fn}")
+        return ctx.builder.binop(op, ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def binary_bitwise_tensorlike_raw(fn: str,
@@ -325,9 +445,18 @@ class RawBitwiseShiftOperation(Operation, opcode="raw_bitwise_shift"):
                                         get_signedness(get_dtype(res_ty)))
             case _: raise NotImplementedError()
 
+    @override
     def generate_llvm(self, ctx):
-        return ctx.bitwise_shift(
-                self.fn, self.lhs.get_type(), ctx.value(self.lhs), ctx.value(self.rhs))
+        from cuda.lang._llvm_bitcode import Binop
+        ty = self.lhs.get_type()
+        dtype = ty.tensor_dtype()
+        match self.fn:
+            case "lshift": op = Binop.SHL
+            case "rshift" if is_signed(dtype): op = Binop.ASHR
+            case "rshift" if not is_signed(dtype): op = Binop.LSHR
+            case _:
+                raise NotImplementedError(f"Missing bit shift implementation for {self.fn}[{ty}]")
+        return ctx.builder.binop(op, ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def bitwise_shift_tensorlike_raw(fn: str,
@@ -463,12 +592,69 @@ class RawBinaryArithmeticOperation(Operation, opcode="raw_binary_arith"):
                                           f" for {self.fn}, {kind}")
 
     @override
+    def rewrite_before_llvm_gen(self):
+        ty = self.result_var.get_type()
+        dtype = ty.tensor_dtype()
+        match self.fn:
+            case "floordiv" | "cdiv" if is_integral(dtype) and datatype.is_signed(dtype):
+                # q = SDIV(lhs, rhs)
+                # p = q * rhs
+                # if p != lhs & (lhs < 0) ==/!= (rhs < 0)  # depending on cdiv/floordiv
+                #    result = q +/- 1  # depending on cdiv/floordiv
+                # else:
+                #    result = q
+                q = binary_arithmetic_tensorlike_raw("truncdiv", self.lhs, self.rhs)
+                p = binary_arithmetic_tensorlike_raw("mul", q, self.rhs)
+                ne = compare_tensorlike_raw("ne", self.lhs, p)
+                zero = strictly_typed_const(0, ty)
+                lhs_neg = compare_tensorlike_raw("lt", self.lhs, zero)
+                rhs_neg = compare_tensorlike_raw("lt", self.rhs, zero)
+                cmp, correction = (("ne", -1), ("eq", 1))[("floordiv", "cdiv").index(self.fn)]
+                need_correction = compare_tensorlike_raw(cmp, lhs_neg, rhs_neg)
+                cond = binary_bitwise_tensorlike_raw("and_", ne, need_correction)
+                correction_const = strictly_typed_const(correction, ty)
+                q_minus_one = binary_arithmetic_tensorlike_raw("add", q, correction_const)
+                return where_raw(cond, q_minus_one, q)
+            case "floordiv" if datatype.is_float(dtype):
+                tmp = binary_arithmetic_tensorlike_raw("truediv", self.lhs, self.rhs)
+                return unary_raw("floor", tmp)
+            case "cdiv" if is_integral(dtype) and not datatype.is_signed(dtype):
+                # 0 if lhs == 0 else floordiv(lhs - 1, m) + 1
+                zero = strictly_typed_const(0, ty)
+                is_zero = compare_tensorlike_raw("eq", self.lhs, zero)
+                one = strictly_typed_const(1, ty)
+                lhs_minus_one = binary_arithmetic_tensorlike_raw("sub", self.lhs, one)
+                q = binary_arithmetic_tensorlike_raw("floordiv", lhs_minus_one, self.rhs)
+                res = binary_arithmetic_tensorlike_raw("add", q, one)
+                return where_raw(is_zero, zero, res)
+            case _:
+                return NotImplemented
+
+    @override
     def generate_llvm(self, ctx):
-        return ctx.binary_arithmetic(self.fn, self.lhs.get_type(),
-                                     ctx.value(self.lhs), ctx.value(self.rhs),
-                                     rounding_mode=self.rounding_mode,
-                                     flush_to_zero=self.flush_to_zero,
-                                     propagate_nan=self.propagate_nan)
+        from cuda.lang._llvm_bitcode import Binop
+        simple = self.rounding_mode is None and not self.flush_to_zero
+        if not simple:
+            raise NotImplementedError()
+        ty = self.result_var.get_type()
+        dtype = ty.tensor_dtype()
+        match self.fn:
+            case "add": op = Binop.ADD
+            case "sub": op = Binop.SUB
+            case "mul": op = Binop.MUL
+            case "truncdiv" if is_integral(dtype) and is_signed(dtype): op = Binop.SDIV
+            case "floordiv" if is_integral(dtype) and not is_signed(dtype): op = Binop.UDIV
+            case "truediv" if datatype.is_float(dtype): op = Binop.SDIV
+            case "c_mod" if is_signed(dtype): op = Binop.SREM
+            case "c_mod" if not is_signed(dtype): op = Binop.UREM
+            case "xor": op = Binop.XOR
+            case "or_": op = Binop.OR
+            case "and_": op = Binop.AND
+            case _:
+                raise NotImplementedError(
+                    f"Missing binary arithmetic implementation for"
+                    f" {self.fn}[{ty}, {self.rounding_mode}, ftz={self.flush_to_zero}]")
+        return ctx.builder.binop(op, ctx.value(self.lhs), ctx.value(self.rhs))
 
 
 def binary_arithmetic_tensorlike_raw(fn: str, x: Var[TensorLikeTy], y: Var[TensorLikeTy],
@@ -674,6 +860,10 @@ class RawWhereOperation(Operation, opcode="raw_where"):
         y = ctx.get_value(self.y)
         return bc.encode_SelectOp(ctx.builder, res_typeid, cond, x, y)
 
+    @override
+    def generate_llvm(self, ctx):
+        return ctx.builder.select(ctx.value(self.cond), ctx.value(self.x), ctx.value(self.y))
+
 
 def where_raw(cond: Var[TensorLikeTy],
               x: Var[TensorLikeTy],
@@ -760,6 +950,19 @@ class Unary(Operation, opcode="unaryop"):
             case _:
                 raise NotImplementedError(f"Missing implementation for unary op: {self.fn}")
 
+    @override
+    def rewrite_before_llvm_gen(self):
+        from cuda.lang._ir.op_defs import call_intrinsic
+        from cuda.lang._stub import llvm
+        from cuda.lang._passes.ir2llvm import DIRECTLY_SUPPORTED_FLOATS
+        x = self.operand
+        input_dtype = x.get_type().tensor_dtype()
+        match self.fn:
+            case "floor" if input_dtype in DIRECTLY_SUPPORTED_FLOATS:
+                return call_intrinsic(llvm.floor, x)
+            case _:
+                return NotImplemented
+
 
 def _unary_promote_to_int(x):
     return astype(x, datatype.default_int_type)
@@ -784,6 +987,12 @@ def _unary_propagate_constant(fn: str, arg: Any) -> Any:
     impl = UNARYOP_REGISTRY[fn].impl
     with reraise_tile_exception():
         return impl(arg)
+
+
+def unary_raw(fn: str, x: Var[TensorLikeTy],
+              rounding_mode: RoundingMode | None = None, flush_to_zero: bool = False):
+    return add_operation(Unary, x.get_type(), fn=fn, operand=x,
+                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
 
 
 def unary(fn: str, behavior: UnaryBehavior, x: Var[TensorLikeTy],
@@ -816,9 +1025,7 @@ def unary(fn: str, behavior: UnaryBehavior, x: Var[TensorLikeTy],
 
     # FIXME: remove cutile-specific check
     check_rd_and_ftz(fn, rounding_mode, flush_to_zero, ty.tensor_dtype())
-
-    return add_operation(Unary, ty, fn=fn, operand=x,
-                         rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
+    return unary_raw(fn, x, rounding_mode=rounding_mode, flush_to_zero=flush_to_zero)
 
 
 UNARY_FLOAT = UnaryBehavior(_unary_promote_to_float, _unary_promote_to_float, _unary_preserve)

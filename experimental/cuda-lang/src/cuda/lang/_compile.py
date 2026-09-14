@@ -23,6 +23,7 @@ from cuda.tile._annotated_function import (
     ParameterAnnotationNode,
     get_annotated_function,
 )
+from cuda.tile._exception import Loc
 from cuda.tile._cext import get_compute_capability as _get_compute_capability
 from ._compiler_options import CompilerOptions
 from cuda.lang._logging import get_log_flags
@@ -51,8 +52,6 @@ from ._ir._host_program import HostProgram, get_host_programs_by_var
 from ._passes import ir2llvm
 from ._timing import CompilationTimer, CompilationTimings
 import contextlib
-
-from ..tile._exception import Loc
 
 
 @dataclass(frozen=True)

@@ -20,7 +20,7 @@ from cuda.lang._enums import (
 )
 from typing_extensions import override
 from cuda.tile._memory_model import MemoryScope
-from cuda.tile._ir.ir import MemoryEffect
+from cuda.tile._ir.ir import MemoryEffect, add_operation_variadic
 from cuda.tile._ir.type import TensorLikeTy
 from cuda.lang._enums import VectorReduction
 from .ir import Operation, Var, attribute, operand
@@ -41,25 +41,68 @@ class RawLLVMIntrinsic(
     metadata_args: tuple[Any, ...] = attribute(default=())
 
     def generate_llvm(self, ctx):
+        tt = ctx.builder.type_table
         all_operands: list[llvm.Value | llvm.Metadata] = []
-        operand_types = []
+        operand_types_llvm = []
 
         meta_iter = iter(self.metadata_args)
         for x in self.operands_:
             if x is None:
                 meta = next(meta_iter)
                 all_operands.append(_metadata_to_llvm(meta, ctx.builder.metadata))
-                operand_types.append(None)
+                operand_types_llvm.append(tt.METADATA)
             else:
                 all_operands.append(ctx.value(x))
-                operand_types.append(x.get_type())
+                operand_types_llvm.append(ctx.typeof(x))
 
         assert tuple(meta_iter) == ()
 
-        return ctx.call_intrinsic(self.intrinsic,
-                                  [x.get_type() for x in self.result_vars],
-                                  operand_types,
-                                  all_operands)
+        # Create an llvm.FunctionType for the signature
+        if len(self.result_vars) == 0:
+            ret_ty_llvm = tt.VOID
+        elif len(self.result_vars) == 1:
+            ret_ty_llvm = ctx.typeof(self.result_var)
+        else:
+            ret_ty_llvm = tt.struct_anonymous(
+                    [ctx.typeof(r, storage=False) for r in self.result_vars])
+        func_ty = tt.function(ret_ty_llvm, operand_types_llvm)
+
+        # Generate a declaration if necessary
+        from .._stub._nvvm_support import mangle_intrinsic_name
+        mangled_name = mangle_intrinsic_name(
+                self.intrinsic,
+                [None if x is None else x.get_type() for x in self.operands_])
+        callee = ctx.declare_function(mangled_name, func_ty)
+
+        # Call the intrinsic
+        result = ctx.builder.call(func_ty, callee, all_operands)
+
+        # Unpack the result
+        if len(self.result_vars) == 0:
+            return ()
+        elif len(self.result_vars) == 1:
+            return (result,)
+        else:
+            return tuple(ctx.builder.extract_value(ctx.typeof(r), result, i)
+                         for i, r in enumerate(self.result_vars))
+
+
+def call_intrinsic(stub, *args: Var):
+    from cuda.lang._stub._nvvm_support import match_intrinsic_signature
+
+    name = stub._llvm_intrinsic_name
+    if name is None:
+        name = stub.__name__.replace("_", ".")
+
+    prepared_operands, result_types, make_retval, metadata_args = match_intrinsic_signature(
+        stub, args)
+    return make_retval(add_operation_variadic(
+        RawLLVMIntrinsic,
+        tuple(result_types),
+        intrinsic=stub._cutile_custom_implementation_handler.prefix + name,
+        operands_=prepared_operands,
+        metadata_args=metadata_args
+    ))
 
 
 def _metadata_to_llvm(meta: Any, metadata_table: llvm.MetadataTable) -> llvm.Metadata:

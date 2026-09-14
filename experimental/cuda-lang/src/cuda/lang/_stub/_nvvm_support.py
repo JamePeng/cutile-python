@@ -10,7 +10,7 @@ from functools import cache, lru_cache
 from typing import Callable, Any, Annotated, NamedTuple, Sequence
 
 from cuda.lang._execution import stub
-from cuda.lang._ir.op_defs import RawLLVMIntrinsic
+from cuda.lang._ir.op_defs import call_intrinsic
 from cuda.lang._ir.type import PointerTy, ScalarTy, VectorTy
 from cuda.lang._ir.type_checking_helpers import require_vector_type, require_scalar_or_vector_type
 from cuda.lang._exception import TypeCheckingError, InvalidValueError
@@ -33,19 +33,7 @@ class RawIntrinsicImpl:
         self.prefix = prefix
 
     def __call__(self, stub, *args: Var):
-        name = stub._llvm_intrinsic_name
-        if name is None:
-            name = stub.__name__.replace("_", ".")
-
-        prepared_operands, result_types, make_retval, metadata_args = match_intrinsic_signature(
-                stub, args)
-        return make_retval(add_operation_variadic(
-            RawLLVMIntrinsic,
-            tuple(result_types),
-            intrinsic=self.prefix + name,
-            operands_=prepared_operands,
-            metadata_args=metadata_args
-        ))
+        return call_intrinsic(stub, *args)
 
 
 _nvvm_intrinsic_impl = RawIntrinsicImpl("llvm.nvvm.")
@@ -132,10 +120,10 @@ def match_intrinsic_signature(stub, args: tuple[Var, ...]) -> MatchedSignature:
                                 raise make_type_checking_error(
                                     f"Expected a pointer scalar, got {dtype}", arg)
                         case x: assert False, x
-
-                    while len(type_arguments) <= ann.index:
-                        type_arguments.append(None)
-                    type_arguments[ann.index] = arg.get_type()
+            else:
+                while len(type_arguments) <= ann.index:
+                    type_arguments.append(None)
+                type_arguments[ann.index] = arg.get_type()
         elif isinstance(ann, _IntrinsicMetadataAnnotation):
             meta = require_llvm_metadata(arg)
             metadata_args.append(meta)
