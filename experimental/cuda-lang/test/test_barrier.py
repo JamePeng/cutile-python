@@ -125,6 +125,21 @@ def test_barrier_reduce_block(
     compile_kernel(kernel, assert_in_ptx=expect, raises=raises)
 
 
+@pytest.mark.parametrize(
+    "op, expect",
+    (
+        ("POP_COUNT", "bar.red.popc"),
+        ("AND", "bar.red.and"),
+        ("OR", "bar.red.or"),
+    ),
+)
+def test_barrier_reduce_block_accepts_enum_member_name(op, expect):
+    def kernel():
+        cl.barrier_reduce_block_aligned(op, True)
+
+    compile_kernel(kernel, assert_in_ptx=expect)
+
+
 def barrier_arrive_cluster_cases():
     valid_orders = (cl.MemoryOrder.RELEASE, cl.MemoryOrder.RELAXED)
     for op, aligned in (
@@ -157,6 +172,17 @@ def test_barrier_arrive_cluster(op, order, expect, raises):
         kernel,
         assert_in_ptx=expect,
         raises=raises,
+        **HOPPER_TARGET,
+    )
+
+
+def test_barrier_arrive_cluster_accepts_enum_member_name():
+    def kernel():
+        cl.barrier_arrive_cluster_aligned(memory_order="RELAXED")
+
+    compile_kernel(
+        kernel,
+        assert_in_ptx="barrier.cluster.arrive.relaxed.aligned",
         **HOPPER_TARGET,
     )
 

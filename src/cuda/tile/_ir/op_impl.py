@@ -418,11 +418,13 @@ def require_constant_enum(var: Var, enum: type[_EnumT]) -> _EnumT:
             f" but given value is not constant", var
         )
     ty = var.get_type()
-    if not isinstance(ty, EnumTy) or type(ty.value) is not enum:
-        raise make_type_checking_error(
-            f"Expected {enum.__name__}, but given value has type {ty}", var
-        )
-    return cast(_EnumT, var.get_constant())
+    if isinstance(ty, EnumTy) and type(ty.value) is enum:
+        return cast(_EnumT, var.get_constant())
+    if isinstance(ty, StringTy) and ty.value in enum.__members__:
+        return enum.__members__[ty.value]
+    raise make_type_checking_error(
+        f"Expected {enum.__name__}, but given value has type {ty}", var
+    )
 
 
 def normalize_axis(axis: int, ndim: int, var: Optional[Var] = None) -> int:

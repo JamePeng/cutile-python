@@ -9,6 +9,11 @@ import torch
 
 import cuda.tile as ct
 from cuda.tile import TileTypeError, TileValueError
+from cuda.tile._ir.op_impl import (
+    require_constant_enum,
+    require_optional_constant_enum,
+)
+from cuda.tile._ir.type import StringTy
 
 
 class Color(Enum):
@@ -31,6 +36,40 @@ class Priority(IntEnum):
     LOW = 0
     MEDIUM = 1
     HIGH = 2
+
+
+class Spelling(Enum):
+    UPPER = 0
+    lower = 1
+    MixedCase = 2
+    has_underscore = 3
+    ALIAS = 0
+
+
+class FakeIRConst:
+    def __init__(self, value):
+        self.value = value
+
+    def is_constant(self):
+        return True
+
+    def get_constant(self):
+        return self.value
+
+    def get_type(self):
+        return StringTy(self.value)
+
+
+@pytest.mark.parametrize("name,expected", Spelling.__members__.items())
+def test_enum_requirements_accept_str(name, expected):
+    assert require_constant_enum(FakeIRConst(name), Spelling) is expected
+    assert require_optional_constant_enum(FakeIRConst(name), Spelling) is expected
+
+
+@pytest.mark.parametrize("name", ('upper', 'LOWER'))
+def test_require_constant_enum_rejects_wrong_case(name):
+    with pytest.raises(TileTypeError, match="Expected Spelling"):
+        require_constant_enum(FakeIRConst(name), Spelling)
 
 
 def test_comparison_eq():

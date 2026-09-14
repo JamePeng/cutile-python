@@ -90,19 +90,6 @@ def barrier_arrive_cluster_aligned_impl(memory_order):
     return barrier_arrive_cluster(memory_order, True)
 
 
-def _require_barrier_reduction_kind(op):
-    if not op.is_constant():
-        raise TypeCheckingError("Expected BarrierReductionKind constant")
-    value = op.get_constant()
-    if isinstance(value, barrier.BarrierReductionKind):
-        return value
-    try:
-        return barrier.BarrierReductionKind(value)
-    except (TypeError, ValueError):
-        valid = ", ".join(kind.name for kind in barrier.BarrierReductionKind)
-        raise TypeCheckingError(f"Expected BarrierReductionKind to be one of {valid}")
-
-
 def barrier_reduce_block(
     op,
     predicate,
@@ -110,7 +97,7 @@ def barrier_reduce_block(
     barrier_id,
     aligned: bool,
 ):
-    op = _require_barrier_reduction_kind(op)
+    op = require_constant_enum(op, barrier.BarrierReductionKind)
     require_boolean_scalar_type(predicate)
     require_integral_scalar_type(barrier_id)
     barrier_id = implicit_cast(barrier_id, datatype.int32, "barrier id")
