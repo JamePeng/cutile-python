@@ -567,6 +567,14 @@ class BitcodeBuilder:
         self._instruction(None, codes.FUNC_CODE_INST_RET, "V" * len(values), *values,
                           terminator=True)
 
+    def alloca(self, ty: Type, count: Value, alignment: int | None = None) -> Value:
+        res_ty = self.type_table.pointer(0)
+        alignment = _encode_alignment(alignment)
+        assert alignment <= 0x1f  # Hopefully we shouldn't need alignment > 1GB
+        flags = alignment | (1 << 6)  # ExplicitType=true
+        return self._instruction(res_ty, codes.FUNC_CODE_INST_ALLOCA, "iiai",
+                                 ty.type_id, count.type.type_id, count, flags)
+
     def forward_reference(self, ty: Type) -> Value:
         return Value(ty)
 
@@ -583,6 +591,7 @@ class BitcodeBuilder:
             i: an immediate int
             v: a Value
             V: an optionally typed Value (for handling forward references)
+            a: a Value encoded as absolute ID
             s: a Value encoded as a signed int
         """
         f = self._cur_function
@@ -787,6 +796,8 @@ def _write_function_body(func: Function, first_instruction_id: int, writer: _Bit
             if f == "i":
                 assert isinstance(operand, int)
                 operands.append(operand)
+            elif f == "a":
+                operands.append(operand.id)
             else:
                 assert f in "vVs"
                 assert isinstance(operand, Value | Metadata), operand

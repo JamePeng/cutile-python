@@ -4,6 +4,9 @@
 import math
 import operator
 from dataclasses import dataclass
+
+from typing_extensions import override
+
 from cuda.lang._enums import AtomicOp, MemoryOrder
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.op_impl import (
@@ -470,12 +473,24 @@ class AllocLocalMemory(Operation, opcode="alloc_local_memory", memory_effect=Mem
     count: int = attribute()
     alignment: int | None = attribute()
 
+    @override
+    def generate_llvm(self, ctx):
+        # TODO: generate llvm.lifetime_start()?
+        dtype = PointerInfo(self.result_var.get_type().pointer_dtype).pointee_dtype
+        count_val = ctx.builder.constants.integer_constant(self.count, ctx.builder.type_table.I32)
+        return ctx.builder.alloca(ctx.dtype(dtype, storage=True), count_val, self.alignment)
+
 
 @dataclass(eq=False)
 class DeallocLocalMemory(Operation,
                          opcode="dealloc_local_memory",
                          memory_effect=MemoryEffect.STORE):
     ptr: Var = operand()
+
+    @override
+    def generate_llvm(self, ctx):
+        # TODO: generate llvm.lifetime_end()?
+        pass
 
 
 def _dtype_byte_width(dtype: datatype.DType) -> int:
