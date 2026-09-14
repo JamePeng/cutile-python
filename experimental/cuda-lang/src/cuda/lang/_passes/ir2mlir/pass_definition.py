@@ -108,32 +108,32 @@ def _get_llvm_cmpxchg_failure_ordering(memory_order: MemoryOrder):
 
 
 def _get_llvm_atomic_binop(
-    kind: ops.AtomicRMWKind, dtype: datatype.DType
+    kind: ops.AtomicOp, dtype: datatype.DType
 ) -> mlir.llvm.AtomicBinOp:
     signed = datatype.is_signed(dtype)
     is_float = datatype.is_float(dtype)
     match kind:
-        case ops.AtomicRMWKind.ADD:
+        case ops.AtomicOp.ADD:
             return mlir.llvm.AtomicBinOp.fadd if is_float else mlir.llvm.AtomicBinOp.add
-        case ops.AtomicRMWKind.SUB:
+        case ops.AtomicOp.SUB:
             return mlir.llvm.AtomicBinOp.fsub if is_float else mlir.llvm.AtomicBinOp.sub
-        case ops.AtomicRMWKind.AND:
+        case ops.AtomicOp.AND:
             return mlir.llvm.AtomicBinOp._and
-        case ops.AtomicRMWKind.OR:
+        case ops.AtomicOp.OR:
             return mlir.llvm.AtomicBinOp._or
-        case ops.AtomicRMWKind.XOR:
+        case ops.AtomicOp.XOR:
             return mlir.llvm.AtomicBinOp._xor
-        case ops.AtomicRMWKind.MIN:
+        case ops.AtomicOp.MIN:
             if is_float:
                 return mlir.llvm.AtomicBinOp.fminimum
             return mlir.llvm.AtomicBinOp.min if signed else mlir.llvm.AtomicBinOp.umin
-        case ops.AtomicRMWKind.MAX:
+        case ops.AtomicOp.MAX:
             if is_float:
                 return mlir.llvm.AtomicBinOp.fmaximum
             return mlir.llvm.AtomicBinOp.max if signed else mlir.llvm.AtomicBinOp.umax
-        case ops.AtomicRMWKind.INC:
+        case ops.AtomicOp.INC:
             return mlir.llvm.AtomicBinOp.uinc_wrap
-        case ops.AtomicRMWKind.DEC:
+        case ops.AtomicOp.DEC:
             return mlir.llvm.AtomicBinOp.udec_wrap
         case _:
             raise NotImplementedError(f"Unsupported atomic {kind=} for {dtype=}")
@@ -1123,6 +1123,7 @@ def lower_atomic_rmw(
         val=value,
         ordering=_get_llvm_memory_ordering(operation.memory_order),
         syncscope=_get_llvm_syncscope(operation.memory_scope),
+        alignment=operation.alignment,
     )
     return [result]
 
@@ -1139,6 +1140,7 @@ def lower_atomic_exchange(
         val=value,
         ordering=_get_llvm_memory_ordering(operation.memory_order),
         syncscope=_get_llvm_syncscope(operation.memory_scope),
+        alignment=operation.alignment,
     )
     return [result]
 
@@ -1159,6 +1161,7 @@ def lower_atomic_cas(
             operation.memory_order
         ),
         syncscope=_get_llvm_syncscope(operation.memory_scope),
+        alignment=operation.alignment,
     )
 
     # llvm.cmpxchg returns {old_value, success_flag}, we want the old value.

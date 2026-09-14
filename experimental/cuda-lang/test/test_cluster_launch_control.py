@@ -107,7 +107,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
             break
 
         if tx == 0:
-            cl.atomic_add(stolen.pointer(0), 1)
+            cl.atomic_rmw(cl.AtomicOp.ADD, stolen.pointer(0), 1)
         bx = cl.cluster_launch_control_get_first_block_index(tok, axis=0)
         cl.fence(
             cl.MemoryOrder.RELEASE,
@@ -173,7 +173,7 @@ def worksteal_cluster(data, n: cl.Constant[int], stolen):
             break  # no more work to steal
 
         if local_block == 0 and tx == 0:
-            cl.atomic_add(stolen.pointer(0), 1)
+            cl.atomic_rmw(cl.AtomicOp.ADD, stolen.pointer(0), 1)
 
         bx = cl.cluster_launch_control_get_first_block_index(token, axis=0) + local_block
         cl.fence(

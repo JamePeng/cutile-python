@@ -59,7 +59,7 @@ class TestOpsSurviveDCE:
     def test_unused_atomic_result_is_kept(self):
         @ir_wrapper
         def kernel(A, n):
-            cl.atomic_add(A.pointer(0), cl.int32(1))
+            cl.atomic_rmw(cl.AtomicOp.ADD, A.pointer(0), cl.int32(1))
 
         assert kernel.has_op(AtomicRMW)
 

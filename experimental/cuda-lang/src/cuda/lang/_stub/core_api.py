@@ -13,7 +13,7 @@ from cuda.tile._stub import (
     static_assert,
     static_eval,
 )
-from cuda.lang._enums import MemoryOrder
+from cuda.lang._enums import AtomicOp, MemoryOrder
 from cuda.tile._memory_model import MemoryScope, MemorySpace
 from cuda.lang._datatype import DType, uint32, uint64
 from .types import Pointer, Scalar, Vector
@@ -520,250 +520,36 @@ def clock(dtype=uint32):
 
 
 @stub
-def atomic_add(
+def atomic_rmw(
+    op: AtomicOp,
     ptr: Pointer[T],
-    val: T,
+    operand: T,
+    operand2: T | None = None,
     /,
     *,
     memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
     memory_scope: MemoryScope = MemoryScope.DEVICE,
+    alignment: int | None = None,
 ) -> T:
-    """
-    Perform atomic ``ptr.store(ptr.load() + val)``.
+    """Atomically modify one value and return its old value.
+
+    ``AtomicOp.CAS`` uses ``operand`` as the expected old value and
+    ``operand2`` as the new value. It requires both operands. Other operations
+    use only ``operand`` and require ``operand2`` to be ``None``.
 
     Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
+        op: Operation to perform.
+        ptr: Pointer to the value to modify.
+        operand: Operand for the operation, or the expected value for ``CAS``.
+        operand2: New value. Only valid for compare-and-swap.
+        memory_order: Memory order for the operation.
+        memory_scope: Scope of threads that participate in memory ordering.
+        alignment: Minimum byte alignment that the compiler can assume. The
+            value must be a positive power of two. If the value is ``None``,
+            the natural alignment of the pointee data type is used.
 
     Returns:
         Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
-    ``float16``, ``bfloat16``, ``float32``, and ``float64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_add(ptr, 1)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 0
-            after: 1, prev_val: 0
-
-    """
-
-
-@stub
-def atomic_sub(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(ptr.load() - val)``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
-    ``float32``, and ``float64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_sub(ptr, 1)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 0
-            after: -1, prev_val: 0
-
-    """
-
-
-@stub
-def atomic_and(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(ptr.load() & val)``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 14  # 0b1110
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_and(ptr, 11)  # 0b1011
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 14
-            after: 10, prev_val: 14
-
-    """
-
-
-@stub
-def atomic_or(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(ptr.load() | val)``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 12  # 0b1100
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_or(ptr, 3)  # 0b0011
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 12
-            after: 15, prev_val: 12
-
-    """
-
-
-@stub
-def atomic_xor(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(ptr.load() ^ val)``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, and ``uint64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 12  # 0b1100
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_xor(ptr, 10)  # 0b1010
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 12
-            after: 6, prev_val: 12
-
-    """
-
-
-@stub
-def atomic_min(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(min(ptr.load(), val))``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
-    ``float32``, and ``float64``.
 
     Examples:
 
@@ -771,246 +557,13 @@ def atomic_min(
             :template: kernel_2d_array_wrapper.py
 
             array[2, 3] = 7
-            print(f"before: {array[2, 3]}")
             ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_min(ptr, 3)
+            prev_val = cl.atomic_rmw(cl.AtomicOp.ADD, ptr, 3)
             print(f"after: {array[2, 3]}, prev_val: {prev_val}")
 
         .. testoutput::
 
-            before: 7
-            after: 3, prev_val: 7
-
-    """
-
-
-@stub
-def atomic_max(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic ``ptr.store(max(ptr.load(), val))``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Operand for the atomic operation.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``int64``, ``uint64``,
-    ``float32``, and ``float64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 7
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_max(ptr, 11)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 7
-            after: 11, prev_val: 7
-
-    """
-
-
-@stub
-def atomic_inc(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic increment at ``ptr`` with wrap at ``val``.
-
-    This behaves as ``ptr.store(0 if ptr.load() >= val else ptr.load() + 1)``.
-    Supported ``T``: ``uint32`` only.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Wrap threshold for the atomic increment.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_uint32_array_wrapper.py
-
-            array[2, 3] = 7
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_inc(ptr, 7)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 7
-            after: 0, prev_val: 7
-
-    """
-
-
-@stub
-def atomic_dec(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic decrement at ``ptr`` with wrap at ``val``.
-
-    This stores ``val`` when the current value is ``0`` or greater than
-    ``val``; otherwise, it decrements the current value by one.
-    Supported ``T``: ``uint32`` only.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Wrap threshold for the atomic decrement.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_uint32_array_wrapper.py
-
-            array[2, 3] = 0
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_dec(ptr, 7)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 0
-            after: 7, prev_val: 0
-
-    """
-
-
-@stub
-def atomic_xchg(
-    ptr: Pointer[T],
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic exchange ``ptr.store(val)``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        val: Value to store atomically.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int32``, ``uint32``, ``float32``, ``int64``,
-    ``uint64``, and ``float64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 7
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_xchg(ptr, 4)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 7
-            after: 4, prev_val: 7
-
-    """
-
-
-@stub
-def atomic_cas(
-    ptr: Pointer[T],
-    old: T,
-    val: T,
-    /,
-    *,
-    memory_order: MemoryOrder = MemoryOrder.ACQ_REL,
-    memory_scope: MemoryScope = MemoryScope.DEVICE,
-) -> T:
-    """
-    Perform atomic compare-and-swap at ``ptr``.
-
-    If the current value equals ``old``, store ``val``.
-
-    Args:
-        ptr: Pointer to the value to update atomically.
-        old: Expected value for the compare-and-swap.
-        val: Value to store when the current value equals ``old``.
-        memory_order: Memory ordering for the atomic operation. Defaults to
-            ``MemoryOrder.ACQ_REL``.
-        memory_scope: Memory scope for the atomic operation. Defaults to
-            ``MemoryScope.DEVICE``.
-
-    Returns:
-        Original value at ``ptr`` before the operation.
-
-    Supported ``T``: ``int16``, ``uint16``, ``int32``, ``uint32``,
-    ``int64``, and ``uint64``.
-
-    Examples:
-
-        .. testcode::
-            :template: kernel_2d_array_wrapper.py
-
-            array[2, 3] = 7
-            print(f"before: {array[2, 3]}")
-            ptr = array.pointer((2, 3))
-            prev_val = cl.atomic_cas(ptr, 7, 4)
-            print(f"after: {array[2, 3]}, prev_val: {prev_val}")
-
-        .. testoutput::
-
-            before: 7
-            after: 4, prev_val: 7
-
+            after: 10, prev_val: 7
     """
 
 

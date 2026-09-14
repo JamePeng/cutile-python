@@ -109,6 +109,7 @@ Atomics
 
     MemoryOrder
     MemoryScope
+    AtomicOp
 
 .. autosummary::
    :toctree: generated
@@ -117,17 +118,7 @@ Atomics
     atomic_load
     atomic_store
 
-    atomic_add
-    atomic_sub
-    atomic_and
-    atomic_or
-    atomic_xor
-    atomic_min
-    atomic_max
-    atomic_inc
-    atomic_dec
-    atomic_xchg
-    atomic_cas
+    atomic_rmw
 
 
 .. _operations-math:

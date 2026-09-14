@@ -19,6 +19,22 @@ class MemoryOrder(Enum):
     SEQ_CST = "seq_cst"
 
 
+class AtomicOp(Enum):
+    """Operation for :func:`cuda.lang.atomic_rmw`."""
+
+    ADD = "add"
+    SUB = "sub"
+    AND = "and"
+    OR = "or"
+    XOR = "xor"
+    MIN = "min"
+    MAX = "max"
+    INC = "inc"
+    DEC = "dec"
+    EXCH = "exch"
+    CAS = "cas"
+
+
 class SaturationMode(Enum):
     """Saturation mode for floating-point and integer operations."""
 
@@ -217,6 +233,7 @@ __all__ = (
     "MemorySpace",
     "MemoryScope",
     "MemoryOrder",
+    "AtomicOp",
     "RoundingMode",
     "SaturationMode",
     "SwizzleMode",

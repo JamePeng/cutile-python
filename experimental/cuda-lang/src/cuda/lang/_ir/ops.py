@@ -4,7 +4,7 @@
 import math
 import operator
 from dataclasses import dataclass
-from cuda.lang._enums import MemoryOrder
+from cuda.lang._enums import AtomicOp, MemoryOrder
 from cuda.tile._memory_model import MemoryScope
 from cuda.tile._ir.op_impl import (
     require_tuple_type,
@@ -82,7 +82,6 @@ from .atomics_support import (
     ATOMIC_CAS_DTYPES,
     ATOMIC_VALID_MEMORY_ORDERS,
     ATOMIC_XCHG_DTYPES,
-    AtomicRMWKind,
     require_atomic_dtype,
     require_atomic_memory_order_and_scope,
     require_atomic_rmw_value,
@@ -223,23 +222,22 @@ def dtype_of_impl(value: Var):
 
 
 def _atomic_rmw_dispatch(
-    kind: AtomicRMWKind,
+    op: AtomicOp,
     ptr: Var,
     val: Var,
-    memory_order: Var,
-    memory_scope: Var,
+    memory_order: MemoryOrder,
+    memory_scope: MemoryScope,
+    alignment: int,
 ) -> Var:
     ptr_ty = require_pointer_type(ptr)
-    val, result_ty = require_atomic_rmw_value(kind, ptr_ty, val)
-    memory_order, memory_scope = require_atomic_memory_order_and_scope(
-        AtomicRMW, memory_order, memory_scope
-    )
+    val, result_ty = require_atomic_rmw_value(op, ptr_ty, val)
     return add_operation(
         AtomicRMW,
         result_ty,
-        kind=kind,
+        kind=op,
         pointer=ptr,
         value=val,
+        alignment=alignment,
         memory_order=memory_order,
         memory_scope=memory_scope,
     )
@@ -247,9 +245,10 @@ def _atomic_rmw_dispatch(
 
 @dataclass(eq=False)
 class AtomicRMW(Operation, opcode="atomic_rmw", memory_effect=MemoryEffect.STORE):
-    kind: AtomicRMWKind = attribute()
+    kind: AtomicOp = attribute()
     pointer: Var = operand()
     value: Var = operand()
+    alignment: int = attribute()
     memory_order: MemoryOrder = attribute()
     memory_scope: MemoryScope = attribute()
 
@@ -260,6 +259,7 @@ class AtomicRMW(Operation, opcode="atomic_rmw", memory_effect=MemoryEffect.STORE
 class AtomicExchange(Operation, opcode="atomic_xchg", memory_effect=MemoryEffect.STORE):
     pointer: Var = operand()
     value: Var = operand()
+    alignment: int = attribute()
     memory_order: MemoryOrder = attribute()
     memory_scope: MemoryScope = attribute()
 
@@ -271,80 +271,80 @@ class AtomicCAS(Operation, opcode="atomic_cas", memory_effect=MemoryEffect.STORE
     pointer: Var = operand()
     compare: Var = operand()
     value: Var = operand()
+    alignment: int = attribute()
     memory_order: MemoryOrder = attribute()
     memory_scope: MemoryScope = attribute()
 
     VALID_MEMORY_ORDERS = ATOMIC_VALID_MEMORY_ORDERS
 
 
-@impl(core_api.atomic_add, fixed_args=[AtomicRMWKind.ADD])
-@impl(core_api.atomic_sub, fixed_args=[AtomicRMWKind.SUB])
-@impl(core_api.atomic_and, fixed_args=[AtomicRMWKind.AND])
-@impl(core_api.atomic_or, fixed_args=[AtomicRMWKind.OR])
-@impl(core_api.atomic_xor, fixed_args=[AtomicRMWKind.XOR])
-@impl(core_api.atomic_min, fixed_args=[AtomicRMWKind.MIN])
-@impl(core_api.atomic_max, fixed_args=[AtomicRMWKind.MAX])
-@impl(core_api.atomic_inc, fixed_args=[AtomicRMWKind.INC])
-@impl(core_api.atomic_dec, fixed_args=[AtomicRMWKind.DEC])
-def atomic_rmw_dispatch_impl(
-    kind: AtomicRMWKind,
+@impl(core_api.atomic_rmw)
+def atomic_rmw_impl(
+    op: Var,
     ptr: Var,
-    val: Var,
+    operand: Var,
+    operand2: Var,
     memory_order: Var,
     memory_scope: Var,
+    alignment: Var,
 ) -> Var:
-    return _atomic_rmw_dispatch(kind, ptr, val, memory_order, memory_scope)
-
-
-@impl(core_api.atomic_xchg)
-def atomic_xchg_impl(
-    ptr: Var, val: Var, memory_order: Var, memory_scope: Var
-) -> Var:
+    op = require_constant_enum(op, AtomicOp)
     ptr_ty = require_pointer_type(ptr)
     dtype = ptr_ty.pointee_dtype
-    require_atomic_dtype("atomic_xchg", dtype, ATOMIC_XCHG_DTYPES)
-    require_scalar_type(val)
-    val = astype(val, dtype)
-    result_ty = ScalarTy(dtype)
+    alignment_value = require_optional_alignment(alignment)
+    if alignment_value is None:
+        alignment_value = dtype.bitwidth // 8
+    operation_type = AtomicRMW
+    if op is AtomicOp.CAS:
+        operation_type = AtomicCAS
+    elif op is AtomicOp.EXCH:
+        operation_type = AtomicExchange
     memory_order, memory_scope = require_atomic_memory_order_and_scope(
-        AtomicExchange, memory_order, memory_scope
-    )
-    return add_operation(
-        AtomicExchange,
-        result_ty,
-        pointer=ptr,
-        value=val,
-        memory_order=memory_order,
-        memory_scope=memory_scope,
+        operation_type,
+        memory_order,
+        memory_scope,
     )
 
-
-@impl(core_api.atomic_cas)
-def atomic_cas_impl(
-    ptr: Var, old: Var, val: Var, memory_order: Var, memory_scope: Var
-) -> Var:
-    ptr_ty = require_pointer_type(ptr)
-    dtype = ptr_ty.pointee_dtype
-    require_atomic_dtype("atomic_cas", dtype, ATOMIC_CAS_DTYPES)
-    require_scalar_type(val)
-    val = astype(val, dtype)
-    compare_ty = require_scalar_type(old)
-    if dtype != compare_ty.dtype:
-        raise TypeCheckingError(
-            f"Expected atomic compare value of type {dtype}, got {compare_ty.dtype}"
+    if op is AtomicOp.CAS:
+        if is_none(operand2):
+            raise TypeCheckingError("AtomicOp.CAS requires a second operand")
+        require_atomic_dtype(op, dtype, ATOMIC_CAS_DTYPES)
+        compare_ty = require_scalar_type(operand)
+        if dtype != compare_ty.dtype:
+            raise TypeCheckingError(
+                f"Expected atomic compare value of type {dtype}, got {compare_ty.dtype}"
+            )
+        require_scalar_type(operand2)
+        value = astype(operand2, dtype)
+        return add_operation(
+            AtomicCAS,
+            ScalarTy(dtype),
+            pointer=ptr,
+            compare=operand,
+            value=value,
+            alignment=alignment_value,
+            memory_order=memory_order,
+            memory_scope=memory_scope,
         )
-    result_ty = ScalarTy(dtype)
-    memory_order, memory_scope = require_atomic_memory_order_and_scope(
-        AtomicCAS, memory_order, memory_scope
-    )
-    return add_operation(
-        AtomicCAS,
-        result_ty,
-        pointer=ptr,
-        compare=old,
-        value=val,
-        memory_order=memory_order,
-        memory_scope=memory_scope,
+
+    if not is_none(operand2):
+        raise TypeCheckingError(f"AtomicOp.{op.name} does not use a second operand")
+    if op is AtomicOp.EXCH:
+        require_atomic_dtype(op, dtype, ATOMIC_XCHG_DTYPES)
+        require_scalar_type(operand)
+        value = astype(operand, dtype)
+        return add_operation(
+            AtomicExchange,
+            ScalarTy(dtype),
+            pointer=ptr,
+            value=value,
+            alignment=alignment_value,
+            memory_order=memory_order,
+            memory_scope=memory_scope,
+        )
+
+    return _atomic_rmw_dispatch(
+        op, ptr, operand, memory_order, memory_scope, alignment_value
     )
 
 
@@ -978,7 +978,6 @@ __all__ = (
     "AtomicExchange",
     "AtomicLoad",
     "AtomicRMW",
-    "AtomicRMWKind",
     "AtomicStore",
     "Assign",
     "AssumeBounded",

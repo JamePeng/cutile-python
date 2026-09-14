@@ -2,11 +2,9 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import Enum, auto
-
 from cuda.tile._ir.arithmetic_ops import astype
 from cuda.tile._ir.op_impl import require_constant_enum
-from cuda.lang._enums import MemoryOrder
+from cuda.lang._enums import AtomicOp, MemoryOrder
 from cuda.tile._memory_model import MemoryScope
 
 import cuda.lang._datatype as datatype
@@ -14,18 +12,6 @@ from cuda.lang._exception import TypeCheckingError
 from .ir import Operation, Var
 from .type import PointerTy, ScalarTy
 from .type_checking_helpers import require_scalar_type
-
-
-class AtomicRMWKind(Enum):
-    ADD = auto()
-    SUB = auto()
-    AND = auto()
-    OR = auto()
-    XOR = auto()
-    MIN = auto()
-    MAX = auto()
-    INC = auto()
-    DEC = auto()
 
 
 ATOMIC_ADD_DTYPES = (
@@ -79,15 +65,15 @@ ATOMIC_CAS_DTYPES = (
 )
 
 ATOMIC_RMW_SUPPORTED_DTYPES = {
-    AtomicRMWKind.ADD: ATOMIC_ADD_DTYPES,
-    AtomicRMWKind.SUB: ATOMIC_SUB_DTYPES,
-    AtomicRMWKind.AND: ATOMIC_BITWISE_DTYPES,
-    AtomicRMWKind.OR: ATOMIC_BITWISE_DTYPES,
-    AtomicRMWKind.XOR: ATOMIC_BITWISE_DTYPES,
-    AtomicRMWKind.MIN: ATOMIC_MIN_MAX_DTYPES,
-    AtomicRMWKind.MAX: ATOMIC_MIN_MAX_DTYPES,
-    AtomicRMWKind.INC: ATOMIC_INC_DEC_DTYPES,
-    AtomicRMWKind.DEC: ATOMIC_INC_DEC_DTYPES,
+    AtomicOp.ADD: ATOMIC_ADD_DTYPES,
+    AtomicOp.SUB: ATOMIC_SUB_DTYPES,
+    AtomicOp.AND: ATOMIC_BITWISE_DTYPES,
+    AtomicOp.OR: ATOMIC_BITWISE_DTYPES,
+    AtomicOp.XOR: ATOMIC_BITWISE_DTYPES,
+    AtomicOp.MIN: ATOMIC_MIN_MAX_DTYPES,
+    AtomicOp.MAX: ATOMIC_MIN_MAX_DTYPES,
+    AtomicOp.INC: ATOMIC_INC_DEC_DTYPES,
+    AtomicOp.DEC: ATOMIC_INC_DEC_DTYPES,
 }
 
 ATOMIC_VALID_MEMORY_ORDERS = (
@@ -104,20 +90,16 @@ ATOMIC_VALID_MEMORY_SCOPES = (
 )
 
 
-def atomic_rmw_op_name(kind: AtomicRMWKind) -> str:
-    return f"atomic_{kind.name.lower()}"
-
-
 def format_supported_dtypes(dtypes: tuple[datatype.DType, ...]) -> str:
     return ", ".join(str(dtype) for dtype in dtypes)
 
 
 def require_atomic_dtype(
-    op_name: str, dtype: datatype.DType, supported_dtypes: tuple[datatype.DType, ...]
+    op: AtomicOp, dtype: datatype.DType, supported_dtypes: tuple[datatype.DType, ...]
 ):
     if dtype not in supported_dtypes:
         raise TypeCheckingError(
-            f"{op_name} does not support dtype {dtype}; supported dtypes are "
+            f"{op.value} does not support dtype {dtype}; supported dtypes are "
             f"{format_supported_dtypes(supported_dtypes)}"
         )
 
@@ -154,10 +136,9 @@ def require_atomic_memory_order_and_scope(
 
 
 def require_atomic_rmw_value(
-    kind: AtomicRMWKind, ptr_ty: PointerTy, val: Var
+    op: AtomicOp, ptr_ty: PointerTy, val: Var
 ) -> tuple[Var, ScalarTy]:
     require_scalar_type(val)
-    op_name = atomic_rmw_op_name(kind)
     ptr_dtype = ptr_ty.pointee_dtype
-    require_atomic_dtype(op_name, ptr_dtype, ATOMIC_RMW_SUPPORTED_DTYPES[kind])
+    require_atomic_dtype(op, ptr_dtype, ATOMIC_RMW_SUPPORTED_DTYPES[op])
     return astype(val, ptr_dtype), ScalarTy(ptr_dtype)

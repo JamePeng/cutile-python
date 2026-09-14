@@ -29,3 +29,4 @@ These terms and abbreviations are permitted in `cuda.lang` source code.
 - dst: destination
 - ndim: number of dimensions
 - mmio: memory-mapped input-output
+- rmw: Read-modify-write, as in `cl.atomic_rmw()`
