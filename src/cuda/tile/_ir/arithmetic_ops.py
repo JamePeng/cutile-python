@@ -60,6 +60,23 @@ class TileReshape(Operation, opcode="tile_reshape"):
         res_type_id = ctx.typeid_of(self.result_var)
         return bc.encode_ReshapeOp(ctx.builder, res_type_id, x_value)
 
+    @override
+    def generate_llvm(self, ctx):
+        x_shape = self.x.get_type().tensor_shape()
+        res_shape = self.result_var.get_type().tensor_shape()
+        x = ctx.value(self.x)
+        if x_shape == res_shape:
+            return x
+
+        zero = ctx.builder.constants.integer_constant(0, ctx.builder.type_table.I32)
+        if x_shape == () and res_shape == (1,):
+            vec = ctx.builder.constants.poison(ctx.typeof(self.result_var))
+            return ctx.builder.insert_element(vec, x, zero)
+        elif x_shape == (1,) and res_shape == ():
+            return ctx.builder.extract_element(x, zero)
+        else:
+            raise NotImplementedError(f"reshape not implemented for {x_shape} -> {res_shape}")
+
 
 def reshape(x: Var[TensorLikeTy], new_shape: Sequence[int]) -> Var:
     x_ty = x.get_type()
@@ -103,6 +120,24 @@ class TileBroadcast(Operation, opcode="tile_broadcast"):
         x_value = ctx.get_value(self.x)
         res_typeid = ctx.typeid_of(self.result_var)
         return bc.encode_BroadcastOp(ctx.builder, res_typeid, x_value)
+
+    @override
+    def generate_llvm(self, ctx):
+        x_shape = self.x.get_type().tensor_shape()
+        res_shape = self.result_var.get_type().tensor_shape()
+        x = ctx.value(self.x)
+        if x_shape == res_shape:
+            return x
+
+        if x_shape == ():
+            zero = ctx.builder.constants.integer_constant(0, ctx.builder.type_table.I32)
+            vec = ctx.builder.constants.poison(ctx.typeof(self.result_var))
+            x = ctx.builder.insert_element(vec, x, zero)
+            x_shape = (1,)
+
+        assert x_shape == (1,)
+        assert len(res_shape) == 1
+        return ctx.builder.shuffle_vector(x, x, (0,) * res_shape[0])
 
 
 def broadcast_to(x: Var[TensorLikeTy], shape: Sequence[int]) -> Var[TensorLikeTy]:

@@ -256,7 +256,7 @@ class _StringTable(dict[bytes, tuple[int, int]]):
 @dataclass(frozen=True)
 class _ConstantRecord:
     value: Value
-    record: tuple[int, ...]
+    record: tuple[int | Value, ...]
 
 
 class ConstantTable:
@@ -271,6 +271,9 @@ class ConstantTable:
         assert isinstance(bits, int)
         assert bits >= 0
         return self._append(ty, codes.CST_CODE_FLOAT, bits)
+
+    def aggregate_constant(self, items: Sequence[Value], ty: Type) -> Value:
+        return self._append(ty, codes.CST_CODE_AGGREGATE, *items)
 
     def inline_asm(self,
                    func_ty: FunctionType,
@@ -295,7 +298,7 @@ class ConstantTable:
     def poison(self, ty: Type) -> Value:
         return self._append(ty, codes.CST_CODE_POISON)
 
-    def _append(self, ty: Type, *rec: int) -> Value:
+    def _append(self, ty: Type, *rec: int | Value) -> Value:
         ret = Value(ty)
         self._table[ty].append(_ConstantRecord(ret, rec))
         return ret
@@ -541,6 +544,31 @@ class BitcodeBuilder:
             src, *indices
         )
 
+    def insert_element(self, vec: Value, elt: Value, index: Value) -> Value:
+        assert isinstance(vec.type, VectorType)
+        return self._instruction(vec.type, codes.FUNC_CODE_INST_INSERTELT, "VvV",
+                                 vec, elt, index)
+
+    def extract_element(self, vec: Value, index: Value) -> Value:
+        assert isinstance(vec.type, VectorType)
+        return self._instruction(vec.type.element_ty, codes.FUNC_CODE_INST_EXTRACTELT, "VV",
+                                 vec, index)
+
+    def shuffle_vector(self, a: Value, b: Value, mask: Sequence[int | None]) -> Value:
+        assert a.type.type_id == b.type.type_id
+        assert isinstance(a.type, VectorType)
+        i32 = self.type_table.I32
+        mask_items = []
+        for x in mask:
+            if x is None:
+                mask_items.append(self.constants.poison(i32))
+            else:
+                mask_items.append(self.constants.integer_constant(x, i32))
+        mask_ty = self.type_table.vector(i32, len(mask_items))
+        mask_val = self.constants.aggregate_constant(mask_items, mask_ty)
+        res_ty = self.type_table.vector(a.type.element_ty, len(mask_items))
+        return self._instruction(res_ty, codes.FUNC_CODE_INST_SHUFFLEVEC, "Vvv", a, b, mask_val)
+
     def select(self, cond: Value, true_value: Value, false_value: Value) -> Value:
         return self._instruction(
             true_value.type,
@@ -684,7 +712,8 @@ def _write_constant_table(constant_table: ConstantTable, writer: _BitcodeWriter,
             writer.unabbrev_record(codes.CST_CODE_SETTYPE, ty.type_id)
             for const_record in constants:
                 assign_value_id(const_record.value)
-                writer.unabbrev_record(*const_record.record)
+                rec = [x if isinstance(x, int) else x.id for x in const_record.record]
+                writer.unabbrev_record(*rec)
 
 
 def _write_metadata_table(table: MetadataTable, writer: _BitcodeWriter,
