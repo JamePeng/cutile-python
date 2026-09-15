@@ -36,7 +36,7 @@ static_print = static_define(print)
 
 
 @static_define
-def static_breakpoint(*args, **kwarsg):
+def static_breakpoint(*args, **kwargs):
     """
     Function allowing users to inspect values inside a cuda.lang kernel at
     compile time.
@@ -185,44 +185,55 @@ def test_static_overload_ffi_example_constant():
 
 def test_static_overload_selection():
 
+    def scalarize_array(x):
+        cl.static_assert(len(x.shape) == 1, "reductions of higher ranked arrays NYI")
+        val = x[0]
+        for i in range(1, x.shape[0]):
+            val = cl.minimum(val, x[i])
+        return val
+
     @static_overload
-    def overloaded_function(symbolic_value):
-        """This runs at compile-time, so we could invoke nvrtc to compile an
-        object file and link it to the final kernel if we supported ltoir."""
-
-        match symbolic_value:
+    def scalarize(x):
+        match x:
+            case int() | float() | SymbolicScalar():
+                # return lambda x: x
+                def identity(x):
+                    return x
+                return identity
+            case SymbolicVector():
+                # return lambda x: x.reduce(cl.VectorReduction.min)
+                def vred(x):
+                    return x.reduce(cl.VectorReduction.min)
+                return vred
             case SymbolicArray():
-
-                def func(array):
-                    return array[0] + 1
-
-                return func
-            case SymbolicScalar() | int() | float():
-
-                def func(scalar):
-                    return cl.int32(scalar) + 1
-
-                return func
-            case SymbolicVector() if symbolic_value.element_count == 2:
-
-                def func(vector):
-                    return vector[0] + vector[1]
-
-                return func
+                return scalarize_array
             case _:
-                raise TypeError(f"Unexpected type {symbolic_value}")
+                raise NotImplementedError()
+
+    def overloaded_min(*args):
+        cl.static_assert(len(args) > 0)
+        args = tuple(scalarize(i) for i in cl.static_iter(args))
+        arity = len(args)
+        val = args[0]
+        for i in cl.static_iter(range(arity - 1)):
+            val = cl.minimum(val, args[i])
+        return val
 
     @cl.kernel
-    def kernel(out):
-        vector = out.pointer(0).load(count=2)
-        out[0] = overloaded_function(out)  # array
-        out[1] = overloaded_function(5)  # constant scalar
-        out[2] = overloaded_function(out[0])  # symbolic scalar
-        out[3] = overloaded_function(vector)  # vector
+    def kernel(global_array: cl.Array, result: cl.Array):
+        vector = cl.Vector(2, 4, 6, 8)
+        shared_array = cl.shared_array(4, cl.int32)
+        shared_array[0] = -6
+        shared_array[1] = -2
+        shared_array[2] = 2
+        shared_array[3] = 6
+        scalar1, scalar2 = 5, 1
+        result[0] = overloaded_min(vector, scalar1, shared_array, scalar2, global_array)
 
-    out = torch.tensor(list(range(5)), dtype=torch.int32).cuda(0)
-    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (out,))
-    assert out.cpu().tolist() == [1, 6, 2, 1, 4]
+    t = torch.arange(9, dtype=torch.int32).cuda(0)
+    result = torch.zeros(1).cuda(0)
+    cl.launch(torch.cuda.current_stream(), (1,), (1,), kernel, (t, result))
+    assert result.cpu().item() == -6
 
 
 def bitonic_schedule(width):
