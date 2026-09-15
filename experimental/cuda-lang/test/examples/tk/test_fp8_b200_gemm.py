@@ -125,7 +125,7 @@ def consume_scheduled_tile(ready, consumed, next_tile, next_has_work, phase):
 
 
 def sync_consumer_warpgroup(consumer):
-    cl.barrier_sync_block(4 * WARP_SIZE, 1 if consumer == 0 else 2, aligned=False)
+    cl.barrier_sync_block(4 * WARP_SIZE, 1 if consumer == 0 else 2)
 
 
 def store_bf16_tmem_tile(dst, tmem_base, warp, column, row, output_column, n):
@@ -311,7 +311,7 @@ def fp8_b200_gemm_kernel(
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 2:
         cl.tcgen05_allocate(
@@ -319,7 +319,7 @@ def fp8_b200_gemm_kernel(
             tile_n,
             cta_group=cl.CTAGroup.CTA_2,
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 1:
         for k_tile in range(k // tile_k):
@@ -418,7 +418,7 @@ def fp8_b200_gemm_kernel(
             column,
             tile_n,
         )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     if warp == 0 and cl.elect_sync():
         cl.fence_proxy_bidirectional(
@@ -433,7 +433,7 @@ def fp8_b200_gemm_kernel(
         cl.copy_async_bulk_commit_group()
         cl.copy_async_bulk_wait_group(0)
 
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == 2:
         cl.tcgen05_deallocate(
             tmem_storage[0],
@@ -554,7 +554,7 @@ def _fp8_b200_gemm_persistent_kernel(
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp >= producer_base:
         cl.setmaxregister_decrease(56)
@@ -568,7 +568,7 @@ def _fp8_b200_gemm_persistent_kernel(
             tmem_columns,
             cta_group=cl.CTAGroup.CTA_2,
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == scheduler_warp:
         iteration = 0
@@ -809,7 +809,7 @@ def _fp8_b200_gemm_persistent_kernel(
             has_work = scheduled_work
             task += 1
 
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == producer_base:
         cl.tcgen05_deallocate(
             tmem_storage[0],

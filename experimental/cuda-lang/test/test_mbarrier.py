@@ -39,7 +39,7 @@ def test_cluster_barriers():
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         cl._nvvm.barrier_cluster_arrive_aligned()
         cl._nvvm.barrier_cluster_wait_aligned()
 

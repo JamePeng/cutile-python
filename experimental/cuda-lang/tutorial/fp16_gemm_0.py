@@ -90,14 +90,14 @@ def _kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     # Match the source tutorial's full TMEM allocation.
     if warp == 0:
         cl.tcgen05_allocate(
             tmem_storage.pointer(), 512, cta_group=cl.CTAGroup.CTA_1
         )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     tmem_base = tmem_storage[0]
 
     if warp == 0:
@@ -209,7 +209,7 @@ def _kernel(
                     dst = c.pointer((row, col_j))
                     dst.store(packed, alignment=VEC_BYTES)
 
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if warp == 0:
         cl.tcgen05_deallocate(
             tmem_base, 512, cta_group=cl.CTAGroup.CTA_1

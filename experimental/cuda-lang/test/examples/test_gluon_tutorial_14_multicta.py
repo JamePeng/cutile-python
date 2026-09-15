@@ -49,13 +49,13 @@ def block_reduce_max(value, warp_values, num_warps):
     value = warp_reduce_max(value)
     if lane == 0:
         warp_values[warp] = value
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if tid == 0:
         value = warp_values[0]
         for index in cl.static_iter(range(1, num_warps)):
             value = cl.maximum(value, warp_values[index])
         warp_values[0] = value
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     return warp_values[0]
 
 
@@ -66,13 +66,13 @@ def block_reduce_sum(value, warp_values, num_warps):
     value = warp_reduce_sum(value)
     if lane == 0:
         warp_values[warp] = value
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if tid == 0:
         value = warp_values[0]
         for index in cl.static_iter(range(1, num_warps)):
             value += warp_values[index]
         warp_values[0] = value
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     return warp_values[0]
 
 
@@ -100,8 +100,8 @@ def multicta_softmax_kernel(
     cta_max = block_reduce_max(local_max, warp_values, num_warps)
     if tid == 0:
         cluster_values[0] = cta_max
-    cl.barrier_sync_block()
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_block_aligned()
+    cl.barrier_sync_cluster_aligned()
 
     if rank == 0 and tid == 0:
         row_max = cl.float32(-float("inf"))
@@ -111,11 +111,11 @@ def multicta_softmax_kernel(
             )
             row_max = cl.maximum(row_max, peer_values.load())
         cluster_values[0] = row_max
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_cluster_aligned()
     if tid == 0:
         root_values = cl.map_shared_to_cluster(cluster_values.pointer(), 0)
         cluster_values[1] = root_values.load()
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     row_max = cluster_values[1]
 
     local_sum = cl.float32(0.0)
@@ -126,8 +126,8 @@ def multicta_softmax_kernel(
     cta_sum = block_reduce_sum(local_sum, warp_values, num_warps)
     if tid == 0:
         cluster_values[0] = cta_sum
-    cl.barrier_sync_block()
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_block_aligned()
+    cl.barrier_sync_cluster_aligned()
 
     if rank == 0 and tid == 0:
         row_sum = cl.float32(0.0)
@@ -137,11 +137,11 @@ def multicta_softmax_kernel(
             )
             row_sum += peer_values.load()
         cluster_values[0] = row_sum
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_cluster_aligned()
     if tid == 0:
         root_values = cl.map_shared_to_cluster(cluster_values.pointer(), 0)
         cluster_values[1] = root_values.load()
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     row_sum = cluster_values[1]
 
     for col in range(col_start, n, col_stride):
@@ -199,11 +199,11 @@ def tma_multicast_copy_kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_cluster_aligned()
 
     if tid == 0:
         cl.mbarrier_arrive_expect_transaction(mbar, tile_bytes)
-    cl.barrier_sync_cluster()
+    cl.barrier_sync_cluster_aligned()
 
     if rank == 0 and tid == 0:
         cluster_smem = cl.map_shared_to_cluster(smem.pointer(), 0)
@@ -216,7 +216,7 @@ def tma_multicast_copy_kernel(
         )
 
     cl.mbarrier_wait_parity(mbar, 0)
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     if rank == 0 and tid == 0:
         cl.copy_async_bulk_tensor_shared_to_global(
@@ -300,7 +300,7 @@ def two_cta_tcgen05_kernel(a, b, c):
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 1 and cl.elect_sync():
         a_dst = cl.map_shared_to_cluster(a_smem.pointer(), rank)
@@ -376,7 +376,7 @@ def two_cta_tcgen05_kernel(a, b, c):
             )
 
     cl.mbarrier_wait_parity(mma_bar, 0)
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     cl.tcgen05_fence_after_thread_sync()
     for column in cl.static_iter(range(0, tile_n, 16)):
         store_fp16_tmem_tile(
@@ -388,7 +388,7 @@ def two_cta_tcgen05_kernel(a, b, c):
             column,
             tile_n,
         )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if tid == 0:
         cl.fence_proxy_bidirectional(
             cl.FenceProxy.ASYNC,
@@ -400,7 +400,7 @@ def two_cta_tcgen05_kernel(a, b, c):
         cl.copy_async_bulk_commit_group()
         cl.copy_async_bulk_wait_group(0)
 
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == 0:
         cl.tcgen05_deallocate(tmem_storage[0], tile_n, cta_group=cl.CTAGroup.CTA_2)
 
@@ -460,7 +460,7 @@ def tma_tcgen05_kernel(a, b, c):
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 0:
         cl.tcgen05_allocate(
@@ -494,7 +494,7 @@ def tma_tcgen05_kernel(a, b, c):
         if tid == 0:
             cl.mbarrier_arrive_expect_transaction(a_bar, cta_m * tile_k * 2)
             cl.mbarrier_arrive_expect_transaction(b_bar, cta_n * tile_k * 2)
-        cl.barrier_sync_cluster(aligned=True)
+        cl.barrier_sync_cluster_aligned()
 
         if tid == 0:
             cl.copy_async_bulk_tensor_global_to_shared(
@@ -515,7 +515,7 @@ def tma_tcgen05_kernel(a, b, c):
 
         cl.mbarrier_wait_parity(a_bar, phase)
         cl.mbarrier_wait_parity(b_bar, phase)
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if pair_rank == 0 and warp == 0 and cl.elect_sync():
             cl.tcgen05_fence_after_thread_sync()
@@ -536,7 +536,7 @@ def tma_tcgen05_kernel(a, b, c):
             )
 
         cl.mbarrier_wait_parity(mma_bar, phase)
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
     cl.tcgen05_fence_after_thread_sync()
     for column in cl.static_iter(range(0, tile_n, 16)):
@@ -549,7 +549,7 @@ def tma_tcgen05_kernel(a, b, c):
             column,
             tile_n,
         )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if tid == 0:
         cl.fence_proxy_bidirectional(
             cl.FenceProxy.ASYNC,
@@ -561,7 +561,7 @@ def tma_tcgen05_kernel(a, b, c):
         cl.copy_async_bulk_commit_group()
         cl.copy_async_bulk_wait_group(0)
 
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == 0:
         cl.tcgen05_deallocate(tmem_storage[0], tile_n, cta_group=cl.CTAGroup.CTA_2)
 
@@ -665,7 +665,7 @@ def store_matmul_partition(
         stage_smem = c_smem.pointer((stage, 0))
         if warp == 0 and cl.elect_sync():
             cl.copy_async_bulk_wait_group(subtile_stages - 1, read=True)
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if valid_tile:
             for column in cl.static_iter(range(0, subtile_n, 16)):
@@ -678,7 +678,7 @@ def store_matmul_partition(
                     column,
                     subtile_n,
                 )
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if warp == 0 and cl.elect_sync():
             cl.fence_proxy_bidirectional(
@@ -768,7 +768,7 @@ def matmul_multicta_kernel(
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 2:
         cl.tcgen05_allocate(
@@ -776,7 +776,7 @@ def matmul_multicta_kernel(
             tile_n * acc_stages,
             cta_group=cl.CTAGroup.CTA_2,
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == 3:
         clc_phase = 0
@@ -1031,7 +1031,7 @@ def matmul_multicta_kernel(
 
     if warp == 0 and cl.elect_sync():
         cl.copy_async_bulk_wait_group(0)
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
 
 def test_matmul_multicta():

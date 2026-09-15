@@ -61,7 +61,7 @@ def copy_smem(odata, idata, width: cl.Constant[int], height: cl.Constant[int]):
         if xIndex < width and yIndex < height:
             tile[ty + i, tx] = idata[index + i * width]
             tile[ty + i, tx] = idata[index + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         if xIndex < height and yIndex < width:
             odata[index + i * width] = tile[ty + i, tx]
@@ -93,7 +93,7 @@ def transpose_coalesced(odata, idata, width: cl.Constant[int], height: cl.Consta
     index_out = xIndex + yIndex * height
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -113,7 +113,7 @@ def transpose_no_bank_conflicts(
     index_out = xIndex + yIndex * height
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -139,7 +139,7 @@ def transpose_diagonal(odata, idata, width: cl.Constant[int], height: cl.Constan
     index_out = xIndex + yIndex * height
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         tile[ty + i, tx] = idata[index_in + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = tile[tx, ty + i]
 
@@ -156,7 +156,7 @@ def transpose_fine_grained(
     index = xIndex + yIndex * width
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         block[ty + i, tx] = idata[index + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index + i * height] = block[tx, ty + i]
 
@@ -176,7 +176,7 @@ def transpose_coarse_grained(
     index_out = xIndex + yIndex * height
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         block[ty + i, tx] = idata[index_in + i * width]
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     for i in cl.static_iter(range(0, TILE_DIM, BLOCK_ROWS)):
         odata[index_out + i * height] = block[ty + i, tx]
 

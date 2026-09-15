@@ -107,9 +107,7 @@ def _kernel(a, b, c, bias, has_bias: cl.Constant[bool]):
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_arrive_cluster(
-        aligned=False, memory_order=cl.MemoryOrder.RELAXED
-    )
+    cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
 
     # Warp 0 in both CTAs participates in the CTA_2 allocation.
     if warp == 0:
@@ -119,8 +117,8 @@ def _kernel(a, b, c, bias, has_bias: cl.Constant[bool]):
             cta_group=cl.CTAGroup.CTA_2,
         )
 
-    cl.barrier_wait_cluster(aligned=False)
-    cl.barrier_sync_block()
+    cl.barrier_wait_cluster()
+    cl.barrier_sync_block_aligned()
     tmem_base = tmem_storage[0]
 
     if warp == 0:
@@ -253,7 +251,7 @@ def _kernel(a, b, c, bias, has_bias: cl.Constant[bool]):
                     dst = c.pointer((row, col_j))
                     dst.store(packed, alignment=VEC_BYTES)
 
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if warp == 0:
         cl.tcgen05_deallocate(
             tmem_base, 512, cta_group=cl.CTAGroup.CTA_2

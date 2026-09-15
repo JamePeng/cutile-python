@@ -116,9 +116,9 @@ def make_mma_kernel(
             )
 
         if cta_group > 1:
-            cl.barrier_sync_cluster(aligned=True)
+            cl.barrier_sync_cluster_aligned()
         else:
-            cl.barrier_sync_block()
+            cl.barrier_sync_block_aligned()
 
         if warp_id == NUM_WARPS - 2:
             if cl.elect_sync():
@@ -316,7 +316,7 @@ def make_mma_kernel(
                         mainloop_phase,
                     )
 
-                cl.barrier_sync_block(barrier_id=1, number_of_threads=4 * WARP_SIZE)
+                cl.barrier_sync_block_aligned(barrier_id=1, number_of_threads=4 * WARP_SIZE)
                 cl.tcgen05_fence_after_thread_sync()
 
                 for tile_n in cl.static_iter(range(block_n // 16)):
@@ -346,9 +346,9 @@ def make_mma_kernel(
                 this_bid = this_bid + num_bids
 
             if cta_group > 1:
-                cl.barrier_sync_cluster(aligned=True)
+                cl.barrier_sync_cluster_aligned()
             else:
-                cl.barrier_sync_block(barrier_id=1, number_of_threads=4 * WARP_SIZE)
+                cl.barrier_sync_block_aligned(barrier_id=1, number_of_threads=4 * WARP_SIZE)
 
             if warp_id == 0:
                 cl.tcgen05_deallocate(

@@ -624,7 +624,7 @@ class TestBarrierSync:
             shmem = cl.shared_array(shape=(32,), dtype=cl.int32)
 
             shmem[lane] = lane * 2
-            cl.barrier_sync_block()
+            cl.barrier_sync_block_aligned()
 
             if lane < 16:
                 out[lane] = shmem[lane + 16]
@@ -648,7 +648,7 @@ class TestBarrierSync:
 
             if lane < 32:
                 shmem[lane] = lane + 100
-                cl.barrier_sync_block(barrier_id=1, number_of_threads=32)
+                cl.barrier_sync_block_aligned(barrier_id=1, number_of_threads=32)
                 out[lane] = shmem[lane ^ 1]
             else:
                 out[lane] = -1

@@ -110,14 +110,14 @@ class SoftmaxForwardKernel7:
 
         if lane_id == 0:
             maxvals[warp_id] = maxval
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if tid == 0:
             block_max = maxvals[0]
             for i in cl.static_iter(range(1, warps_per_block)):
                 block_max = cl.maximum(block_max, maxvals[i])
             maxvals[0] = block_max
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         offset = maxvals[0]
 
@@ -133,14 +133,14 @@ class SoftmaxForwardKernel7:
 
         if lane_id == 0:
             sumvals[warp_id] = sumval
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if tid == 0:
             block_sum = sumvals[0]
             for i in cl.static_iter(range(1, warps_per_block)):
                 block_sum = block_sum + sumvals[i]
             sumvals[0] = block_sum
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         denom = sumvals[0]
 

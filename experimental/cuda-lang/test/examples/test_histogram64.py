@@ -62,7 +62,7 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
     for i in cl.static_iter(range(HISTOGRAM64_BIN_COUNT)):
         s_Hist[tx + i * HISTOGRAM64_THREADBLOCK_SIZE] = cl.uint8(0)
 
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     for pos in range(bx * bdx + tx, dataCount, bdx * gdx):
         base = 4 * pos
@@ -71,7 +71,7 @@ def histogram64_kernel(d_PartialHistograms, d_Data, dataCount):
         add_word(s_ThreadBase, d_Data[base + 2])
         add_word(s_ThreadBase, d_Data[base + 3])
 
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     if tx < HISTOGRAM64_BIN_COUNT:
         s_HistBase = cl.Array.from_parts(
@@ -107,7 +107,7 @@ def merge_histogram64_kernel(d_Histogram, d_PartialHistograms, histogramCount):
     data[tx] = sum
 
     for stride in cl.static_iter([128, 64, 32, 16, 8, 4, 2, 1]):
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if tx < stride:
             data[tx] = data[tx] + data[tx + stride]
 

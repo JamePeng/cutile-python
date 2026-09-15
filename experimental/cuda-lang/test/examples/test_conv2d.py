@@ -108,7 +108,7 @@ def test_convolution_separable():
                 src[row_offset + src_x] if src_x < image_w else cl.float32(0.0)
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         for step in range(ROWS_HALO_STEPS, ROWS_HALO_STEPS + ROWS_RESULT_STEPS):
             acc = cl.float32(0.0)
@@ -161,7 +161,7 @@ def test_convolution_separable():
                 src[src_y * pitch + base_x] if src_y < image_h else cl.float32(0.0)
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         for step in range(COLUMNS_HALO_STEPS, COLUMNS_HALO_STEPS + COLUMNS_RESULT_STEPS):
             acc = cl.float32(0.0)

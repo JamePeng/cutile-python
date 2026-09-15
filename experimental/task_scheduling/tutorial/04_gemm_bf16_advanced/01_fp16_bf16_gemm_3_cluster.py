@@ -1155,7 +1155,7 @@ def kernel(device_task_manager):
             warp_index < threads_in_epilogue // warp_size
             or warp_index == mma_task_warp_idx
         ):
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=threads_in_epilogue + warp_size,
                 barrier_id=tmem_sync_barrier,
             )
@@ -1179,7 +1179,7 @@ def kernel(device_task_manager):
         )
 
         if warp_index < threads_in_epilogue // warp_size:
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=threads_in_epilogue,
                 barrier_id=tmem_dealloc_barrier,
             )

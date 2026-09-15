@@ -78,7 +78,7 @@ def worksteal(data, n: cl.Constant[int], stolen):
 
     alpha = compute()
     while True:
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if tx == 0:
             cl.fence(

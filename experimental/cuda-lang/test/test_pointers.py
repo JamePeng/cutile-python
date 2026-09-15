@@ -711,7 +711,7 @@ def test_static_shared_array(torch_dtype, cl_dtype):
         out[0, 0] = A[0, 0]
         out[1, 1] = A[1, 1]
         out[2, 2] = A[2, 2]
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
     A = torch.zeros(3, 3, dtype=torch_dtype).cuda(0)
     cl.launch(

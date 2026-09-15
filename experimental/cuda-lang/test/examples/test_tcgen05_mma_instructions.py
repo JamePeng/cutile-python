@@ -98,12 +98,12 @@ def make_tcgen05_mma_kernel(
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if warp == MMA_WARP:
             cl.tcgen05_allocate(tmem_storage.pointer(), TMEM_COLUMNS)
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         tmem = tmem_storage[0]
         initializes_tmem = (is_block_scale and not copy_scales) or is_sparse
@@ -145,7 +145,7 @@ def make_tcgen05_mma_kernel(
             cl.tcgen05_wait_store()
             cl.tcgen05_fence_before_thread_sync()
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         cl.tcgen05_fence_after_thread_sync()
 
         if warp == MMA_WARP and cl.elect_sync():
@@ -260,7 +260,7 @@ def make_tcgen05_mma_kernel(
             if warp == 0:
                 cl.mbarrier_wait_parity(mma_done.pointer(), 0)
 
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=OUTPUT_WARPS * WARP_SIZE,
                 barrier_id=1,
             )
@@ -280,7 +280,7 @@ def make_tcgen05_mma_kernel(
             for column in cl.static_iter(range(len(values))):
                 output[tid * OUTPUT_COLUMNS + column] = values[column]
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if warp == 0:
             cl.tcgen05_deallocate(tmem, TMEM_COLUMNS)
 

@@ -148,10 +148,8 @@ def _kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_arrive_cluster(
-        aligned=False, memory_order=cl.MemoryOrder.RELAXED
-    )
-    cl.barrier_wait_cluster(aligned=False)
+    cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
+    cl.barrier_wait_cluster()
 
     # Both MMA warps participate in the CTA_2 allocation.  The named barrier
     # publishes the resulting local TMEM pointer to the epilogue warps without
@@ -163,7 +161,7 @@ def _kernel(
             cta_group=cl.CTAGroup.CTA_2,
         )
         cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_2)
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -371,7 +369,7 @@ def _kernel(
             )
 
     elif warp < EPILOGUE_WARPS:
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -412,7 +410,7 @@ def _kernel(
 
     # Match the source peer-CTA mbarrier handshake before releasing the
     # collective TMEM allocation.
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if warp == 0:
         peer_rank = rank ^ 1
         peer_mbar = cl.map_shared_to_cluster(

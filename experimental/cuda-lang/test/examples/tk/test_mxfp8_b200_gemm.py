@@ -131,7 +131,7 @@ def swizzle_program_id(tile, tiles_m, tiles_n, width):
 
 
 def sync_consumer_warpgroup():
-    cl.barrier_sync_block(WARPGROUP_SIZE, 1, aligned=False)
+    cl.barrier_sync_block(WARPGROUP_SIZE, 1)
 
 
 def load_tmem_bf16_subtile(registers, register_offset, tmem, warp, column, width):
@@ -388,7 +388,7 @@ def mxfp8_b200_gemm_kernel(
             cl.MemoryScope.CLUSTER,
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     if warp == mma_warp:
         cl.tcgen05_allocate(
@@ -396,7 +396,7 @@ def mxfp8_b200_gemm_kernel(
             TMEM_COLUMNS,
             cta_group=cl.CTAGroup.CTA_2,
         )
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     tmem = tmem_storage[0]
 
     if warp == data_loader_warp:
@@ -678,7 +678,7 @@ def mxfp8_b200_gemm_kernel(
         if cl.elect_sync():
             cl.grid_dependency_control_launch_dependents()
 
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == mma_warp:
         cl.tcgen05_deallocate(
             tmem,

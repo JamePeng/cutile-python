@@ -4,68 +4,59 @@
 
 from typing import Literal
 
-import cuda.lang as cl
 from cuda.lang._execution import function, stub
 from .._enums import BarrierReductionKind, MemoryOrder
 from .core_api import FULL_MASK
 from . import nvvm as _nvvm
-from .static_requirements import require_constant_bool, require_constant_enum
 
 
-@function()
+@stub
 def barrier_sync_block(
     number_of_threads: int | None = None,
     barrier_id: int = 0,
-    *,
-    aligned: bool = True,
 ) -> None:
     """Synchronize threads participating in a named block barrier.
 
     Args:
         number_of_threads: Specifies the number of threads participating in the
-           barrier. When specified, the value must be a multiple of the warp size.
-           If not specified, all threads in the CTA participate in the barrier.
+            barrier. When specified, the value must be a multiple of the warp size.
+            If not specified, all threads in the CTA participate in the barrier.
         barrier_id: Specifies a logical barrier resource with value 0 through
             15. Each CTA instance has sixteen barriers numbered 0..15.
-        aligned: Requires every thread in the block to reach this same barrier
-             instruction, otherwise the behavior is undefined.
     """
-    require_constant_bool(aligned)
-    if number_of_threads is None:
-        if aligned:
-            _nvvm.barrier_cta_sync_aligned_all(barrier_id)
-        else:
-            _nvvm.barrier_cta_sync_all(barrier_id)
-    else:
-        if aligned:
-            _nvvm.barrier_cta_sync_aligned_count(barrier_id, number_of_threads)
-        else:
-            _nvvm.barrier_cta_sync_count(barrier_id, number_of_threads)
+
+
+@stub
+def barrier_sync_block_aligned(
+    number_of_threads: int | None = None,
+    barrier_id: int = 0,
+) -> None:
+    """Same as ``barrier_sync_block``, but must be textually aligned."""
 
 
 @function()
 def barrier_arrive_block(
     number_of_threads: int,
     barrier_id: int = 0,
-    *,
-    aligned: bool = True,
 ) -> None:
     """Arrive at a named block barrier without waiting for other warps.
 
     Args:
         number_of_threads: Specifies the number of threads participating in the
-           barrier. When specified, the value must be a multiple of the warp size.
-           If not specified, all threads in the CTA participate in the barrier.
+            barrier. The value must be a multiple of the warp size.
         barrier_id: Specifies a logical barrier resource with value 0 through
             15. Each CTA instance has sixteen barriers numbered 0..15.
-        aligned: Requires every thread in the block to reach this same barrier
-             instruction, otherwise the behavior is undefined.
     """
-    require_constant_bool(aligned)
-    if aligned:
-        _nvvm.barrier_cta_arrive_aligned_count(barrier_id, number_of_threads)
-    else:
-        _nvvm.barrier_cta_arrive_count(barrier_id, number_of_threads)
+    _nvvm.barrier_cta_arrive_count(barrier_id, number_of_threads)
+
+
+@function()
+def barrier_arrive_block_aligned(
+    number_of_threads: int,
+    barrier_id: int = 0,
+) -> None:
+    """Same as ``barrier_arrive_block``, but must be textually aligned."""
+    _nvvm.barrier_cta_arrive_aligned_count(barrier_id, number_of_threads)
 
 
 @stub
@@ -74,8 +65,6 @@ def barrier_reduce_block(
     predicate: bool,
     number_of_threads: int | None = None,
     barrier_id: int = 0,
-    *,
-    aligned: bool = True,
 ) -> int | bool:
     """Synchronize at a named block barrier and reduce a per-thread predicate.
 
@@ -87,14 +76,22 @@ def barrier_reduce_block(
            If not specified, all threads in the CTA participate in the barrier.
         barrier_id: Specifies a logical barrier resource with value 0 through
             15. Each CTA instance has sixteen barriers numbered 0..15.
-        aligned: Requires every thread in the block to reach this same barrier
-             instruction, otherwise the behavior is undefined.
     """
 
 
+@stub
+def barrier_reduce_block_aligned(
+    op: BarrierReductionKind,
+    predicate: bool,
+    number_of_threads: int | None = None,
+    barrier_id: int = 0,
+) -> int | bool:
+    """Same as ``barrier_reduce_block``, but must be textually aligned."""
+
+
+@stub
 def barrier_arrive_cluster(
     *,
-    aligned: bool = True,
     memory_order: Literal[
         MemoryOrder.RELEASE, MemoryOrder.RELAXED
     ] = MemoryOrder.RELEASE,
@@ -102,54 +99,44 @@ def barrier_arrive_cluster(
     """Arrive at the current thread-block-cluster barrier without waiting.
 
     Args:
-        aligned: Requires every thread in the block to reach this same barrier
-            instruction, otherwise the behavior is undefined.
-        memory_order:
+        memory_order: The memory ordering applied to the barrier operation.
     """
-    require_constant_bool(aligned)
-    require_constant_enum(memory_order, MemoryOrder)
-    cl.static_assert(
-        memory_order in (MemoryOrder.RELEASE, MemoryOrder.RELAXED),
-        "barrier_arrive_cluster memory_order must be "
-        "MemoryOrder.RELEASE or MemoryOrder.RELAXED",
-    )
-    if memory_order == MemoryOrder.RELAXED:
-        if aligned:
-            _nvvm.barrier_cluster_arrive_relaxed_aligned()
-        else:
-            _nvvm.barrier_cluster_arrive_relaxed()
-    else:
-        if aligned:
-            _nvvm.barrier_cluster_arrive_aligned()
-        else:
-            _nvvm.barrier_cluster_arrive()
+
+
+@stub
+def barrier_arrive_cluster_aligned(
+    *,
+    memory_order: Literal[
+        MemoryOrder.RELEASE, MemoryOrder.RELAXED
+    ] = MemoryOrder.RELEASE,
+) -> None:
+    """Same as ``barrier_arrive_cluster``, but must be textually aligned."""
 
 
 @function()
-def barrier_wait_cluster(*, aligned: bool = True) -> None:
-    """Wait for completion of the current thread-block-cluster barrier.
-
-    Args:
-        aligned: Requires every thread in the block to reach this same barrier
-            instruction, otherwise the behavior is undefined.
-    """
-    require_constant_bool(aligned)
-    if aligned:
-        _nvvm.barrier_cluster_wait_aligned()
-    else:
-        _nvvm.barrier_cluster_wait()
+def barrier_wait_cluster() -> None:
+    """Wait for completion of the current thread-block-cluster barrier."""
+    _nvvm.barrier_cluster_wait()
 
 
 @function()
-def barrier_sync_cluster(*, aligned: bool = True) -> None:
-    """Arrive at and wait for the current thread-block-cluster barrier.
+def barrier_wait_cluster_aligned() -> None:
+    """Same as ``barrier_wait_cluster``, but must be textually aligned."""
+    _nvvm.barrier_cluster_wait_aligned()
 
-    Args:
-        aligned: Requires every thread in the block to reach this same barrier
-            instruction, otherwise the behavior is undefined.
-    """
-    barrier_arrive_cluster(aligned=aligned)
-    barrier_wait_cluster(aligned=aligned)
+
+@function()
+def barrier_sync_cluster() -> None:
+    """Arrive at and wait for the current thread-block-cluster barrier."""
+    barrier_arrive_cluster()
+    barrier_wait_cluster()
+
+
+@function()
+def barrier_sync_cluster_aligned() -> None:
+    """Same as ``barrier_sync_cluster``, but must be textually aligned."""
+    barrier_arrive_cluster_aligned()
+    barrier_wait_cluster_aligned()
 
 
 @function()
@@ -167,9 +154,9 @@ def syncthreads() -> None:
     """Synchronize all threads in the current block.
 
     CUDA C++ style convenience wrapper around
-    :func:`barrier_sync_block` with its default arguments.
+    :func:`barrier_sync_block_aligned` with its default arguments.
     """
-    barrier_sync_block()
+    barrier_sync_block_aligned()
 
 
 @function()
@@ -195,7 +182,7 @@ def syncthreads_count(predicate: bool) -> int:
     Args:
         predicate: The per-thread predicate fed into the reduction.
     """
-    return barrier_reduce_block(BarrierReductionKind.POP_COUNT, predicate)
+    return barrier_reduce_block_aligned(BarrierReductionKind.POP_COUNT, predicate)
 
 
 @function()
@@ -208,7 +195,7 @@ def syncthreads_and(predicate: bool) -> bool:
     Args:
         predicate: The per-thread predicate fed into the reduction.
     """
-    return barrier_reduce_block(BarrierReductionKind.AND, predicate)
+    return barrier_reduce_block_aligned(BarrierReductionKind.AND, predicate)
 
 
 @function()
@@ -221,18 +208,24 @@ def syncthreads_or(predicate: bool) -> bool:
     Args:
         predicate: The per-thread predicate fed into the reduction.
     """
-    return barrier_reduce_block(BarrierReductionKind.OR, predicate)
+    return barrier_reduce_block_aligned(BarrierReductionKind.OR, predicate)
 
 
 __all__ = (
     "BarrierReductionKind",
     "barrier_sync_warp",
     "barrier_sync_block",
+    "barrier_sync_block_aligned",
     "barrier_arrive_block",
+    "barrier_arrive_block_aligned",
     "barrier_reduce_block",
+    "barrier_reduce_block_aligned",
     "barrier_arrive_cluster",
+    "barrier_arrive_cluster_aligned",
     "barrier_wait_cluster",
+    "barrier_wait_cluster_aligned",
     "barrier_sync_cluster",
+    "barrier_sync_cluster_aligned",
     "syncthreads",
     "syncwarp",
     "syncthreads_count",

@@ -304,7 +304,7 @@ def shared_array(
             if tx == 0:
                 shmem[0] = 42
 
-            cl.barrier_sync_block()
+            cl.barrier_sync_block_aligned()
 
             if tx == 1:
                 print(f"thread id {tx} sees shmem[0] = {shmem[0]}")
@@ -327,7 +327,7 @@ def shared_array(
             if tx == 0:
                 shmem[0] = 42
 
-            cl.barrier_sync_block()
+            cl.barrier_sync_block_aligned()
 
             if tx == 1:
                 print(f"thread id {tx} sees shmem[0] = {shmem[0]}")

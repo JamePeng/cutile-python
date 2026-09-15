@@ -437,7 +437,7 @@ def tma_copy_kernel(input_tensor, output_tensor):
             restriction=cl.FenceRestriction.mbarrier_initialize(),
         )
 
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     context = CopyContext(
         tensor_map=tensor_map,

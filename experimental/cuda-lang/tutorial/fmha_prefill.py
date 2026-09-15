@@ -893,7 +893,7 @@ def _fmha_prefill_kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     # ------------------------------------------------------------------ CLC
     if warp == SCHEDULER_WARP:
@@ -1268,7 +1268,7 @@ def _fmha_prefill_kernel(
             cta_group=cl.CTAGroup.CTA_1,
         )
         cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_1)
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_ALLOC_THREADS,
             barrier_id=TMEM_ALLOC_BARRIER,
         )
@@ -1681,7 +1681,7 @@ def _fmha_prefill_kernel(
                 while sink_index < heads_q:
                     sinks_smem[sink_index] = cl.float16(sinks[sink_index])
                     sink_index += len(SOFTMAX0_WARPS) * WARP_SIZE
-            cl.barrier_sync_block(256, SOFTMAX_SINK_BARRIER)
+            cl.barrier_sync_block_aligned(256, SOFTMAX_SINK_BARRIER)
         cl.setmaxregister_increase(192)
         # Allocating all 512 TMEM columns fixes the allocation base at zero.
         # Softmax deliberately constructs that raw base instead of racing the
@@ -1783,8 +1783,8 @@ def _fmha_prefill_kernel(
                         )
                         if half == 0:
                             if qid == 1:
-                                cl.barrier_arrive_block(256, SOFTMAX_SEQUENCE_0)
-                                cl.barrier_sync_block(256, SOFTMAX_SEQUENCE_1)
+                                cl.barrier_arrive_block_aligned(256, SOFTMAX_SEQUENCE_0)
+                                cl.barrier_sync_block_aligned(256, SOFTMAX_SEQUENCE_1)
                     cl.mbarrier_arrive(
                         score_empty.pointer(qid),
                         scope=cl.MbarrierScope.BLOCK,
@@ -2217,11 +2217,11 @@ def _fmha_prefill_kernel(
                                 )
                                 if pair_idx == 0:
                                     if qid == 1:
-                                        cl.barrier_arrive_block(
+                                        cl.barrier_arrive_block_aligned(
                                             256,
                                             SOFTMAX_SEQUENCE_0,
                                         )
-                                        cl.barrier_sync_block(
+                                        cl.barrier_sync_block_aligned(
                                             256,
                                             SOFTMAX_SEQUENCE_1,
                                         )
@@ -2259,11 +2259,11 @@ def _fmha_prefill_kernel(
                     row_sum = block_sums[0] + block_sums[1]
 
                 if qid == 0:
-                    cl.barrier_arrive_block(256, SOFTMAX_SEQUENCE_1)
-                    cl.barrier_sync_block(256, SOFTMAX_SEQUENCE_0)
-                    cl.barrier_sync_block(128, SOFTMAX_WG_0)
+                    cl.barrier_arrive_block_aligned(256, SOFTMAX_SEQUENCE_1)
+                    cl.barrier_sync_block_aligned(256, SOFTMAX_SEQUENCE_0)
+                    cl.barrier_sync_block_aligned(128, SOFTMAX_WG_0)
                 else:
-                    cl.barrier_sync_block(128, SOFTMAX_WG_1)
+                    cl.barrier_sync_block_aligned(128, SOFTMAX_WG_1)
                 score_cursor += 1
                 pv_cursor += 1
 
@@ -2320,7 +2320,7 @@ def _fmha_prefill_kernel(
     # ------------------------------------------------------------- correction
     elif warp >= CORRECTION_WARPS[0] and warp <= CORRECTION_WARPS[-1]:
         cl.setmaxregister_decrease(96)
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_ALLOC_THREADS,
             barrier_id=TMEM_ALLOC_BARRIER,
         )

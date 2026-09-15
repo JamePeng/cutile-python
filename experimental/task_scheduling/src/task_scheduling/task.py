@@ -990,7 +990,7 @@ def _initialize_tmem_state(
         )
         cl.tcgen05_relinquish_allocation_permit(cta_group=cta_group)
     if _warp_is_selected(warp_index, sync_warps):
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=len(sync_warps) * cl.lane_count(),
             barrier_id=sync_barrier,
         )
@@ -1007,7 +1007,7 @@ def _finalize_tmem_state(
 ) -> None:
     if state is None:
         return
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     if warp_index == 0:
         if uses_cluster:
             dealloc_barrier = barrier_arena.pointer(
@@ -1086,7 +1086,7 @@ def _create_barrier_arena(initialization_runs, size, dynamic, warp_index):
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     return barrier_arena
 
 
@@ -1106,11 +1106,8 @@ def _create_cluster_barrier_arena(initialization_runs, size, dynamic, warp_index
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_arrive_cluster(
-        aligned=False,
-        memory_order=cl.MemoryOrder.RELAXED,
-    )
-    cl.barrier_wait_cluster(aligned=False)
+    cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
+    cl.barrier_wait_cluster()
     return barrier_arena
 
 
@@ -1146,13 +1143,10 @@ def _initialize_prepared_barriers(
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
     if uses_cluster:
-        cl.barrier_arrive_cluster(
-            aligned=False,
-            memory_order=cl.MemoryOrder.RELAXED,
-        )
-        cl.barrier_wait_cluster(aligned=False)
+        cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
+        cl.barrier_wait_cluster()
     else:
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
 
 def _named_device_offset(

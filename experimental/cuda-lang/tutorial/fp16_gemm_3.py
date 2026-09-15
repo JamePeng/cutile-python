@@ -219,9 +219,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_arrive_cluster(
-        aligned=False, memory_order=cl.MemoryOrder.RELAXED
-    )
+    cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
 
     instruction = cl.Tcgen05InstructionDescriptor(
         d_type=cl.Tcgen05InstructionDescriptor.DType.F32,
@@ -231,7 +229,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
         m=TILE_M,
     ).encode()
 
-    cl.barrier_wait_cluster(aligned=False)
+    cl.barrier_wait_cluster()
 
     if warp == TMA_WARP:
         ab_stage_idx = 0
@@ -313,7 +311,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
             )
 
     elif warp == MMA_WARP:
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -429,7 +427,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
                 cta_group=cl.CTAGroup.CTA_2
             )
 
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -494,7 +492,7 @@ def _kernel(a, b, c, bias, k: cl.Constant[int], has_bias: cl.Constant[bool]):
 
             work_idx = _TILE_SCHEDULER.advance(work_idx)
 
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=EPILOGUE_WARPS * WARP_SIZE,
             barrier_id=DEALLOC_BARRIER_ID,
         )

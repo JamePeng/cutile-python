@@ -91,7 +91,7 @@ class TestOpsSurviveDCE:
     def test_syncthreads_intrinsic_is_kept(self):
         @ir_wrapper
         def kernel(A, n):
-            cl.barrier_sync_block()
+            cl.barrier_sync_block_aligned()
 
         assert kernel.has_op(RawLLVMIntrinsic)
 

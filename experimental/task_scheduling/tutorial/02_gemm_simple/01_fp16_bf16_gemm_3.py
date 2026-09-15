@@ -514,7 +514,7 @@ def make_gemm_kernel(device_manager):
             )
             cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_1)
         if warp_index < STORE_WARPS or warp_index == MMA_TASK_WARP_IDX:
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=(STORE_WARPS + 1) * WARP_SIZE,
                 barrier_id=TMEM_SYNC_BARRIER,
             )
@@ -533,7 +533,7 @@ def make_gemm_kernel(device_manager):
         )
 
         if warp_index < STORE_WARPS:
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=STORE_WARPS * WARP_SIZE,
                 barrier_id=DEALLOC_BARRIER,
             )

@@ -239,9 +239,9 @@ def flash_attention_fwd_kernel(
             tmem_storage.pointer(), 512, cta_group=cl.CTAGroup.CTA_2
         )
     cl.tcgen05_fence_before_thread_sync()
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
     cl.tcgen05_fence_after_thread_sync()
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
 
     # Keep these operations on the same control-flow branches as their roles.
     # The 96 + 176 + 176 + 64 targets consume the 512-register CTA pool.
@@ -677,7 +677,7 @@ def flash_attention_fwd_kernel(
                                 scale_vector16(values, correction),
                             )
                         cl.tcgen05_wait_store()
-                    cl.barrier_sync_block(
+                    cl.barrier_sync_block_aligned(
                         number_of_threads=WARPGROUP_SIZE, barrier_id=1
                     )
                     if warp == 8 and cl.elect_sync():
@@ -715,7 +715,7 @@ def flash_attention_fwd_kernel(
                     tile_arrived.pointer(qid), end_phase
                 )
                 cl.copy_async_bulk_wait_group(0, read=True)
-                cl.barrier_sync_block(number_of_threads=WARPGROUP_SIZE, barrier_id=1)
+                cl.barrier_sync_block_aligned(number_of_threads=WARPGROUP_SIZE, barrier_id=1)
                 for column in cl.static_iter(range(0, HEAD_DIM_V, 16)):
                     output_row = cl.tcgen05_tmem_offset(
                         tmem_storage[0],
@@ -725,7 +725,7 @@ def flash_attention_fwd_kernel(
                     values = tcgen05_load16(output_row)
                     cl.tcgen05_wait_load()
                     store_output_pairs(o_smem, values, inv_norm, lane_in_group, column)
-                cl.barrier_sync_block(number_of_threads=WARPGROUP_SIZE, barrier_id=1)
+                cl.barrier_sync_block_aligned(number_of_threads=WARPGROUP_SIZE, barrier_id=1)
                 if warp == 8 and cl.elect_sync():
                     cl.fence_proxy_bidirectional(
                         cl.FenceProxy.ASYNC,
@@ -768,7 +768,7 @@ def flash_attention_fwd_kernel(
 
     if warp == 8:
         cl.copy_async_bulk_wait_group(0)
-    cl.barrier_sync_cluster(aligned=True)
+    cl.barrier_sync_cluster_aligned()
     if warp == 0:
         cl.tcgen05_deallocate(tmem_storage[0], 512, cta_group=cl.CTAGroup.CTA_2)
 

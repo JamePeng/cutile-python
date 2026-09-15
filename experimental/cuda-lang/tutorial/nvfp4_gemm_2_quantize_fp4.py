@@ -311,8 +311,8 @@ def _kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_arrive_cluster(aligned=False, memory_order=cl.MemoryOrder.RELAXED)
-    cl.barrier_wait_cluster(aligned=False)
+    cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
+    cl.barrier_wait_cluster()
 
     if warp < EPILOGUE_WARP_BASE:
         cl.setmaxregister_decrease(24)
@@ -325,7 +325,7 @@ def _kernel(
         )
         cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_2)
     if warp == MMA_WARP or warp >= EPILOGUE_WARP_BASE:
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -780,7 +780,7 @@ def _kernel(
         cl.tcgen05_fence_before_thread_sync()
 
     if warp == MMA_WARP or warp >= EPILOGUE_WARP_BASE:
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_DEALLOC_BARRIER_ID,
         )

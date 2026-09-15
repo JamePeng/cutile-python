@@ -1053,7 +1053,7 @@ def make_gemm_kernel(
             cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_2)
         needs_tmem_sync = warp_index < STORE_WARPS or warp_index == MMA_TASK_WARP_IDX
         if needs_tmem_sync:
-            cl.barrier_sync_block(
+            cl.barrier_sync_block_aligned(
                 number_of_threads=(STORE_WARPS + MMA_WARPS) * WARP_SIZE,
                 barrier_id=TMEM_SYNC_BARRIER,
             )
@@ -1074,7 +1074,7 @@ def make_gemm_kernel(
             device_allocators,
         )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if warp_index == 0:
             peer_rank = cl.block_in_cluster_index(0) ^ 1
             peer_dealloc = cl.map_shared_to_cluster(

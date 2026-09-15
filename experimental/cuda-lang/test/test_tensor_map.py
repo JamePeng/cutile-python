@@ -92,7 +92,7 @@ def test_tensor_map_large_explicit_stride_launch():
                 cl.MemoryScope.CLUSTER,
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
 
         if cl.thread_index(0) == 0:
             cl.copy_async_bulk_tensor_global_to_shared(
@@ -257,7 +257,7 @@ def test_tensor_map_byte_types_l2_promotion_launch(cl_dtype):
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
                 tmap,
@@ -335,7 +335,7 @@ def test_transaction_bytes_with_oob_fill(row, column):
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
                 tensor_map, (column, row), smem.pointer(), mbar
@@ -393,8 +393,8 @@ def test_transaction_bytes_with_multicast():
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
 
-        cl.barrier_sync_block()
-        cl.barrier_sync_cluster()
+        cl.barrier_sync_block_aligned()
+        cl.barrier_sync_cluster_aligned()
 
         # Each destination CTA establishes its expected transaction count
         # before rank 0 initiates the multicast load.
@@ -405,7 +405,7 @@ def test_transaction_bytes_with_multicast():
         else:
             token = cl.mbarrier_arrive(mbar)
 
-        cl.barrier_sync_cluster()
+        cl.barrier_sync_cluster_aligned()
         if rank == 0 and cl.elect_sync():
             destination = cl.map_shared_to_cluster(smem.pointer(), 0)
             cl.copy_async_bulk_tensor_global_to_shared(
@@ -473,7 +473,7 @@ def test_transaction_bytes_with_128b_swizzle():
                 restriction=cl.FenceRestriction.mbarrier_initialize(),
             )
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if cl.elect_sync():
             cl.copy_async_bulk_tensor_global_to_shared(
                 src_map, (0, 0), smem.pointer(), mbar

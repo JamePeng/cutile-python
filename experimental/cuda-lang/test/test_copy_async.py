@@ -596,7 +596,7 @@ def test_copy_async_bulk_wait_group_non_immediate_group():
     compile_kernel(
         k,
         signature=KernelSignature([make_symbolic_tensor(1, dtype=cl.int32)]),
-        raises=pytest.raises(Exception, match="Expected constant of type int"),
+        raises=pytest.raises(Exception, match="Expected an integer constant"),
     )
 
 
@@ -607,5 +607,5 @@ def test_copy_async_bulk_wait_group_non_immediate_read():
     compile_kernel(
         k,
         signature=KernelSignature([make_symbolic_tensor(1, dtype=cl.int32)]),
-        raises=pytest.raises(Exception, match="Expected constant of type bool"),
+        raises=pytest.raises(Exception, match="Expected a boolean constant"),
     )

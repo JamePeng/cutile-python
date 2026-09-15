@@ -1012,7 +1012,7 @@ def make_fmha_kernel(device_task_manager, num_kv_tiles, q_offset, cfg, heads):
                 cta_group=cl.CTAGroup.CTA_1,
             )
             cl.tcgen05_relinquish_allocation_permit(cta_group=cl.CTAGroup.CTA_1)
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         tmem_base = tmem_ptr[0]
 
         tasks_inputs = TasksInputs(
@@ -1042,7 +1042,7 @@ def make_fmha_kernel(device_task_manager, num_kv_tiles, q_offset, cfg, heads):
             )
         device_task_manager.run(tasks_inputs, allocators)
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if warp_idx == fmha_config.mma_warp_id:
             cl.tcgen05_deallocate(
                 tmem_base,

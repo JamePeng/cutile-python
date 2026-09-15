@@ -330,12 +330,10 @@ def _kernel(
         cl.MemoryScope.CLUSTER,
         restriction=cl.FenceRestriction.mbarrier_initialize(),
     )
-    cl.barrier_sync_block()
+    cl.barrier_sync_block_aligned()
 
     if cluster_size > 1:
-        cl.barrier_arrive_cluster(
-            aligned=False, memory_order=cl.MemoryOrder.RELAXED
-        )
+        cl.barrier_arrive_cluster(memory_order=cl.MemoryOrder.RELAXED)
 
     coord_m = tile_coord_m * tile_m
     coord_n = tile_coord_n * tile_n
@@ -392,7 +390,7 @@ def _kernel(
         cl.tcgen05_allocate(
             tmem_storage_ptr, TMEM_COLS, cta_group=cl.CTAGroup.CTA_1
         )
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -472,7 +470,7 @@ def _kernel(
             cl.tcgen05_commit(acc_full_ptr)
 
     elif warp < EPILOGUE_WARPS:
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=TMEM_BARRIER_THREADS,
             barrier_id=TMEM_BARRIER_ID,
         )
@@ -515,7 +513,7 @@ def _kernel(
                     cl.FenceProxy.ASYNC,
                     restriction=cl.FenceRestriction.shared_block(),
                 )
-                cl.barrier_sync_block(
+                cl.barrier_sync_block_aligned(
                     number_of_threads=EPILOGUE_THREADS,
                     barrier_id=EPILOGUE_BARRIER_ID,
                 )
@@ -533,13 +531,13 @@ def _kernel(
                     cl.copy_async_bulk_wait_group(
                         EPILOGUE_STAGES - 1, read=True
                     )
-                cl.barrier_sync_block(
+                cl.barrier_sync_block_aligned(
                     number_of_threads=EPILOGUE_THREADS,
                     barrier_id=EPILOGUE_BARRIER_ID,
                 )
 
         else:
-            cl.barrier_wait_cluster(aligned=False)
+            cl.barrier_wait_cluster()
 
             peer_count = cluster_size - 1
             n_remaining = n - coord_c_n
@@ -699,7 +697,7 @@ def _kernel(
                         cl.FenceProxy.ASYNC,
                         restriction=cl.FenceRestriction.shared_block(),
                     )
-                    cl.barrier_sync_block(
+                    cl.barrier_sync_block_aligned(
                         number_of_threads=EPILOGUE_THREADS,
                         barrier_id=EPILOGUE_BARRIER_ID,
                     )
@@ -718,7 +716,7 @@ def _kernel(
                         cl.copy_async_bulk_wait_group(
                             EPILOGUE_STAGES - 1, read=True
                         )
-                    cl.barrier_sync_block(
+                    cl.barrier_sync_block_aligned(
                         number_of_threads=EPILOGUE_THREADS,
                         barrier_id=EPILOGUE_BARRIER_ID,
                     )
@@ -732,7 +730,7 @@ def _kernel(
                             )
                             cl.mbarrier_arrive(peer_empty)
 
-        cl.barrier_sync_block()
+        cl.barrier_sync_block_aligned()
         if warp == 0:
             cl.tcgen05_deallocate(
                 tmem_base, TMEM_COLS, cta_group=cl.CTAGroup.CTA_1

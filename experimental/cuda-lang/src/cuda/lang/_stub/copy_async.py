@@ -5,7 +5,6 @@
 from cuda.lang._execution import stub, function
 from .._enums import TMALoadMode, TMAStoreMode, CTAGroup  # noqa: F401
 from . import nvvm as _nvvm
-from .static_requirements import require_constant_bool, require_constant_int
 
 
 @stub
@@ -86,7 +85,7 @@ def copy_async_bulk_commit_group():
     _nvvm.cp_async_bulk_commit_group()
 
 
-@function()
+@stub()
 def copy_async_bulk_wait_group(number_of_groups, *, read=False):
     """Wait for completion of the most recent bulk async-groups.
 
@@ -98,9 +97,3 @@ def copy_async_bulk_wait_group(number_of_groups, *, read=False):
             reading from the tensor map and reading from their source
             locations.
     """
-    require_constant_int(number_of_groups)
-    require_constant_bool(read)
-    if read:
-        _nvvm.cp_async_bulk_wait_group_read(number_of_groups)
-    else:
-        _nvvm.cp_async_bulk_wait_group(number_of_groups)

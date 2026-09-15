@@ -2,6 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from cuda.lang._ir.op_defs import RawLLVMIntrinsic
+from cuda.tile._ir.op_impl import require_constant_int
+from cuda.tile._ir.op_impl import require_constant_bool
+from cuda.tile._ir.ir import Var
 from cuda.tile._ir.op_impl import ImplRegistry
 from cuda.tile._ir.ops import implicit_cast
 from cuda.tile._ir.ir import add_operation_variadic
@@ -164,4 +168,16 @@ def copy_async_bulk_tensor_shared_to_global_impl(
         l2_cache_hint=_optional_operand(l2_cache_hint),
         predicate=_optional_operand(predicate),
         mode=mode,
+    )
+
+
+@impl(copy_async.copy_async_bulk_wait_group)
+def copy_async_bulk_wait_group_impl(number_of_groups: Var[int], read: Var[bool]):
+    require_constant_int(number_of_groups)
+    read = require_constant_bool(read)
+    add_operation_variadic(
+        RawLLVMIntrinsic,
+        tuple(),
+        intrinsic="llvm.nvvm.cp.async.bulk.wait.group" + (".read" if read else ""),
+        operands_=(number_of_groups,),
     )

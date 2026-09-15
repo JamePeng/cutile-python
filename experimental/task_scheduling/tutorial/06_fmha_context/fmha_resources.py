@@ -832,7 +832,7 @@ class GmemOResource(ts.MemoryResource):
             + head_coord * head_dim
         )
 
-        cl.barrier_sync_block(
+        cl.barrier_sync_block_aligned(
             number_of_threads=num_compute_warps * WARP_SIZE,
             barrier_id=COMPUTE_SYNC_BARRIER,
         )
