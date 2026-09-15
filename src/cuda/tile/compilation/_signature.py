@@ -53,6 +53,15 @@ class PointerConstraint:
 
 
 @dataclass(frozen=True, init=False)
+class StreamConstraint:
+    """Internal constraint for a dynamic CUDA stream handle."""
+
+    def __init__(self):
+        if not cconv_v3_enabled():
+            raise NotImplementedError("StreamConstraint is a development-only feature")
+
+
+@dataclass(frozen=True, init=False)
 class ArrayConstraint:
     """
     Describes an array kernel parameter and associated compile-time assumptions.
@@ -361,7 +370,7 @@ ParameterConstraintLike = ParameterConstraint | ConstantValue | tuple | Dataclas
 def _to_constraint(c: ParameterConstraintLike) -> ParameterConstraint:
     if isinstance(c, ParameterConstraint):
         return c
-    elif isinstance(c, PointerConstraint):
+    elif isinstance(c, PointerConstraint | StreamConstraint):
         # TODO: Fold this into ParameterConstraint when cconv3 is public.
         return c
     elif classify_constant(c, True) is not None:
@@ -609,6 +618,10 @@ def _validate_constraint_support(constraint: ParameterConstraint, cconv: Calling
     elif isinstance(constraint, PointerConstraint):
         if cconv.version < 3:
             raise ValueError(f"Pointer parameters are not supported by calling convention"
+                             f" {cconv.name}; version >= 3 is required")
+    elif isinstance(constraint, StreamConstraint):
+        if cconv.version < 3:
+            raise ValueError(f"Stream parameters are not supported by calling convention"
                              f" {cconv.name}; version >= 3 is required")
     elif isinstance(constraint, ArrayConstraint):
         if any(x is not None for x in constraint.shape_constant) and cconv.version < 2:

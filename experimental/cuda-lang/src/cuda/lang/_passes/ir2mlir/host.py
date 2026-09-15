@@ -16,7 +16,7 @@ from cuda.lang import _mlir as mlir
 from cuda.lang._exception import InternalError, TypeCheckingError
 from cuda.lang._ir import ir, ops
 from cuda.lang._ir.op_defs import KernelLaunch
-from cuda.lang._ir.type import PointerTy, ScalarTy
+from cuda.lang._ir.type import PointerTy, ScalarTy, StreamTy
 import cuda.lang._mlir.extras.types as T
 from cuda.lang._passes.ir2mlir.pass_definition import (
     MLIRLoweringContext,
@@ -218,7 +218,7 @@ def _load_abi_argument(
 ) -> mlir.Value:
     address = _abi_argument_address(context, slot)
     ty = value.get_type()
-    if isinstance(ty, PointerTy):
+    if isinstance(ty, PointerTy | StreamTy):
         return mlir.llvm.add_LoadOp(
             res_type=ir_type_to_mlir_type(ty), addr=address
         )
@@ -580,10 +580,14 @@ def lower_kernel_launch(
             for source in binding.argument_sources
         ),
     )
-    stream = mlir.llvm.add_IntToPtrOp(
-        res_type=context.pointer_type,
-        arg=context.get_var(operation.stream),
-    )
+    stream_type = operation.stream.get_type()
+    if isinstance(stream_type, StreamTy):
+        stream = context.get_var(operation.stream)
+    else:
+        stream = mlir.llvm.add_IntToPtrOp(
+            res_type=context.pointer_type,
+            arg=context.get_var(operation.stream),
+        )
     grid = _pad_dim3(context, operation.block_count)
     block = _pad_dim3(context, operation.thread_count)
     cluster = _optional_dim3(context, operation.block_in_cluster_count)

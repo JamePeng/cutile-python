@@ -1119,3 +1119,11 @@ class SymbolicClosure(Symbol):
     def __call__(self, *args, **kwargs):
         from cuda.tile._dispatch_mode import DispatchMode
         return DispatchMode().get_current().call_tile_function_from_host(self, args, kwargs)
+
+
+# ============== Compiled Host ===============
+
+@dataclass(frozen=True)
+class StreamTy(Type):
+    def __str__(self):
+        return "CUDA stream"

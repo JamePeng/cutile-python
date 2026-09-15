@@ -33,6 +33,7 @@ from cuda.tile._ir.type import (
     SymbolicArray,
     SymbolicClosure,
     SliceType,
+    StreamTy,
 )
 import cuda.tile._datatype as datatype
 from cuda.tile._datatype import DType, PointerInfo
@@ -307,6 +308,10 @@ class LangTypingHooks(TypingHooks):
                 assert False, "cuda.lang does not support N-dimensional tensors"
 
     @override
+    def get_stream_type(self) -> Type:
+        return StreamTy()
+
+    @override
     def get_python_constant_type(self, value) -> Type | None:
         from cuda.lang._execution import host_entry, kernel
 
@@ -341,6 +346,7 @@ __all__ = (
     "TupleTy",
     "ArrayTy",
     "ScalarTy",
+    "StreamTy",
     "PointerTy",
     "VectorTy",
     "StringTy",

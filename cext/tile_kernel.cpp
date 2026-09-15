@@ -634,6 +634,7 @@ struct ParameterKind {
         IdentityConstant,  // constant that can be compared via object identity, e.g. an Enum value
         Array,
         Pointer,
+        Stream,
         Boolean,
         Integer,
         Float,
@@ -683,6 +684,8 @@ enum class PythonArgKind : uint8_t {
     FakeArray,
     // Internal fake pointer used when creating a compiled-host native launch site.
     FakePointer,
+    // A CUDA stream wrapper supported by parse_stream().
+    Stream,
     // Python `bool`,
     PyBool,
     // Python `int`,
@@ -722,6 +725,7 @@ static ParameterKind::Category param_category_from_pyarg_kind(PythonArgKind k) {
     case PythonArgKind::CudaArray: return ParameterKind::Array;
     case PythonArgKind::FakeArray: return ParameterKind::Array;
     case PythonArgKind::FakePointer: return ParameterKind::Pointer;
+    case PythonArgKind::Stream: return ParameterKind::Stream;
     case PythonArgKind::PyBool: return ParameterKind::Boolean;
     case PythonArgKind::PyLong: return ParameterKind::Integer;
     case PythonArgKind::PyFloat: return ParameterKind::Float;
@@ -976,6 +980,11 @@ static PyObject* py_classify_constant(PyObject* self, PyObject* args) {
 }
 
 
+enum class StreamKind;
+static std::optional<StreamKind> try_classify_stream_type(PyTypeObject* ty);
+static Result<CUstream> parse_stream(PyObject* py_stream);
+
+
 static std::optional<PythonArgKind> classify_nonconstant_arg(PyObject* arg) {
     if (PyBool_Check(arg))
         return PythonArgKind::PyBool;
@@ -996,6 +1005,11 @@ static std::optional<PythonArgKind> classify_nonconstant_arg(PyObject* arg) {
         if (try_get_torch_to_dlpack_func())
             return PythonArgKind::TorchTensorDlpack;
     }
+
+#ifdef ENABLE_CCONV_V3
+    if (try_classify_stream_type(Py_TYPE(arg)).has_value())
+        return PythonArgKind::Stream;
+#endif
 
     if (PyObject_HasAttrString(arg, kFakeArrayDTypeAttr))
         return PythonArgKind::FakeArray;
@@ -2630,6 +2644,15 @@ static Status extract_fake_pointer(PyObject* pyobj, LaunchHelper& helper) {
     return OK;
 }
 
+
+static Status extract_stream(PyObject* pyobj, LaunchHelper& helper) {
+    Result<CUstream> stream = parse_stream(pyobj);
+    if (!stream.is_ok()) return ErrorRaised;
+    push_single_word_cuarg(
+            helper, {.device_ptr = reinterpret_cast<void*>(*stream)});
+    return OK;
+}
+
 static RefPtr<ParameterAnnotationNode> parse_parameter_annotation_node(PyObject* obj);
 
 static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind kind,
@@ -2663,6 +2686,8 @@ static Status extract_arg(const DriverApi* driver, PyObject* obj, PythonArgKind 
         return extract_array<arrayrepr_fake_array>(driver, obj, annotation->array, helper);
     case PythonArgKind::FakePointer:
         return extract_fake_pointer(obj, helper);
+    case PythonArgKind::Stream:
+        return extract_stream(obj, helper);
     case PythonArgKind::PyBool:
         return extract_py_bool(obj, helper);
     case PythonArgKind::PyLong:
@@ -2721,6 +2746,24 @@ static PyPtr parse_pointer_constraint(
 #endif
 }
 
+
+static PyPtr parse_stream_constraint(CallConvVersion* minimum_cconv) {
+#ifdef ENABLE_CCONV_V3
+    require_min_cconv(minimum_cconv, CallConvVersion::CutilePython_V3);
+    PyObject* signature_module = get_signature_module();
+    if (!signature_module) return {};
+    PyPtr constraint_class = getattr(signature_module, "StreamConstraint");
+    if (!constraint_class) return {};
+    return steal(PyObject_CallNoArgs(constraint_class.get()));
+#else
+    (void)minimum_cconv;
+    raise(PyExc_NotImplementedError,
+          "stream constraints require calling convention version 3");
+    return {};
+#endif
+}
+
+
 static PyPtr parse_element_constraint(
         ConstantCursor& cursor,
         ParameterKind::Category category,
@@ -2746,6 +2789,8 @@ static PyPtr parse_element_constraint(
                                       minimum_cconv);
     case ParameterKind::Pointer:
         return parse_pointer_constraint(cursor, minimum_cconv);
+    case ParameterKind::Stream:
+        return parse_stream_constraint(minimum_cconv);
     case ParameterKind::Boolean:
         return make_scalar_constraint(DLDataType{kDLBool, 8, 1});
     case ParameterKind::Integer:
@@ -3262,13 +3307,21 @@ enum class StreamKind {
     RawInt,
 };
 
-static StreamKind do_classify_stream_type(PyTypeObject* ty) {
+static std::optional<StreamKind> try_classify_stream_type(PyTypeObject* ty) {
     if (is_torch_cuda_stream_subtype(ty)) {
         return StreamKind::Torch;
     } else if (is_cupy_cuda_stream_subtype(ty)) {
         return StreamKind::Cupy;
     } else if (is_numba_cuda_driver_stream_subtype(ty)) {
         return StreamKind::NumbaCuda;
+    }
+    return {};
+}
+
+static StreamKind do_classify_stream_type(PyTypeObject* ty) {
+    std::optional<StreamKind> kind = try_classify_stream_type(ty);
+    if (kind.has_value()) {
+        return *kind;
     } else if (PyType_IsSubtype(ty, &PyLong_Type)) {
         return StreamKind::RawInt;
     } else if (ty == Py_TYPE(Py_None)) {
@@ -4270,6 +4323,9 @@ static Result<NativeArgument> parse_native_leaf_argument(
         return parse_native_array_argument(cursor, annotation);
     case ParameterKind::Pointer:
         return parse_native_pointer_argument(cursor);
+    case ParameterKind::Stream:
+        return raise(PyExc_TypeError,
+                     "a CUDA stream cannot be passed as a kernel argument");
     case ParameterKind::List:
         return raise(PyExc_TypeError,
                      "kernel launch with list argument is not supported in compiled host code");
@@ -4462,6 +4518,7 @@ static Status extract_native_scalar(
     }
     case ParameterKind::IdentityConstant:
     case ParameterKind::Pointer:
+    case ParameterKind::Stream:
     case ParameterKind::Array:
     case ParameterKind::List:
     case ParameterKind::AggregateBegin:
@@ -4542,6 +4599,9 @@ static Status extract_native_launch_arguments(
                         driver, argument, argument_addresses, &index, helper))
                 return ErrorRaised;
             break;
+        case ParameterKind::Stream:
+            return raise(PyExc_TypeError,
+                         "a CUDA stream cannot be passed as a kernel argument");
         case ParameterKind::ConstantBool:
         case ParameterKind::ConstantInt:
         case ParameterKind::ConstantFloat:

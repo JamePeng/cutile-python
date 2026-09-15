@@ -54,6 +54,7 @@ def test_host_jit_specializes_argument_structure(capfd):
     assert capfd.readouterr().out == "42\n42\n42\n42\n"
 
 
+@pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
 def test_host_jit_specialize_static_shape():
     @cl.kernel
     def write_static_shape(x, out):
@@ -62,7 +63,7 @@ def test_host_jit_specialize_static_shape():
 
     @cl.host_entry
     def entry(
-        stream: cl.ScalarInt64,
+        stream,
         x: Annotated[
             cl.Array,
             cl.ArrayAnnotation(static_shape_dims=(0,)),
@@ -71,7 +72,7 @@ def test_host_jit_specialize_static_shape():
     ):
         cl.launch(stream, (1,), (1,), write_static_shape, (x, out))
 
-    stream = torch.cuda.current_stream().cuda_stream
+    stream = torch.cuda.current_stream()
     output = torch.zeros(1, dtype=torch.int32, device="cuda")
     with patch(
         "cuda.lang._compile_host._compile",
@@ -86,17 +87,18 @@ def test_host_jit_specialize_static_shape():
         assert output.item() == 8
 
 
+@pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
 def test_host_jit_two_kernel_specializations():
     @cl.kernel
     def write(value: cl.Constant[int], output):
         output[0] = value
 
     @cl.host_entry
-    def entry(stream: cl.ScalarInt64, first, second):
+    def entry(stream, first, second):
         cl.launch(stream, (1,), (1,), write, (3, first))
         cl.launch(stream, (1,), (1,), write, (7, second))
 
-    stream = torch.cuda.current_stream().cuda_stream
+    stream = torch.cuda.current_stream()
     first = torch.zeros(1, dtype=torch.int32, device="cuda")
     second = torch.zeros(1, dtype=torch.int32, device="cuda")
     with (
@@ -113,6 +115,52 @@ def test_host_jit_two_kernel_specializations():
     assert (first.item(), second.item()) == (3, 7)
     assert compile_host_mock.call_count == 1
     assert compile_kernel_mock.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "stream_kind",
+    (
+        "none",
+        "int64",
+        pytest.param(
+            "torch",
+            marks=pytest.mark.skipif(
+                not cconv_v3_enabled(), reason="Requires cconv3 enabled"
+            ),
+        ),
+    ),
+)
+def test_host_jit_stream_kinds(stream_kind):
+    @cl.kernel
+    def write(output):
+        output[0] = 42
+
+    if stream_kind == "none":
+        @cl.host_entry
+        def entry(output):
+            cl.launch(None, (1,), (1,), write, (output,))
+    elif stream_kind == "int64":
+        @cl.host_entry
+        def entry(stream: cl.ScalarInt64, output):
+            cl.launch(stream, (1,), (1,), write, (output,))
+    else:
+        @cl.host_entry
+        def entry(stream, output):
+            cl.launch(stream, (1,), (1,), write, (output,))
+
+    torch_stream = torch.cuda.current_stream()
+    stream = {
+        "int64": torch_stream.cuda_stream,
+        "torch": torch_stream,
+    }.get(stream_kind)
+    output = torch.zeros(1, dtype=torch.int32, device="cuda")
+    if stream_kind == "none":
+        entry(output)
+    else:
+        entry(stream, output)
+
+    torch_stream.synchronize()
+    assert output.item() == 42
 
 
 @pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")

@@ -16,7 +16,11 @@ from cuda.tile.compilation import (
 )
 
 # FIXME: import from `cuda.tile.compilation` when cconv_v3_enabled() guard is removed
-from cuda.tile.compilation._signature import DataclassConstraint, PointerConstraint
+from cuda.tile.compilation._signature import (
+    DataclassConstraint,
+    PointerConstraint,
+    StreamConstraint,
+)
 
 from cuda.tile._datatype import (bool_, uint8, uint16, uint32, uint64, int8, int16, int32, int64,
                                  float16, float32, float64, bfloat16, tfloat32,
@@ -391,6 +395,12 @@ class MyEnum(Enum):
         id="pointer_fields",
     ),
 
+    pytest.param(
+        [StreamConstraint()],
+        "_R",
+        id="stream",
+    ),
+
     # List-of-arrays and constant fields.
     pytest.param(
         [DataclassConstraint(DClassTwoFields,
@@ -494,6 +504,13 @@ def test_name_mangling_cutile_python_v3(parameters, expected_suffix):
 @pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
 def test_demangle_pointer_not_allowed_raises():
     symbol = "my_kernel_Kt2_Pi32_Pf32_Pu8"
+    with pytest.raises(ValueError, match="version >= 3"):
+        _demangle_kernel_name(symbol, None, allowed_dataclasses=[], allowed_enums=[])
+
+
+@pytest.mark.skipif(not cconv_v3_enabled(), reason="Requires cconv3 enabled")
+def test_demangle_stream_not_allowed_raises():
+    symbol = "my_kernel_Kt2_R"
     with pytest.raises(ValueError, match="version >= 3"):
         _demangle_kernel_name(symbol, None, allowed_dataclasses=[], allowed_enums=[])
 

@@ -74,7 +74,7 @@ from cuda.tile._version import __version__ as cutile_version
 import cuda.tile._bytecode as bc
 from cuda.tile.compilation._signature import KernelSignature, ParameterConstraint, \
     ScalarConstraint, ArrayConstraint, ListConstraint, TupleConstraint, ConstantConstraint, \
-    DataclassConstraint, PointerConstraint
+    DataclassConstraint, PointerConstraint, StreamConstraint
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +243,11 @@ def _create_parameter(
         ty = var.ctx.typing_hooks.get_tensor_like_type(
             pointer_dtype(constraint.pointee_dtype, MemorySpace.GLOBAL), ()
         )
+    elif isinstance(constraint, StreamConstraint):
+        if var.ctx.execution_space != "host":
+            raise _make_constraint_error(
+                "StreamConstraint is only supported for host functions.", path)
+        ty = var.ctx.typing_hooks.get_stream_type()
     elif isinstance(constraint, ArrayConstraint):
         ty = _get_array_ty(constraint, annotation.array, path, var.ctx.typing_hooks)
     elif isinstance(constraint, ListConstraint):

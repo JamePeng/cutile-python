@@ -14,7 +14,7 @@ import cuda.lang._datatype as datatype
 from cuda.lang._execution import kernel as Kernel, launch
 from cuda.lang._exception import TypeCheckingError
 from cuda.lang._ir.op_defs import KernelLaunch
-from cuda.lang._ir.type import ScalarTy
+from cuda.lang._ir.type import ScalarTy, StreamTy
 
 
 _registry = ImplRegistry()
@@ -47,9 +47,12 @@ def require_stream(value: Var) -> Var:
     if value.is_constant() and value.get_constant() is None:
         return strictly_typed_const(0, ScalarTy(datatype.int64))
     ty = value.get_type()
+    if isinstance(ty, StreamTy):
+        return value
     if not isinstance(ty, ScalarTy) or ty.dtype is not datatype.int64:
         raise TypeCheckingError(
-            "compiled host cl.launch() stream must be None or an int64 raw handle"
+            "compiled host cl.launch() stream must be a CUDA stream compatible type, "
+            "None, or an int64 raw handle."
         )
     return value
 
