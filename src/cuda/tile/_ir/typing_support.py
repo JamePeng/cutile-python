@@ -211,15 +211,9 @@ def get_dataclass_info(cls) -> DataclassInfo:
 
 def create_dataclass_instance(cls, field_values: Sequence[Any]):
     info = get_dataclass_info(cls)
-    if info.init_signature is None:
-        # Custom __init__() could do arbitrary nonsense with the arguments.
-        # So we construct the object with __new__() and set the fields manually.
-        ret = cls.__new__(cls)
-        for name, val in zip(info.field_names, field_values, strict=True):
-            object.__setattr__(ret, name, val)
-    else:
-        ret = cls(**{name: val
-                     for name, val in zip(info.field_names, field_values, strict=True)})
+    ret = cls.__new__(cls)
+    for name, val in zip(info.field_names, field_values, strict=True):
+        object.__setattr__(ret, name, val)
     return ret
 
 

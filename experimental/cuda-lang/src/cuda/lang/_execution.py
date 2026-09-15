@@ -30,7 +30,7 @@ __all__ = (
 Dim3: TypeAlias = tuple[int] | tuple[int, int] | tuple[int, int, int]
 
 
-@stub(host=True, tile=False)
+@stub(host=True, tile=False, compiled_host=True)
 def launch(
     stream,
     block_count: Dim3,

@@ -35,7 +35,7 @@ class Array(TileArray, Generic[T]):
     """
 
     @staticmethod
-    @stub(host=True)
+    @stub(compiled_host=True)
     def from_parts(
         pointer: Pointer[T],
         shape: int | tuple[int, ...],
@@ -76,22 +76,22 @@ class Array(TileArray, Generic[T]):
         """
 
     @property
-    @stub(host=True)
+    @stub(compiled_host=True)
     def dtype(self): ...
 
     @property
-    @stub(host=True)
+    @stub(compiled_host=True)
     def ndim(self): ...
 
     @property
-    @stub(host=True)
+    @stub(compiled_host=True)
     def shape(self): ...
 
     @property
-    @stub(host=True)
+    @stub(compiled_host=True)
     def strides(self): ...
 
-    @stub(host=True)
+    @stub(compiled_host=True)
     def pointer(
         self, index_or_indices: int | tuple[int, ...] | None = None
     ) -> "Pointer[T]":

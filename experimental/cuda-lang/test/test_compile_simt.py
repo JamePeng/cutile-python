@@ -25,10 +25,10 @@ def test_function_execution_spaces():
     def simt_function():
         pass
 
-    assert not is_function_allowed_in(simt_function, "host")
+    assert is_function_allowed_in(simt_function, "host")
     assert is_function_allowed_in(simt_function, "device")
 
-    @cl.function(host=True, tile=False)
+    @cl.function(tile=False)
     def host_function():
         pass
 

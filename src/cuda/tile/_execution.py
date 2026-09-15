@@ -42,9 +42,13 @@ def function(func=None, /, *, host=False, tile=True):
         tile (bool, optional): Whether the function can be called from |tile code|.
             Default is True.
     """
+    return function_internal(func, host=host, tile=tile, compiled_host=True)
+
+
+def function_internal(func=None, /, *, host=False, tile=True, compiled_host=True):
     def decorator(func):
         if host:
-            func._cutile_host_function = host
+            func._cutile_compiled_host_function = compiled_host
             func._cutile_tile_function = tile
             return func
         else:
@@ -52,7 +56,7 @@ def function(func=None, /, *, host=False, tile=True):
             def wrapped(*args, **kwargs):
                 return DispatchMode.get_current().call_tile_function_from_host(
                         wrapped, args, kwargs)
-            wrapped._cutile_host_function = host
+            wrapped._cutile_compiled_host_function = compiled_host
             wrapped._cutile_tile_function = tile
             wrapped._cutile_function_wrapper = True
             return wrapped
@@ -185,9 +189,10 @@ class StubInfo:
     static_eval_ok: bool
 
 
-def stub(func=None, /, *, host=False, tile=True, static_eval_ok: bool = False):
+def stub(func=None, /, *, host=False, tile=True, static_eval_ok: bool = False,
+         compiled_host: bool = False):
     def decorate(func):
-        func = function(func, host=host, tile=tile)
+        func = function_internal(func, host=host, tile=tile, compiled_host=compiled_host)
         func._cutile_python_stub = StubInfo(static_eval_ok=static_eval_ok)
         return func
 
@@ -239,5 +244,6 @@ def is_function_allowed_in(func, execution_space: "ExecutionSpace") -> bool:
     Unannotated Python helpers inherit the execution space of their caller.
     """
     assert execution_space in ("host", "device")
-    attribute = "host" if execution_space == "host" else "tile"
-    return getattr(func, f"_cutile_{attribute}_function", True)
+    attribute = ("_cutile_compiled_host_function"
+                 if execution_space == "host" else "_cutile_tile_function")
+    return getattr(func, attribute, True)

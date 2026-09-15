@@ -6,7 +6,7 @@ from cuda.lang._execution import stub
 from cuda.lang._enums import RoundingMode, SaturationMode
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def add(x, y, /, *, rounding_mode: RoundingMode | None = None,
         flush_to_zero: bool = False):
     """Compute ``x + y``.
@@ -19,7 +19,7 @@ def add(x, y, /, *, rounding_mode: RoundingMode | None = None,
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def sub(x, y, /, *, rounding_mode: RoundingMode | None = None,
         flush_to_zero: bool = False):
     """Compute ``x - y``.
@@ -32,7 +32,7 @@ def sub(x, y, /, *, rounding_mode: RoundingMode | None = None,
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def mul(x, y, /):
     """Compute ``x * y``."""
     ...
@@ -68,7 +68,7 @@ def fma(
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def truediv(x, y, /, *, approx=False):
     """Compute ``x / y``.
 
@@ -78,31 +78,31 @@ def truediv(x, y, /, *, approx=False):
     """
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def floordiv(x, y, /):
     """Compute ``x // y``."""
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def mod(x, y, /):
     """Compute ``x % y``."""
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def integer_remainder(x, y, /):
     """Compute the remainder of integer division following C truncation rules.
     """
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def divmod(x, y, /):
     """Compute divmod(x, y)."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def negative(x, /):
     """Compute ``-x``."""
     ...
@@ -313,52 +313,52 @@ def minimum(x, y, /, *, propagate_nan=False):
     ...
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def bitwise_and(x, y, /):
     """Compute ``x & y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def bitwise_or(x, y, /):
     """Compute ``x | y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def bitwise_xor(x, y, /):
     """Compute ``x ^ y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def bitwise_not(x, /):
     """Compute ``~x``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def greater(x, y, /):
     """Compute ``x > y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def greater_equal(x, y, /):
     """Compute ``x >= y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def less(x, y, /):
     """Compute ``x < y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def less_equal(x, y, /):
     """Compute ``x <= y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def equal(x, y, /):
     """Compute ``x == y``."""
 
 
-@stub(static_eval_ok=True)
+@stub(static_eval_ok=True, compiled_host=True)
 def not_equal(x, y, /):
     """Compute ``x != y``."""
 

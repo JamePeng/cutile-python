@@ -19,6 +19,7 @@ from cuda.tile._annotated_function import get_annotated_function
 from cuda.tile._compile import _create_kernel_parameters
 from cuda.tile._ir.ir import Var
 from cuda.tile._ir.type import ArrayTy, DataclassTy, ListTy, TupleTy, Type
+from cuda.tile._ir.typing_support import create_dataclass_instance
 from cuda.tile._passes.ast2hir import HirMode
 from cuda.tile._passes.dce import dead_code_elimination_pass
 from cuda.tile._passes.eliminate_assign_ops import eliminate_assign_ops
@@ -139,18 +140,15 @@ def _make_fake_launch_argument(
             for item_type in item_types
         )
 
-    if isinstance(argument_type, DataclassTy):
+    if _cext.cconv_v3_enabled() and isinstance(argument_type, DataclassTy):
         cls = argument_type.cls
         item_names = tuple(f.name for f in fields(cls))
         item_types = argument_type.field_types
-        return cls(**{
-            item_name: _make_fake_launch_argument(
-                item_type,
-                argument_leaves,
-                sources,
-                host_constant_args,
-            )
-            for item_name, item_type in zip(item_names, item_types, strict=True)})
+        fields_values = [
+            _make_fake_launch_argument(item_type, argument_leaves, sources, host_constant_args)
+            for item_name, item_type in zip(item_names, item_types, strict=True)
+        ]
+        return create_dataclass_instance(cls, fields_values)
 
     if isinstance(argument_type, ListTy):
         raise TypeCheckingError(

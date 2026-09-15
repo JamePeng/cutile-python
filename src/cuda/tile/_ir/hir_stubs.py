@@ -11,71 +11,71 @@ if TYPE_CHECKING:
     from cuda.tile._ir.hir import StaticEvalExpression, Function
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def if_else(cond, then_block, else_block, /): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def tuple_comp_if(cond, then_block, /): ...  # Static-only if: rejects dynamic conditions
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def loop(body, iterable, /): ...  # infinite if `iterable` is None
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def static_foreach(body, items, /): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def build_tuple(*items): ...  # Makes a tuple (i.e. returns `items`)
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def build_formatted_string(format, *values): ...  # Creates a FormattedStringTy value
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def unpack(iterable, expected_len, /): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def identity(x): ...   # Identity function (i.e. returns `x`)
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def store_var(rn, value, /): ...  # Store value into the local slot given by ResolvedName
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def load_var(rn, name, /): ...  # Load from the slot/global given by ResolvedName
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def make_closure(func_hir: "Function", /, *default_values): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def do_static_eval(expr: "StaticEvalExpression", *local_var_values): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def do_static_assert(condition, message_block, /): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def enter_context(manager, /): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def pop_context(): ...
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def is_contained_in(x, y, /): ...  # "return x in y"
 
 
-@stub(host=True)
+@stub(compiled_host=True)
 def is_not_contained_in(x, y, /): ...  # return "x not in y"
 
 
