@@ -117,6 +117,14 @@ Current limitations
   Passing a negative step indirectly via a variable may cause undefined
   behavior.
 
+* The bounds, the step and the induction variable of a ``for`` loop all share one
+  integer type.
+
+  The common type is at least ``int32`` and widens to ``int64`` if any bound or step
+  is ``int64``. This also applies to the implicit lower bound and step in ``range(n)``.
+  A literal bound too large for ``int32``, such as ``range(3_000_000_000)``, widens
+  the loop to ``int64`` as well.
+
 Tile Parallelism
 ----------------
 

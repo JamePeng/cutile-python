@@ -8,8 +8,23 @@ import torch
 
 from math import ceil
 import cuda.tile as ct
+from cuda.tile._compile import compile_tile
 from cuda.tile._exception import TileTypeError
+from cuda.tile._ir.ops import Loop
 from util import assert_equal
+
+
+def for_loop_operand_dtypes(kernel, args):
+    """Return the operand and induction variable dtypes of all for loops."""
+    sig = ct.compilation.KernelSignature.from_kernel_args(
+            kernel, args, ct.compilation.CallingConvention.cutile_python_v1())
+    [root_block] = compile_tile(kernel._pyfunc, [sig],
+                                return_final_ir=True, return_cubin=False).final_ir
+    loops = [op for op in root_block.traverse() if isinstance(op, Loop) and op.is_for_loop]
+    assert loops, "kernel compiled to no `for` loop"
+    return {var.get_type().tensor_dtype()
+            for loop in loops
+            for var in (loop.start, loop.stop, loop.step, loop.induction_var)}
 
 
 class TestForLoop:
@@ -75,6 +90,46 @@ class TestForLoop:
         tx = ct.full((tile,), acc, dtype=x.dtype)
         ct.store(x, index=(i,), tile=tx)
 
+    @staticmethod
+    @ct.kernel
+    def plus_n_i64_one_arg(x, n: ct.ScalarInt64, tile: ct.Constant[int]):
+        i = ct.bid(0)
+        xi = ct.load(x, index=(i,), shape=(tile,))
+        for _ in range(n):
+            xi += 1
+        ct.store(x, index=(i,), tile=xi)
+
+    @staticmethod
+    @ct.kernel
+    def plus_n_i64_two_args(x, n: ct.ScalarInt64, tile: ct.Constant[int]):
+        i = ct.bid(0)
+        xi = ct.load(x, index=(i,), shape=(tile,))
+        zero = n - n
+        for _ in range(zero, n):
+            xi += 1
+        ct.store(x, index=(i,), tile=xi)
+
+    @staticmethod
+    @ct.kernel
+    def plus_n_i64_step_i64(x, n: ct.ScalarInt64, tile: ct.Constant[int]):
+        i = ct.bid(0)
+        xi = ct.load(x, index=(i,), shape=(tile,))
+        zero = n - n
+        one = n // n
+        for _ in range(zero, n, one):
+            xi += 1
+        ct.store(x, index=(i,), tile=xi)
+
+    @staticmethod
+    @ct.kernel
+    def plus_n_i64_step_literal(x, n: ct.ScalarInt64, tile: ct.Constant[int]):
+        i = ct.bid(0)
+        xi = ct.load(x, index=(i,), shape=(tile,))
+        zero = n - n
+        for _ in range(zero, n, 1):
+            xi += 1
+        ct.store(x, index=(i,), tile=xi)
+
     @pytest.mark.parametrize(
         "func_name",
         [
@@ -84,6 +139,10 @@ class TestForLoop:
             "plus_n_two_loops",
             "plus_n_two_loops_once_each",
             "plus_n_scalar_acc",
+            "plus_n_i64_one_arg",
+            "plus_n_i64_two_args",
+            "plus_n_i64_step_i64",
+            "plus_n_i64_step_literal",
         ],
     )
     def test_basic_for_loop(self, func_name):
@@ -96,6 +155,56 @@ class TestForLoop:
         ct.launch(torch.cuda.current_stream(), grid, func, (x, n, tile))
         ref = torch.full_like(x, n)
         assert_equal(x, ref)
+
+    @staticmethod
+    @ct.kernel
+    def sum_i64_induction_var(out, lo: ct.ScalarInt64):
+        acc = lo - lo
+        for k in range(lo, lo + 5):
+            acc += k
+        ct.store(out, index=(0,), tile=acc)
+
+    def test_for_loop_i64_induction_var_value(self):
+        # Exercise an induction variable beyond int32 range with only five iterations.
+        lo = 2**33
+        out = torch.zeros(1, dtype=torch.int64, device='cuda:0')
+        ct.launch(torch.cuda.current_stream(), (1,), self.sum_i64_induction_var, (out, lo))
+        assert_equal(out, torch.full_like(out, 5 * lo + 10))
+
+    @pytest.mark.parametrize(
+        "func_name,expected_dtype",
+        [
+            ("plus_n_one_arg", ct.int32),
+            ("plus_n_i64_one_arg", ct.int64),
+            ("plus_n_i64_two_args", ct.int64),
+            ("plus_n_i64_step_i64", ct.int64),
+            ("plus_n_i64_step_literal", ct.int64),
+        ],
+    )
+    def test_for_loop_operands_share_one_dtype(self, func_name, expected_dtype):
+        x = torch.zeros(128, dtype=torch.float32, device='cuda:0')
+        dtypes = for_loop_operand_dtypes(getattr(self, func_name), (x, 5, 128))
+        assert dtypes == {expected_dtype}
+
+    @staticmethod
+    @ct.kernel
+    def range_literal_beyond_int32(x, n, tile: ct.Constant[int]):
+        i = ct.bid(0)
+        xi = ct.load(x, index=(i,), shape=(tile,))
+        # The lower bound must stay positive when promoted to int64.
+        for _ in range(3_000_000_000, n):
+            xi += 1
+        ct.store(x, index=(i,), tile=xi)
+
+    def test_for_loop_literal_bound_beyond_int32_widens(self):
+        N = 256
+        tile = 128
+        x = torch.zeros(N, dtype=torch.float32, device='cuda:0')
+        ct.launch(torch.cuda.current_stream(), (N // tile, 1, 1),
+                  self.range_literal_beyond_int32, (x, 5, tile))
+        assert_equal(x, torch.zeros_like(x))
+        assert for_loop_operand_dtypes(self.range_literal_beyond_int32,
+                                       (x, 5, tile)) == {ct.int64}
 
     @staticmethod
     @ct.kernel

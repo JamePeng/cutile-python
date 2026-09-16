@@ -941,20 +941,29 @@ def getattr_enum_value_impl(object: Var, name: Var):
 
 @impl(range)
 def range_(args: tuple[Var, ...]) -> Var:
+    from cuda.tile._ir.arithmetic_ops import astype
+    from cuda.tile._ir.ops_utils import promote_dtypes
+
     if not 1 <= len(args) <= 3:
         raise TileTypeError(f"Invalid number of arguments: {len(args)}")
-    for arg in args:
-        require_signed_integer_scalar_type(arg)
+    arg_tys = [require_signed_integer_scalar_type(arg) for arg in args]
 
     get_tensor_ty = args[0].ctx.typing_hooks.get_tensor_like_type
 
+    # Bounds, step and induction variable must have the same type, at least int32.
+    dtype = datatype.default_int_type
+    for ty in arg_tys:
+        dtype = promote_dtypes(dtype, ty.tensor_dtype())
+    range_tensor_ty = get_tensor_ty(dtype, ())
+    args = tuple(astype(arg, dtype) for arg in args)
+
     if len(args) == 1:
-        start = strictly_typed_const(0, get_tensor_ty(datatype.default_int_type, ()))
+        start = strictly_typed_const(0, range_tensor_ty)
         stop = args[0]
-        step = strictly_typed_const(1, get_tensor_ty(datatype.default_int_type, ()))
+        step = strictly_typed_const(1, range_tensor_ty)
     elif len(args) == 2:
         start, stop = args[0], args[1]
-        step = strictly_typed_const(1, get_tensor_ty(datatype.default_int_type, ()))
+        step = strictly_typed_const(1, range_tensor_ty)
     else:
         start, stop, step = args[0], args[1], args[2]
         # FIXME(Issue 314): Support negative step.
@@ -963,7 +972,7 @@ def range_(args: tuple[Var, ...]) -> Var:
             raise TileTypeError(f"Step must be positive, got {step.get_constant()}")
 
     agg_value = RangeValue(start, stop, step)
-    ty = RangeIterType(datatype.default_int_type)
+    ty = RangeIterType(dtype)
     return make_aggregate(agg_value, ty)
 
 
