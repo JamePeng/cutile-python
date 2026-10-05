@@ -218,7 +218,7 @@ def tcgen05_commit_impl(
     require_mbarrier_ptr(mbarrier)
     operands = [mbarrier]
     cta_group_value = require_constant_enum(cta_group, CTAGroup)
-    intrinsic = "llvm.nvvm.tcgen05.commit"
+    intrinsic = "llvm.nvvm.nv.tcgen05.commit"
     if not is_none(multicast_mask):
         intrinsic += ".mc"
         mask = implicit_cast(multicast_mask, datatype.int16, "multicast mask")
