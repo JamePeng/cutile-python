@@ -16,7 +16,7 @@ from cuda.tile._cext import (
     is_restricted_float, is_arithmetic, _is_pointer_dtype, _is_foreign_pointer_dtype,
     _pointer_pointee_dtype, _pointer_memory_space, _foreign_pointer_pointee_dtype,
     _get_pointer_dtype, _get_foreign_pointer_dtype,
-    integer_dtype_min, integer_dtype_max,
+    integer_dtype_min, integer_dtype_max, _promote_dtypes,
     bool_, uint8, uint16, uint32, uint64, int8, int16, int32, int64,
     float16, bfloat16, float32, float64, tfloat32, float8_e4m3fn, float8_e5m2, float8_e8m0fnu,
     float8_e5m3fnu, float4_e2m1fn
@@ -175,86 +175,22 @@ def broadcast_shapes(s1: Tuple[int, ...], s2: Tuple[int, ...]) -> Tuple[int, ...
 
 # ============= Arithmetic Promotion ==============
 
-class _DTypePromotionImpl:
-
-    # shorter alias to make the table
-    b1 = bool_
-    u8 = uint8
-    u16 = uint16
-    u32 = uint32
-    u64 = uint64
-    i8 = int8
-    i16 = int16
-    i32 = int32
-    i64 = int64
-    f16 = float16
-    f32 = float32
-    f64 = float64
-    bf = bfloat16
-    tf32 = tfloat32
-    f8e4m3fn = float8_e4m3fn
-    f8e5m2 = float8_e5m2
-    f8e8m0fnu = float8_e8m0fnu
-    f8e5m3fnu = float8_e5m3fnu
-    f4e2m1fn = float4_e2m1fn
-    na = None
-
-    # Entries for restricted arithmetic dtypes will never be reached, but we need to keep them
-    # for the table to be valid.
-
-    # General rules
-    # Cross categories: Bool -> Integral -> Float
-    # Within categories: small bitwidth -> large bitwidth
-
-    # Exceptions
-    # Signed and unsigned requires explicit type cast
-    # Restricted floats requires explicit type cast
-    # Float16 and BFloat 16 requires explicit type cast
-
-    _order = [
-      b1,  u8,  u16, u32, u64, i8,  i16, i32, i64, f16, f32, f64, bf,  tf32, f8e4m3fn, f8e5m2,    f8e8m0fnu, f4e2m1fn   # noqa
-    ]
-    _common_dtype_table = [
-     [b1,  u8,  u16, u32, u64, i8,  i16, i32, i64, f16, f32, f64, bf,  na,   na,       na,        na,        na],        # b1  # noqa
-     [u8,  u8,  u16, u32, u64, na,  na,  na,  na,  f16, f32, f64, bf,  na,   na,       na,        na,        na],        # u8  # noqa
-     [u16, u16, u16, u32, u64, na,  na,  na,  na,  f16, f32, f64, bf,  na,   na,       na,        na,        na],        # u16  # noqa
-     [u32, u32, u32, u32, u64, na,  na,  na,  na,  f16, f32, f64, bf,  na,   na,       na,        na,        na],        # u32  # noqa
-     [u64, u64, u64, u64, u64, na,  na,  na,  na,  f16, f32, f64, bf,  na,   na,       na,        na,        na],        # u64  # noqa
-     [i8,  na,  na,  na,  na,  i8,  i16, i32, i64, f16, f32, f64, bf,  na,   na,       na,        na,        na],        # i8  # noqa
-     [i16, na,  na,  na,  na,  i16, i16, i32, i64, f16, f32, f64, bf,  na,   na,       na,        na,        na],        # i16  # noqa
-     [i32, na,  na,  na,  na,  i32, i32, i32, i64, f16, f32, f64, bf,  na,   na,       na,        na,        na],        # i32  # noqa
-     [i64, na,  na,  na,  na,  i64, i64, i64, i64, f16, f32, f64, bf,  na,   na,       na,        na,        na],        # i64  # noqa
-     [f16, f16, f16, f16, f16, f16, f16, f16, f16, f16, f32, f64, na,  na,   na,       na,        na,        na],        # f16  # noqa
-     [f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f64, f32, na,   na,       na,        na,        na],        # f32  # noqa
-     [f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, na,   na,       na,        na,        na],        # f64  # noqa
-     [bf,  bf,  bf,  bf,  bf,  bf,  bf,  bf,  bf,  na,  f32, f64, bf,  na,   na,       na,        na,        na],        # bf  # noqa
-     [na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  tf32, na,       na,        na,        na],        # tf32  # noqa
-     [na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,   f8e4m3fn, na,        na,        na],        # f8e4m3fn  # noqa
-     [na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,   na,       f8e5m2,    na,        na],        # f8e5m2  # noqa
-     [na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,   na,       na,        f8e8m0fnu, na],        # f8e8m0fnu  # noqa
-     [na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,  na,   na,       na,        na,        f4e2m1fn],  # f4e2m1fn  # noqa
-    ]
-
-    @classmethod
-    def promote_dtypes(cls, t1: DType, t2: DType, force_float: bool = False) -> DType:
-        if t1 == t2 and (not force_float or is_float(t1)):
-            return t1
-        if is_restricted_float(t1) or is_restricted_float(t2):
-            raise TileTypeError(
-                f"Implicit promotion of {t1} and {t2} is not supported as it involves restricted "
-                f"float dtypes. Please perform an explicit cast instead."
-            )
-        if is_pointer_dtype(t1) or is_pointer_dtype(t2):
-            raise TileTypeError("Implicit promotion of pointer dtypes is not supported")
-        idx1, idx2 = cls._order.index(t1), cls._order.index(t2)
-        if idx1 >= len(cls._common_dtype_table) or idx2 >= len(cls._common_dtype_table[idx1]):
-            raise IndexError(f"Invalid dtypes in common dtype table: {t1}, {t2}")
-        ret = cls._common_dtype_table[idx1][idx2]
-        if ret is None:
-            msg = (f'Implicit promotion of {t1} and {t2} is not supported. '
-                   'Please perform an explict cast instead.')
-            raise TileTypeError(msg)
-        return ret if not force_float or is_float(ret) else default_float_type
+def promote_dtypes(t1: DType, t2: DType, force_float: bool = False) -> DType:
+    if t1 == t2 and (not force_float or is_float(t1)):
+        return t1
+    if is_restricted_float(t1) or is_restricted_float(t2):
+        raise TileTypeError(
+            f"Implicit promotion of {t1} and {t2} is not supported as it involves restricted "
+            f"float dtypes. Please perform an explicit cast instead."
+        )
+    if is_pointer_dtype(t1) or is_pointer_dtype(t2):
+        raise TileTypeError("Implicit promotion of pointer dtypes is not supported")
+    ret = _promote_dtypes(t1, t2)
+    if ret is None:
+        msg = (f'Implicit promotion of {t1} and {t2} is not supported. '
+               'Please perform an explict cast instead.')
+        raise TileTypeError(msg)
+    return ret if not force_float or is_float(ret) else default_float_type
 
 
 _mma_supported_dtypes = {
@@ -351,8 +287,30 @@ def _generate_rst_dtype_promotion_table() -> str:
     return _generate_rst_table()
 
 
+_promotion_table_short_names = {
+    bool_: "b1",
+    uint8: "u8",
+    uint16: "u16",
+    uint32: "u32",
+    uint64: "u64",
+    int8: "i8",
+    int16: "i16",
+    int32: "i32",
+    int64: "i64",
+    float16: "f16",
+    float32: "f32",
+    float64: "f64",
+    bfloat16: "bf",
+    tfloat32: "tf32",
+    float8_e4m3fn: "f8e4m3fn",
+    float8_e5m2: "f8e5m2",
+    float8_e8m0fnu: "f8e8m0fnu",
+    float4_e2m1fn: "f4e2m1fn",
+}
+
+
 def _get_all_public_numeric_dtypes_for_docs():
-    return [dtype for dtype in _DTypePromotionImpl._order if _is_public(dtype.name)]
+    return [dtype for dtype in _promotion_table_short_names if _is_public(dtype.name)]
 
 
 def _generate_rst_numeric_dtypes() -> str:
@@ -372,9 +330,7 @@ def _generate_rst_numeric_dtypes() -> str:
 
 
 def _generate_rst_table() -> str:
-    short_names = {dtype: short_name.lower()
-                   for short_name, dtype in _DTypePromotionImpl.__dict__.items()
-                   if isinstance(dtype, DType)}
+    short_names = _promotion_table_short_names
 
     # Get data type names based on table order
     public_dtypes = _get_all_public_numeric_dtypes_for_docs()
@@ -404,13 +360,12 @@ def _generate_rst_table() -> str:
     lines.append(header_sep_line)
 
     # Table rows
-    public_indices = [_DTypePromotionImpl._order.index(dtype) for dtype in public_dtypes]
-    for row_dtype, row_index in zip(public_dtypes, public_indices, strict=True):
+    for row_dtype in public_dtypes:
         row_name = short_names[row_dtype]
         row_cells = [f" {row_name:<{col_width-2}} "]
 
-        for col_dtype, col_index in zip(public_dtypes, public_indices, strict=True):
-            cell = _DTypePromotionImpl._common_dtype_table[row_index][col_index]
+        for col_dtype in public_dtypes:
+            cell = _promote_dtypes(row_dtype, col_dtype)
             if cell is None:
                 cell_str = "ERR"
             else:

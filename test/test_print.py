@@ -24,7 +24,7 @@ from cuda.tile._datatype import (bool_,
                                  float16, float32, float64, bfloat16,
                                  int64, uint8, uint16, uint32, uint64,
                                  is_float, numeric_dtype_category,
-                                 NumericDTypeCategory, _DTypePromotionImpl)
+                                 NumericDTypeCategory, _promotion_table_short_names)
 
 # opt_level=0 required for correct print ordering in tileiras < 13.2
 _DEFAULT_OPT_LEVEL = CompilerOptions.__dataclass_fields__['opt_level'].default
@@ -472,7 +472,7 @@ def _test_print_1d(shape, tile, kernel, dtype):
 
 
 all_int_and_float_dtypes = [
-    x for x in _DTypePromotionImpl._order
+    x for x in _promotion_table_short_names
     if numeric_dtype_category(x) in (NumericDTypeCategory.Integral, NumericDTypeCategory.Float)
 ]
 

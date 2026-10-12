@@ -112,15 +112,15 @@ struct DType {
     X(float16, 16, true, \
         "A IEEE 754 half-precision (16-bit) binary floating-point |arithmetic dtype| " \
         "(see |IEEE 754-2019|).") \
-    X(bfloat16, 16, true, \
-        "A 16-bit floating-point |arithmetic dtype| with 1 sign bit, 8 exponent bits, " \
-        "and 7 mantissa bits.") \
     X(float32, 32, true, \
         "A IEEE 754 single-precision (32-bit) binary floating-point |arithmetic dtype| " \
         "(see |IEEE 754-2019|).") \
     X(float64, 64, true, \
         "A IEEE 754 double-precision (64-bit) binary floating-point |arithmetic dtype| " \
-        "(see |IEEE 754-2019|).")
+        "(see |IEEE 754-2019|).") \
+    X(bfloat16, 16, true, \
+        "A 16-bit floating-point |arithmetic dtype| with 1 sign bit, 8 exponent bits, " \
+        "and 7 mantissa bits.")
 
 #define FOREACH_RESTRICTED_FLOAT_DTYPE(X) \
     X(tfloat32, 32, true, \
@@ -269,6 +269,8 @@ static inline bool is_numeric_dtype(DType dtype) {
 static inline bool is_signed_numeric_dtype(DType dtype) {
     return is_numeric_dtype(dtype) && _dtype_detail::basic_dtype_is_signed[dtype.dtype_id];
 }
+
+std::optional<DType> promote_dtypes(DType a, DType b);
 
 DType pointer_dtype_pointee(DType pointer_dtype, GlobalLock& lock);
 

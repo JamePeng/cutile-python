@@ -8,7 +8,7 @@ from typing_extensions import override
 from cuda.tile import TileTypeError, TileValueError
 from cuda.tile._datatype import DType, is_pointer_dtype, PointerInfo, opaque_pointer_dtype, \
     pointer_dtype, is_numeric, numeric_dtype_category, NumericDTypeCategory, IntegerInfo, \
-    _DTypePromotionImpl
+    promote_dtypes
 from cuda.tile._ir.arithmetic_ops import astype
 from cuda.tile._ir.ir import Operation, Var, operand, add_operation
 from cuda.tile._ir.type import TensorLikeTy, LooselyTypedScalar
@@ -112,7 +112,7 @@ def implicit_cast(src: Var[TensorLikeTy], target_dtype: DType, error_context: st
 def _is_implicit_cast_ok(src_dtype: DType, target_dtype: DType) -> bool:
     if is_numeric(src_dtype) and is_numeric(target_dtype):
         try:
-            common_dtype = _DTypePromotionImpl.promote_dtypes(src_dtype, target_dtype)
+            common_dtype = promote_dtypes(src_dtype, target_dtype)
         except TileTypeError:
             return False
         return common_dtype == target_dtype

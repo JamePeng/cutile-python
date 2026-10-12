@@ -321,6 +321,71 @@ int append_to_string_builder(DType dtype, StringBuilder* sb) {
 }
 
 
+// ----- DType promotion -----
+
+namespace {
+namespace promotion_table {
+    // The table stores dtype IDs as uint8_t to save space
+    static_assert(_dtype_detail::unrestricted_float_last <= UINT8_MAX);
+
+    constexpr uint8_t b1 = k_bool_.dtype_id;
+    constexpr uint8_t u8 = k_uint8.dtype_id, u16 = k_uint16.dtype_id,
+                      u32 = k_uint32.dtype_id, u64 = k_uint64.dtype_id;
+    constexpr uint8_t i8 = k_int8.dtype_id, i16 = k_int16.dtype_id,
+                      i32 = k_int32.dtype_id, i64 = k_int64.dtype_id;
+    constexpr uint8_t f16 = k_float16.dtype_id, f32 = k_float32.dtype_id,
+                      f64 = k_float64.dtype_id, bf = k_bfloat16.dtype_id;
+    constexpr uint8_t na = 0;
+
+    // Arithmetic dtype IDs, in increasing order
+    constexpr uint8_t dtypes[] = {b1, u8, u16, u32, u64, i8, i16, i32, i64, f16, f32, f64, bf};
+    constexpr size_t N = std::size(dtypes);
+
+    constexpr uint8_t table[N][N] = {
+        //b1   u8   u16  u32  u64  i8   i16  i32  i64  f16  f32  f64  bf
+        { b1 , u8 , u16, u32, u64, i8 , i16, i32, i64, f16, f32, f64, bf },  // b1
+        { u8 , u8 , u16, u32, u64, na , na , na , na , f16, f32, f64, bf },  // u8
+        { u16, u16, u16, u32, u64, na , na , na , na , f16, f32, f64, bf },  // u16
+        { u32, u32, u32, u32, u64, na , na , na , na , f16, f32, f64, bf },  // u32
+        { u64, u64, u64, u64, u64, na , na , na , na , f16, f32, f64, bf },  // u64
+        { i8 , na , na , na , na , i8 , i16, i32, i64, f16, f32, f64, bf },  // i8
+        { i16, na , na , na , na , i16, i16, i32, i64, f16, f32, f64, bf },  // i16
+        { i32, na , na , na , na , i32, i32, i32, i64, f16, f32, f64, bf },  // i32
+        { i64, na , na , na , na , i64, i64, i64, i64, f16, f32, f64, bf },  // i64
+        { f16, f16, f16, f16, f16, f16, f16, f16, f16, f16, f32, f64, na },  // f16
+        { f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f32, f64, f32},  // f32
+        { f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64, f64},  // f64
+        { bf , bf , bf , bf , bf , bf , bf , bf , bf , na , f32, f64, bf },  // bf
+    };
+
+    constexpr bool dtypes_are_contiguous() {
+        for (size_t i = 0; i < N; ++i) {
+            if (dtypes[i] != dtypes[0] + i)
+                return false;
+        }
+        return true;
+    }
+
+    static_assert(dtypes_are_contiguous());
+    static_assert(dtypes[0] == _dtype_detail::numeric_first);
+    static_assert(dtypes[N - 1] == _dtype_detail::unrestricted_float_last);
+} // namespace promotion_table
+} // namespace
+
+std::optional<DType> promote_dtypes(DType a, DType b) {
+    if (a == b) return a;
+    // Unsigned wraparound maps dtype IDs below the table's range to large indices
+    uint32_t first = promotion_table::dtypes[0];
+    uint32_t i = a.dtype_id - first;
+    uint32_t j = b.dtype_id - first;
+    if (i >= promotion_table::N || j >= promotion_table::N)
+        return std::nullopt;
+    uint8_t res = promotion_table::table[i][j];
+    if (res == promotion_table::na) return std::nullopt;
+    return DType{res};
+}
+
+
 // ----- DType Python wrapper object -----
 
 struct DTypeObject {
@@ -570,6 +635,25 @@ static PyObject* py_integer_dtype_max(PyObject* module_self, PyObject* dtype_obj
     return integer_dtype_max(dtype).to_pylong().release();
 }
 
+static PyObject* py_promote_dtypes(PyObject* module_self,
+                                   PyObject* const* args, Py_ssize_t nargs) {
+    if (nargs != 2) {
+        raise(PyExc_TypeError, "Expected 2 positional arguments");
+        return nullptr;
+    }
+    for (Py_ssize_t i = 0; i < nargs; ++i) {
+        if (!PyObject_TypeCheck(args[i], &DTypeObject::pytype)) {
+            raise(PyExc_TypeError, "Expected a DType object, got ", use_repr(args[i]));
+            return nullptr;
+        }
+    }
+    std::optional<DType> res = promote_dtypes(py_unwrap<DTypeObject>(args[0]).dtype,
+                                              py_unwrap<DTypeObject>(args[1]).dtype);
+    if (!res.has_value()) return Py_NewRef(Py_None);
+    GlobalLock lock;
+    return Py_NewRef(dtype_to_pyobject(*res, lock));
+}
+
 static Result<DType> parse_pointer_dtype(PyObject* py_pointer, GlobalLock& lock) {
     if (!PyObject_TypeCheck(py_pointer, &DTypeObject::pytype))
         return raise(PyExc_TypeError, "Expected a DType object for the first argument, got ",
@@ -640,6 +724,8 @@ static PyMethodDef functions[] = {
     {"_get_foreign_pointer_dtype", py_get_foreign_pointer_dtype, METH_O, nullptr},
     {"integer_dtype_min", py_integer_dtype_min, METH_O, nullptr},
     {"integer_dtype_max", py_integer_dtype_max, METH_O, nullptr},
+    {"_promote_dtypes", reinterpret_cast<PyCFunction>(py_promote_dtypes),
+     METH_FASTCALL, nullptr},
     {"_pointer_pointee_dtype", py_pointer_pointee_dtype, METH_O, nullptr},
     {"_pointer_memory_space", py_pointer_memory_space, METH_O, nullptr},
     {"_foreign_pointer_pointee_dtype", py_foreign_pointer_pointee_dtype, METH_O, nullptr},

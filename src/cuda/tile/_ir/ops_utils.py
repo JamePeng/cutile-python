@@ -21,7 +21,7 @@ import cuda.tile._bytecode as bc
 from .ir import Operation, Builder, TypingHooks
 from .type import TileTy, LooselyTypedScalar, TensorLikeTy
 from .typing_support import dtype_of_constant_scalar
-from .._datatype import DType, _DTypePromotionImpl, NumericDTypeCategory
+from .._datatype import DType, NumericDTypeCategory
 
 
 @dataclass
@@ -355,13 +355,13 @@ def promote_dtypes(t1: DType | LooselyTypedScalar,
         case LooselyTypedScalar(val1), LooselyTypedScalar(val2):
             dtype1 = dtype_of_constant_scalar(val1)
             dtype2 = dtype_of_constant_scalar(val2)
-            return _DTypePromotionImpl.promote_dtypes(dtype1, dtype2, force_float)
+            return datatype.promote_dtypes(dtype1, dtype2, force_float)
         case LooselyTypedScalar(val), dtype:
             return _promote_dtype_and_loosely_typed_constant(dtype, val, force_float)
         case dtype, LooselyTypedScalar(val):
             return _promote_dtype_and_loosely_typed_constant(dtype, val, force_float)
         case dtype1, dtype2:
-            return _DTypePromotionImpl.promote_dtypes(dtype1, dtype2, force_float)
+            return datatype.promote_dtypes(dtype1, dtype2, force_float)
 
 
 def promote_types(t1: TensorLikeTy | LooselyTypedScalar,
