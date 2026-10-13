@@ -57,7 +57,7 @@ Status driver_api_init(DriverApi* driver_api, cuGetProcAddress_v2_t _cuGetProcAd
 }
 
 std::optional<CUlaunchAttribute> DriverApi::get_shared_memory_mode_attribute() const {
-#if CUDA_VERSION >= 13040
+#if CUDA_VERSION >= 13040 && !defined(_WIN32)
     if (cuda_version >= 13040) {
         CUlaunchAttribute attribute = {};
         attribute.id = CU_LAUNCH_ATTRIBUTE_SHARED_MEMORY_MODE;
