@@ -57,10 +57,11 @@ def dtype_to_mlir_type(dtype: datatype.DType) -> mlir.Type:
             | datatype.uint16
             | datatype.uint32
             | datatype.uint64
+            | datatype.float8_e4m3fn
+            | datatype.float8_e5m2
+            | datatype.float8_e8m0fnu
         ):
-            return mlir.IntegerType(
-                width=dtype.bitwidth, signedness=mlir.SignednessSemantics.SIGNLESS
-            )
+            return mlir.IntegerType.signless(width=dtype.bitwidth)
         case datatype.float16:
             return mlir.Float16Type()
         case datatype.bfloat16:
