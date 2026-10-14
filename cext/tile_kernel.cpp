@@ -4829,11 +4829,6 @@ static Result<double> benchmark(const DriverApi* driver,
     CUgraphNode kernel_node;
     CU_CHECK("cuGraphAddKernelNode",
              driver->cuGraphAddKernelNode(&kernel_node, graph.get(), &start_node, 1, &kparams));
-    if (auto attribute = driver->get_shared_memory_mode_attribute()) {
-        CU_CHECK("cuGraphKernelNodeSetAttribute",
-                 driver->cuGraphKernelNodeSetAttribute(
-                         kernel_node, attribute->id, &attribute->value));
-    }
 
     // Event: end of kernel
     CUgraphNode end_node;

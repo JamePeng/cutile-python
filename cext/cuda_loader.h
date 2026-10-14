@@ -60,7 +60,6 @@
     X(cuGraphDestroy, "cuGraphDestroy", 10000) \
     X(cuGraphAddEventRecordNode, "cuGraphAddEventRecordNode", 11010) \
     X(cuGraphAddKernelNode, "cuGraphAddKernelNode", 12000) \
-    X(cuGraphKernelNodeSetAttribute, "cuGraphKernelNodeSetAttribute", 11000) \
     X(cuGraphAddMemsetNode, "cuGraphAddMemsetNode", 10000) \
     X(cuGraphAddMemAllocNode, "cuGraphAddMemAllocNode", 11040) \
     X(cuGraphAddMemFreeNode, "cuGraphAddMemFreeNode", 11040) \
