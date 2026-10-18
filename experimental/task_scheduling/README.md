@@ -5,7 +5,7 @@
 
 This package separates a pure-Python scheduling model from CUDA Lang device lowering. Import `task_scheduling` as `ts`, define resources and named `@ts.consumer_work` or `@ts.producer_work` methods, and capture a schedule with `@ts.schedule`. The captured `Schedule` is immutable; `TaskManager` consumes it for host validation, and `Task.to_device()` lowers it for device execution.
 
-`Task.to_device()` freezes the validated schedule into CUDA Lang-compatible nodes. Directly decorated static work methods are used for device lowering. Explicit callback mappings remain available as low-level overrides and are keyed by readable captured labels (optionally `"resource.label"` or `(resource, label)` when a task needs disambiguation). Pipeline steps are generated from their `PipelineConfig` and `DevicePipelineBinding`; they do not require kernel-specific acquire/wait/commit/release callbacks. At runtime, an immutable `ExecutionContext` carries internal routed values and pipeline index/phase state while kernel resources remain available through a named `tasks_inputs` object. Domain loops, first/last/every guards, opaque guards, warp ranges, CTA pinning, and `setmaxnreg` are lowered from this frozen program.
+`Task.to_device()` freezes the validated schedule into CUDA Lang-compatible nodes. Directly decorated static work methods are used for device lowering. Explicit callback mappings remain available as low-level overrides and are keyed by readable captured labels (optionally `"resource.label"` or `(resource, label)` when a task needs disambiguation). Pipeline steps are generated from their `PipelineConfig` and `DevicePipelineBinding`; they do not require kernel-specific acquire/wait/commit/release callbacks. At runtime, an immutable `ExecutionContext` carries internal routed values and pipeline index/phase state while kernel resources remain available through a named `tasks_inputs` object. Domain loops, first/last/every guards, opaque guards and their `&` / `|` / `~` combinations, warp ranges, CTA pinning, and `setmaxnreg` are lowered from this frozen program.
 
 A work decorator placed above `@staticmethod` lets host task execution and device lowering share one implementation. Instance work methods remain usable for host schedule construction; low-level users must supply an explicit callback mapping to lower them because resource instances are not passed into CUDA Lang callbacks.
 
@@ -37,6 +37,38 @@ guards. An inner region executes only when every enclosing guard is active.
 Predicates and other work outputs produced inside a branch may be used by its
 nested regions, but cannot escape to a parent or sibling scope. Reusing the same
 routed predicate preserves true/false correlation in host analysis.
+
+Conditions combine with `&` (and), `|` (or), and `~` (not), so a guard that
+depends on several terms fits in one region:
+
+```python
+with ts.domain_loop(0, num_rows, 1) as d:
+    ready = smem.is_ready()
+    urgent = smem.is_urgent()
+    with ts.when_true((ready & ~urgent) | d.first):
+        smem.handle_tile()
+```
+
+Python's `and`, `or`, and `not` cannot be overloaded; converting a condition to
+`bool` raises a `ScheduleError` that points at the operators. `d.first_iter()`,
+`d.last_iter()`, and `d.every(...)` are context managers. Their operand forms are
+`d.first`, `d.last`, and `d.every_pred(period, start=0)`, or the module constants
+`ts.FIRST_ITER` and `ts.LAST_ITER`. `~ts.FIRST_ITER` is every iteration but the
+first, not the last; in a one-iteration loop, `~ts.FIRST_ITER` and
+`~ts.LAST_ITER` are both false. `when_false(expr)` equals `when_true(~expr)`, and
+captured guards are kept in negation-normal form. Nesting regions still works
+and means the same as `&`. A `key=` on a composite applies to each opaque leaf
+and leaves iteration predicates unchanged; a composite with no opaque leaf
+rejects `key=`.
+
+The exhaustive checker validates each observably distinct control-flow class
+rather than all `2**K` assignments of `K` opaque keys. Two assignments are
+equivalent when every guard in every task has the same value at every modeled
+domain iteration; one representative of each class is checked. A schedule that
+observes only `a & b` has two classes, while one that also observes `a` alone
+keeps three. `tutorial/01_copy_basics/03_copy_tma_conditional.py` adds a boolean
+OR (`highlight | ts.LAST_ITER`) and a mixed AND (`ts.FIRST_ITER & highlight`) to
+its trace markers.
 
 The runnable `tutorial/01_copy_basics/04_copy_tma_nested_conditional.py` example
 extends the conditional TMA copy with all four two-level true/false combinations
@@ -93,8 +125,7 @@ returns its initial values.
 Side effects and pipeline-state updates performed before the break are retained.
 A break exits only the domain loop, so an enclosing `work_tile_loop()` continues.
 `last_iter()` still means the last iteration of the declared range; it is not an
-exit hook. Breaks outside a domain loop and expired loop handles are rejected.
-Unbounded while loops remain unsupported.
+exit hook. Breaks outside a loop and expired loop handles are rejected.
 
 The nested-copy tutorial also accepts `--stop-row 5`. Both producer and consumer
 break before acquiring/waiting for row 5, and the example verifies that the
@@ -106,6 +137,52 @@ Host expansion honors breaks for its selected opaque-condition assignment and
 representative loop bounds, including zero-trip loops. Opaque assignments remain
 fixed during each explored execution; these checks do not prove safety for all
 possible iteration-varying runtime predicate sequences.
+
+`while_true_loop(init=..., advance=..., verify_num_iters=...)` captures a
+dynamic loop with no trip count. `init` and `advance` are uncalled consumer work
+methods with `outputs=1` and no routed inputs. Their result is the loop cursor,
+which device work reads as `stage_info.loop_offset`: `init` seeds it, and
+`advance` computes the next cursor after every round without a break. Domain
+bounds are `None` inside the loop. The loop exits when a `loop.break_loop()`
+runs. Work after that call in the same round does not run:
+
+```python
+with ts.while_true_loop(
+    init=smem.retry_init,
+    advance=smem.retry_advance,
+    verify_num_iters=(2, 3, 4),
+) as loop:
+    rows_done = smem.rows_done()
+    with ts.when_true(rows_done):
+        loop.break_loop()
+    with ts.when_false(rows_done, verify_num_fires=1):
+        smem.try_wait()
+        smem.wait()
+        value = smem.read_smem(smem_view)
+        smem.release()
+        output.store(value)
+```
+
+The exit formula is the disjunction of the `when_true` / `when_false` guards that
+dominate each break; nested guards form a conjunction. A while loop carries no
+values, and a schedule may contain either a domain loop or a while loop, with
+neither nested in the other or in a runtime condition. Under
+`work_tile_loop(skip_if=...)`, the while loop must be inside `wtl.skippable()`.
+
+The exhaustive checker models each count `N` in `verify_num_iters` (default
+`(1, 2)`) as `N - 1` retry rounds followed by a break round. A break round
+satisfies an exit clause and a retry round satisfies none, while the other
+opaque keys vary freely in every round. Partner tasks observe the final break
+round. Every retry round must perform a blocking or state-changing pipeline
+operation, and capture rejects an unconditional break when `N > 1`. A loop with
+no satisfiable exit is an error. `verify_num_fires=N` on a guard inside the loop
+is a verifier-only assertion that the block runs on exactly `N` modeled rounds;
+it discards impossible histories, such as consumer rounds that a representative
+single-round producer never commits.
+`tutorial/01_copy_basics/04_copy_tma_while_exit.py` is a runnable example of a
+while loop that retries until all rows are stored. Its `--verify-num-iters`,
+`--inject-nested-break`, and `--inject-unconditional-break` flags print the
+modeled histories on the host.
 
 `StageInfo` contains the current `stage_idx`, `phase`, selected full `barrier`, zero-based iteration count, loop offset/bounds, work label, and owning `ExecutionContext`; loop offset/bounds are `None` for peeled work outside a domain loop. This lets pipeline payload work use `stage_info.barrier` without knowing how barrier arrays are stored by the device manager.
 

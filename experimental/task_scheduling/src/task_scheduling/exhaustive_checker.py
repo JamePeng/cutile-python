@@ -10,21 +10,27 @@ from dataclasses import dataclass, field, replace
 from .enums import (
     FIRST_ITER,
     LAST_ITER,
+    BlockGuard,
     Every,
+    IterationPredicate,
     OpaqueCondition,
     PipelineType,
     SKIPPABLE,
     ScheduleStage,
     guard_fires,
+    iter_leaves,
 )
 from .schedule_builder import (
     BreakLoop,
     ConditionalBlock,
     DomainLoop,
     Step,
+    WhileTrueLoop,
     WorkTileLoop,
+    _format_guard,
     _iter_nodes,
     validate_break_placement,
+    while_loop_break_clauses,
 )
 from .resources import WorkQueue
 from .task import Task
@@ -56,20 +62,121 @@ def _bound(value: object, task: Task, fallback: int) -> int:
     return fallback
 
 
+def _domain_trip_count(
+    node: DomainLoop,
+    task: Task,
+    dynamic_domain_fallback: int,
+    representative_domain: bool,
+) -> int:
+    start = _bound(node.start, task, 0)
+    end = (
+        dynamic_domain_fallback
+        if representative_domain
+        else _bound(node.end, task, dynamic_domain_fallback)
+    )
+    stride = _bound(node.step, task, 1)
+    if stride <= 0:
+        raise ValueError("exhaustive checker requires positive domain step")
+    return len(range(start, end, stride))
+
+
+def _guard_phase(guard: object, phase: str) -> str:
+    """Return the trace phase tag for operations inside a guarded block."""
+    leaves = tuple(iter_leaves(guard))
+    if any(isinstance(leaf, OpaqueCondition) for leaf in leaves):
+        return "I"
+    if any(leaf is FIRST_ITER for leaf in leaves):
+        return "F"
+    if any(leaf is LAST_ITER for leaf in leaves):
+        return "L"
+    if any(isinstance(leaf, Every) for leaf in leaves):
+        return "P"
+    return phase
+
+
+OpaqueAssignment = dict[object, bool]
+OpaqueAssignmentSequence = list[OpaqueAssignment]
+
+
+@dataclass(frozen=True)
+class OpaqueAssignmentScenario:
+    """Per-task opaque assignments for one joint interleaving check.
+
+    A task with a ``while_true_loop()`` receives an assignment sequence, one
+    dictionary per modeled round. Other tasks receive ``default_assignment``,
+    the final (break) round of the first while-loop task, so they observe the
+    exit-round values of shared opaque keys.
+    """
+
+    default_assignment: OpaqueAssignment
+    task_assignments: dict[int, OpaqueAssignmentSequence]
+    task_names: dict[int, str] = field(default_factory=dict)
+
+    def for_task(self, task: Task) -> OpaqueAssignment | OpaqueAssignmentSequence:
+        return self.task_assignments.get(id(task), self.default_assignment)
+
+
+# Stages that make progress in a retry round. Auxiliary work, such as an exit
+# probe, does not: a round that only polls can spin forever.
+_WHILE_RETRY_PROGRESS_STAGES = frozenset(
+    {
+        ScheduleStage.ProducerTryAcquire,
+        ScheduleStage.ProducerAcquire,
+        ScheduleStage.ProducerCommit,
+        ScheduleStage.ProducerWork,
+        ScheduleStage.ConsumerTryWait,
+        ScheduleStage.ConsumerWait,
+        ScheduleStage.ConsumerRelease,
+        ScheduleStage.ConsumerWork,
+    }
+)
+
+
+def format_opaque_assignment(assignment: object) -> str:
+    """Render an assignment, a while-loop sequence, or a joint scenario."""
+    if isinstance(assignment, OpaqueAssignmentScenario):
+        parts = [f"default={format_opaque_assignment(assignment.default_assignment)}"]
+        for task_id, sequence in assignment.task_assignments.items():
+            name = assignment.task_names.get(task_id, str(task_id))
+            parts.append(f"{name}: {format_opaque_assignment(sequence)}")
+        return "; ".join(parts)
+    if isinstance(assignment, list):
+        return " -> ".join(format_opaque_assignment(item) for item in assignment)
+    if not assignment:
+        return "{}"
+    return ", ".join(f"{key}={value}" for key, value in assignment.items())
+
+
 def expand_task(
     task: Task,
     *,
     skipped_tile: bool = False,
-    opaque_assignment: dict | None = None,
+    opaque_assignment: (
+        OpaqueAssignment | OpaqueAssignmentSequence | OpaqueAssignmentScenario | None
+    ) = None,
     num_tiles: int = 1,
     dynamic_domain_fallback: int = 1,
     representative_domain: bool = False,
 ) -> list[FlatScheduleOp]:
+    """Flatten one task schedule into the operation order the checker explores.
+
+    ``opaque_assignment`` is a dictionary, a while-loop sequence, or an
+    :class:`OpaqueAssignmentScenario`. A sequence unrolls the task's
+    ``while_true_loop()`` once per round; guards outside that loop observe its
+    final (break) round. Init/advance hooks are not emitted: they compute the
+    cursor and do not touch pipeline credits.
+    """
     validate_break_placement(task.schedule.body)
+    if isinstance(opaque_assignment, OpaqueAssignmentScenario):
+        opaque_assignment = opaque_assignment.for_task(task)
+    while_sequence = None
+    if isinstance(opaque_assignment, list):
+        while_sequence = opaque_assignment
+        opaque_assignment = opaque_assignment[-1] if opaque_assignment else {}
     result = []
     domain_entry = itertools.count()
 
-    def emit(nodes, iteration=None, count=None, phase="O", skipped=False):
+    def emit(nodes, assignment, iteration=None, count=None, phase="O", skipped=False):
         for node in nodes:
             if isinstance(node, BreakLoop):
                 return True
@@ -92,23 +199,20 @@ def expand_task(
             elif isinstance(node, DomainLoop):
                 if skipped:
                     continue
-                start = _bound(node.start, task, 0)
-                end = (
-                    dynamic_domain_fallback
-                    if representative_domain
-                    else _bound(node.end, task, dynamic_domain_fallback)
+                count = _domain_trip_count(
+                    node, task, dynamic_domain_fallback, representative_domain
                 )
-                stride = _bound(node.step, task, 1)
-                if stride <= 0:
-                    raise ValueError("exhaustive checker requires positive domain step")
-                values = tuple(range(start, end, stride))
                 next(domain_entry)
-                for index, _ in enumerate(values):
-                    if emit(node.body, index, len(values), "", skipped):
+                for index in range(count):
+                    if emit(node.body, assignment, index, count, "", skipped):
                         break
+            elif isinstance(node, WhileTrueLoop):
+                if skipped:
+                    continue
+                emit_while(node, assignment)
             elif isinstance(node, WorkTileLoop):
                 for _ in range(num_tiles):
-                    emit(node.body, iteration, count, phase, skipped_tile)
+                    emit(node.body, assignment, iteration, count, phase, skipped_tile)
             elif isinstance(node, ConditionalBlock):
                 guard = node.condition
                 if guard is SKIPPABLE:
@@ -118,39 +222,282 @@ def expand_task(
                         guard,
                         iteration or 0,
                         count or 0,
-                        opaque_assignment=opaque_assignment,
+                        opaque_assignment=assignment,
                     )
                 if active:
-                    guard_phase = (
-                        "P"
-                        if isinstance(guard, Every)
-                        else "I"
-                        if isinstance(guard, OpaqueCondition)
-                        else "F"
-                        if guard is FIRST_ITER
-                        else "L"
-                        if guard is LAST_ITER
-                        else phase
-                    )
-                    if emit(node.body, iteration, count, guard_phase, skipped):
+                    guard_phase = _guard_phase(guard, phase)
+                    if emit(node.body, assignment, iteration, count, guard_phase, skipped):
                         return True
         return False
 
-    emit(task.schedule.body)
+    def emit_while(node, assignment):
+        # Without a sequence, the round's assignment is the plain dictionary;
+        # the structural round checks apply only to modeled sequences.
+        sequence = while_sequence if while_sequence is not None else [assignment or {}]
+        if not sequence:
+            raise ValueError(
+                f"Task {task.name!r}: while_true_loop() received an empty "
+                "assignment sequence"
+            )
+        for index, round_assignment in enumerate(sequence):
+            start = len(result)
+            broke = emit(node.body, round_assignment, index, len(sequence), "")
+            if while_sequence is None:
+                if broke:
+                    break
+                continue
+            where = f"while_true_loop() round {index + 1} of {len(sequence)}"
+            if index == len(sequence) - 1:
+                if not broke:
+                    raise ValueError(
+                        f"Task {task.name!r}: {where} does not reach break_loop()"
+                    )
+            elif broke:
+                raise ValueError(
+                    f"Task {task.name!r}: retry {where} reaches break_loop()"
+                )
+            elif not any(
+                op.schedule_stage in _WHILE_RETRY_PROGRESS_STAGES
+                for op in result[start:]
+            ):
+                raise ValueError(
+                    f"Task {task.name!r}: retry {where} has no blocking or "
+                    "state-changing pipeline operation"
+                )
+
+    emit(task.schedule.body, opaque_assignment)
     return result
 
 
 def collect_opaque_keys(tasks: list[Task]) -> list[object]:
+    """Return distinct opaque leaf keys of every guard, in first-seen order.
+
+    Values used only as routed data are not verifier keys.
+    """
     result = []
     for task in tasks:
         for node in _iter_nodes(task.schedule.body):
-            if (
-                isinstance(node, ConditionalBlock)
-                and isinstance(node.condition, OpaqueCondition)
-                and node.condition.key not in result
-            ):
-                result.append(node.condition.key)
+            if isinstance(node, ConditionalBlock):
+                for leaf in iter_leaves(node.condition):
+                    if isinstance(leaf, OpaqueCondition) and leaf.key not in result:
+                        result.append(leaf.key)
     return result
+
+
+GuardObservation = tuple[BlockGuard, int, int]
+
+
+def collect_guard_observations(
+    tasks: list[Task], *, representative_domain: bool = False
+) -> list[GuardObservation]:
+    """Collect each guard at every enclosing domain iteration it can observe.
+
+    Each observation is ``(guard, iter_idx, num_iters)``, using the trip counts
+    :func:`expand_task` models. Observations that agree on every iteration leaf
+    are kept once, since they evaluate identically under any assignment.
+    """
+    fallback = dynamic_domain_fallback_for(tasks)
+    observations = []
+    seen = set()
+
+    def observe(guard, contexts):
+        iteration_leaves = [
+            leaf for leaf in iter_leaves(guard) if isinstance(leaf, IterationPredicate)
+        ]
+        for index, count in contexts:
+            signature = (
+                id(guard),
+                tuple(leaf.fires(index, count) for leaf in iteration_leaves),
+            )
+            if signature not in seen:
+                seen.add(signature)
+                observations.append((guard, index, count))
+
+    def walk(task, nodes, contexts):
+        for node in nodes:
+            if isinstance(node, (Step, BreakLoop)):
+                continue
+            if isinstance(node, DomainLoop):
+                count = _domain_trip_count(node, task, fallback, representative_domain)
+                walk(task, node.body, tuple((index, count) for index in range(count)))
+                continue
+            if isinstance(node, ConditionalBlock) and node.condition is not SKIPPABLE:
+                observe(node.condition, contexts)
+            walk(task, node.body, contexts)
+
+    for task in tasks:
+        walk(task, task.schedule.body, ((0, 0),))
+    return observations
+
+
+def find_while_true_loop(task: Task) -> WhileTrueLoop | None:
+    """Return the task's ``while_true_loop()``; the builder allows at most one."""
+    return next(
+        (
+            node
+            for node in _iter_nodes(task.schedule.body)
+            if isinstance(node, WhileTrueLoop)
+        ),
+        None,
+    )
+
+
+def _all_opaque_assignments(
+    keys: list[object],
+    observations: list[GuardObservation] | None = None,
+) -> list[OpaqueAssignment]:
+    """Return one assignment per observably distinct control-flow class.
+
+    Every key maps to ``True`` or ``False``. With ``observations``, two
+    assignments are equivalent when every observed guard evaluates the same
+    under both; the first of each class represents it. For example, a schedule
+    that observes only ``a & b`` keeps two classes, not four.
+    """
+    assignments = [
+        dict(zip(keys, values))
+        for values in itertools.product((False, True), repeat=len(keys))
+    ]
+    if not observations:
+        return assignments
+    distinct = {}
+    for assignment in assignments:
+        signature = tuple(
+            guard_fires(guard, index, count, opaque_assignment=assignment)
+            for guard, index, count in observations
+        )
+        distinct.setdefault(signature, assignment)
+    return list(distinct.values())
+
+
+def _clause_holds(clause: tuple, assignment: OpaqueAssignment) -> bool:
+    """An empty clause is an unconditional break and always holds."""
+    return all(
+        guard_fires(guard, 0, 0, opaque_assignment=assignment) for guard in clause
+    )
+
+
+def _fire_count_hints(loop: WhileTrueLoop) -> list[tuple[tuple, int]]:
+    """Collect ``verify_num_fires`` assertions with their effective guards.
+
+    A nested block runs only when every enclosing runtime guard holds, so its
+    effective guard is the conjunction of the whole chain.
+    """
+    hints = []
+
+    def walk(nodes, chain):
+        for node in nodes:
+            if isinstance(node, ConditionalBlock):
+                inner = chain
+                if node.condition is not SKIPPABLE:
+                    inner = chain + (node.condition,)
+                if node.verify_num_fires is not None:
+                    hints.append((inner, node.verify_num_fires))
+                walk(node.body, inner)
+
+    walk(loop.body, ())
+    return hints
+
+
+def _while_task_sequences(
+    task: Task,
+    loop: WhileTrueLoop,
+    keys: list[object],
+    observations: list[GuardObservation] | None = None,
+) -> list[OpaqueAssignmentSequence]:
+    """Enumerate ``retry^(N-1) + break`` round histories for one task.
+
+    A break assignment satisfies at least one exit clause; a retry assignment
+    satisfies none. ``verify_num_fires`` assertions discard histories in which
+    a block would run a different number of times.
+    """
+    clauses = while_loop_break_clauses(loop)
+    assignments = _all_opaque_assignments(keys, observations)
+    breaks = [a for a in assignments if any(_clause_holds(c, a) for c in clauses)]
+    retries = [a for a in assignments if not any(_clause_holds(c, a) for c in clauses)]
+    if not breaks:
+        raise ValueError(
+            f"Task {task.name!r}: while_true_loop() has no opaque assignment that "
+            "satisfies a break_loop() clause"
+        )
+    hints = _fire_count_hints(loop)
+    sequences = []
+    for count in loop.verify_num_iters:
+        if count > 1 and not retries:
+            raise ValueError(
+                f"Task {task.name!r}: while_true_loop() verify_num_iters={count} "
+                "requires a retry assignment, but every opaque assignment "
+                "satisfies a break_loop() clause"
+            )
+        for history in itertools.product(retries, repeat=count - 1):
+            for final in breaks:
+                sequence = [*history, final]
+                if all(
+                    sum(_clause_holds(guards, a) for a in sequence) == declared
+                    for guards, declared in hints
+                ):
+                    sequences.append(sequence)
+    if not sequences:
+        widest = max(loop.verify_num_iters)
+        details = []
+        for guards, declared in hints:
+            retry_fires = [_clause_holds(guards, a) for a in retries]
+            break_fires = [_clause_holds(guards, a) for a in breaks]
+            low = (widest - 1) * bool(retries and all(retry_fires)) + all(break_fires)
+            high = (widest - 1) * any(retry_fires) + any(break_fires)
+            reach = f"exactly {low}" if low == high else f"between {low} and {high}"
+            rendered = " and ".join(_format_guard(guard) for guard in guards)
+            details.append(
+                f"{rendered} declares verify_num_fires={declared} but fires on "
+                f"{reach} of {widest} modeled rounds"
+            )
+        raise ValueError(
+            f"Task {task.name!r}: no while_true_loop() round history satisfies "
+            f"verify_num_fires over verify_num_iters={loop.verify_num_iters}: "
+            f"{'; '.join(details)}. Raise verify_num_iters to model more rounds, "
+            "or correct the assertion"
+        )
+    return sequences
+
+
+def opaque_assignment_sequences(
+    tasks: list[Task],
+    keys: list[object],
+    *,
+    representative_domain: bool = False,
+) -> list[OpaqueAssignment | OpaqueAssignmentScenario]:
+    """Enumerate the opaque inputs for every exhaustive interleaving check.
+
+    Without a ``while_true_loop()`` this is one boolean assignment of ``keys``
+    per observably distinct control-flow class. Otherwise each result is a
+    scenario combining one round history per while-loop task.
+    """
+    observations = collect_guard_observations(
+        tasks, representative_domain=representative_domain
+    )
+    while_tasks = [
+        (task, loop)
+        for task in tasks
+        if (loop := find_while_true_loop(task)) is not None
+    ]
+    if not while_tasks:
+        return _all_opaque_assignments(keys, observations)
+    names = {id(task): task.name for task, _ in while_tasks}
+    return [
+        OpaqueAssignmentScenario(
+            default_assignment=histories[0][-1],
+            task_assignments={
+                id(task): history
+                for (task, _), history in zip(while_tasks, histories)
+            },
+            task_names=names,
+        )
+        for histories in itertools.product(
+            *(
+                _while_task_sequences(task, loop, keys, observations)
+                for task, loop in while_tasks
+            )
+        )
+    ]
 
 
 def dynamic_domain_fallback_for(tasks: list[Task]) -> int:
@@ -413,7 +760,9 @@ def check_all_interleavings(
     skipped_tile: bool = False,
     assume_pdl_wait_completed: bool = False,
     verbose: bool = False,
-    opaque_assignment: dict | None = None,
+    opaque_assignment: (
+        OpaqueAssignment | OpaqueAssignmentSequence | OpaqueAssignmentScenario | None
+    ) = None,
     early_exit: bool = True,
     cursor_only_visited: bool = True,
     representative_domain: bool = False,

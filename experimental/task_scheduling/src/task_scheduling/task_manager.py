@@ -4,7 +4,6 @@
 """Host-only resource-graph, schedule, and budget validation."""
 
 import io
-import itertools
 import warnings
 from contextlib import redirect_stdout
 
@@ -14,6 +13,8 @@ from .exhaustive_checker import (
     collect_opaque_keys,
     dynamic_domain_fallback_for,
     expand_task,
+    format_opaque_assignment,
+    opaque_assignment_sequences,
 )
 from .ir import freeze_program_ir
 from .memory import BarrierAllocator, SmemAllocator, TmemAllocator
@@ -379,14 +380,11 @@ class TaskManager:
 
     def _verify_all_interleavings(self) -> None:
         self._interleaving_results.clear()
-        keys = collect_opaque_keys(self.tasks)
-        assignments = (
-            [
-                dict(zip(keys, values))
-                for values in itertools.product((False, True), repeat=len(keys))
-            ]
-            if keys
-            else [{}]
+        # A while-loop task contributes retry^(N-1) + break round histories.
+        assignments = opaque_assignment_sequences(
+            self.tasks,
+            collect_opaque_keys(self.tasks),
+            representative_domain=self.exhaustive_representative_domain,
         )
         for assignment in assignments:
             verbose_output = ""
@@ -428,7 +426,7 @@ class TaskManager:
                     witness = "inconclusive: no complete execution or witness"
                 raise ValueError(
                     f"exhaustive schedule validation failed for opaque "
-                    f"assignment {assignment}: {witness}"
+                    f"assignment {format_opaque_assignment(assignment)}: {witness}"
                 )
 
     def get_mermaid_string_dependency_graph(self) -> str:
@@ -460,7 +458,19 @@ class TaskManager:
             return f"{left}{title}{right}"
 
         fallback = dynamic_domain_fallback_for(self.tasks)
-        opaque_assignment = {key: True for key in collect_opaque_keys(self.tasks)}
+        opaque_keys = collect_opaque_keys(self.tasks)
+        opaque_assignment = {key: True for key in opaque_keys}
+        assignments = opaque_assignment_sequences(
+            self.tasks,
+            opaque_keys,
+            representative_domain=self.exhaustive_representative_domain,
+        )
+        if any(not isinstance(item, dict) for item in assignments):
+            # Show the history with the most while-loop rounds.
+            opaque_assignment = max(
+                assignments,
+                key=lambda item: max(map(len, item.task_assignments.values())),
+            )
         schedules = [
             expand_task(
                 task,
