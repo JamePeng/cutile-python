@@ -447,8 +447,8 @@ def _fp8_b200_gemm_persistent_kernel(
     cta_m = 128
     consumer_tile_m = 256
     cta_n = tile_n // 2
-    acc_stages = cl.static_eval(2 if num_consumers == 1 else 1)
-    num_d_tiles = cl.static_eval(2 if epilogue_stages > 1 else 1)
+    acc_stages = cl.ensure_constant(2 if num_consumers == 1 else 1)
+    num_d_tiles = cl.ensure_constant(2 if epilogue_stages > 1 else 1)
     subtile_n = tile_n // epilogue_stages
     producer_base = num_consumers * 4
     scheduler_warp = producer_base + 2

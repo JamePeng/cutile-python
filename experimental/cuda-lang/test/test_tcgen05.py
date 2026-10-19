@@ -618,7 +618,7 @@ def test_load_dtype_element_count(shape, dtype, num):
             offset=offset,
         )
         cl.static_assert(cl.dtype_of(values) is dtype)
-        if cl.static_eval(element_count > 1):
+        if cl.ensure_constant(element_count > 1):
             cl.static_assert(len(values) == element_count)
         cl.tcgen05_wait_load()
         cl.tcgen05_store(shape, tmem_ptr, values, offset=offset)

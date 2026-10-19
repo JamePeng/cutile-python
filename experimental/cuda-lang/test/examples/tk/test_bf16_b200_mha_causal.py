@@ -260,7 +260,7 @@ def mha_kernel(
 
     total_bids = batch * heads * (q_sequence // (BLOCK_M * 2))
     bid_stride = total_bids
-    if cl.static_eval(persistent):
+    if cl.ensure_constant(persistent):
         bid_stride = NUM_SMS
 
     if warp == 15 and cl.elect_sync():
@@ -275,7 +275,7 @@ def mha_kernel(
             iterations = m_base + 4
 
             for qid in cl.static_iter(range(2)):
-                if cl.static_eval(persistent):
+                if cl.ensure_constant(persistent):
                     cl.mbarrier_wait_parity(q_finished.pointer(qid), q_phase)
                 q_dst = cl.map_shared_to_cluster(
                     q_smem.pointer((qid, 0)), rank
@@ -509,7 +509,7 @@ def mha_kernel(
                             multicast_mask=0b11,
                             cta_group=cl.CTAGroup.CTA_2,
                         )
-                    if cl.static_eval(persistent) and key_block + 2 == iterations:
+                    if cl.ensure_constant(persistent) and key_block + 2 == iterations:
                         for qid in cl.static_iter(range(2)):
                             cl.tcgen05_commit(
                                 q_finished.pointer(qid),
@@ -608,7 +608,7 @@ def mha_kernel(
                         lane_in_group,
                         column,
                     )
-                    if cl.static_eval(quarter == 0):
+                    if cl.ensure_constant(quarter == 0):
                         block_sum = quarter_sum
                     else:
                         block_sum += quarter_sum
@@ -620,7 +620,7 @@ def mha_kernel(
                         probabilities,
                     )
                     cl.tcgen05_wait_store()
-                    if cl.static_eval(quarter == 0):
+                    if cl.ensure_constant(quarter == 0):
                         if cl.elect_sync():
                             cl.mbarrier_arrive(
                                 cl.map_shared_to_cluster(

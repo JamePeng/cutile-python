@@ -575,7 +575,7 @@ def flash_attention_fwd_kernel(
                     probabilities, quarter_sum = probability_vector(
                         score_quarters[quarter], scale, offset
                     )
-                    if cl.static_eval(quarter == 0):
+                    if cl.ensure_constant(quarter == 0):
                         block_sum = quarter_sum
                     else:
                         block_sum += quarter_sum
@@ -585,7 +585,7 @@ def flash_attention_fwd_kernel(
                         probabilities,
                     )
                     cl.tcgen05_wait_store()
-                    if cl.static_eval(quarter == 0):
+                    if cl.ensure_constant(quarter == 0):
                         if cl.elect_sync():
                             cl.mbarrier_arrive(
                                 cl.map_shared_to_cluster(
