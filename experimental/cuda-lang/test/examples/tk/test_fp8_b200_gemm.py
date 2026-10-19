@@ -135,7 +135,7 @@ def store_bf16_tmem_tile(dst, tmem_base, warp, column, row, output_column, n):
         column_offset=column,
     )
     values = cl.tcgen05_load(
-        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
         tmem,
         element_count=16,
         dtype=cl.float32,
@@ -156,7 +156,7 @@ def store_bf16_tmem_subtile(dst, tmem_base, warp, column, row, width):
             column_offset=column + chunk * 32,
         )
         values = cl.tcgen05_load(
-            cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+            cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
             tmem,
             element_count=32,
             dtype=cl.float32,

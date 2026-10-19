@@ -62,7 +62,7 @@ def tcgen05_load16_scalars(address):
 
 def tcgen05_load16_vector(address):
     return cl.tcgen05_load(
-        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
         address,
         element_count=16,
         dtype=cl.float32,
@@ -545,7 +545,7 @@ def flash_attention_fwd_kernel(
                 old_max = row_max
                 score_quarters = tuple(
                     cl.tcgen05_load(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         cl.tcgen05_tmem_offset(row_tmem, column_offset=quarter * 32),
                         element_count=32,
                         dtype=cl.float32,
@@ -580,7 +580,7 @@ def flash_attention_fwd_kernel(
                     else:
                         block_sum += quarter_sum
                     cl.tcgen05_store(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         cl.tcgen05_tmem_offset(row_tmem, column_offset=quarter * 16),
                         probabilities,
                     )
@@ -657,7 +657,7 @@ def flash_attention_fwd_kernel(
                             values = tcgen05_load16(output_row)
                             cl.tcgen05_wait_load()
                             cl.tcgen05_store(
-                                cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                                cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                                 output_row,
                                 scale_vector16(values, correction),
                             )

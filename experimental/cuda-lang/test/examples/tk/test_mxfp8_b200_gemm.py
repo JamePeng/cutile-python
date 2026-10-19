@@ -141,7 +141,7 @@ def load_tmem_bf16_subtile(registers, register_offset, tmem, warp, column, width
         column_offset=column,
     )
     values = cl.tcgen05_load(
-        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
         source,
         element_count=width,
         dtype=cl.float32,

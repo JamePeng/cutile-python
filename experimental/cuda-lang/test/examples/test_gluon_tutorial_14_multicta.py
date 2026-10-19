@@ -257,7 +257,7 @@ def tensor_memory_pointer(base, lane_offset, column_offset):
 def store_fp16_tmem_tile(dst, tmem_base, warp, column, row, output_column, n):
     tmem = tensor_memory_pointer(tmem_base, warp * WARP_SIZE, column)
     values = cl.tcgen05_load(
-        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
         tmem,
         element_count=16,
         dtype=cl.float32,

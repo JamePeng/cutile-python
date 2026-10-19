@@ -221,7 +221,7 @@ def _kernel(c, bias, a_tmap, b_tmap, k: cl.Constant[int], has_bias: cl.Constant[
             column_offset=column,
         )
         accumulators = cl.tcgen05_load(
-            cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+            cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
             tmem,
             element_count=32,
             dtype=cl.float32,

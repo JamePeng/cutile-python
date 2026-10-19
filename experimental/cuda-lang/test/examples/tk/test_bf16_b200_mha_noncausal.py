@@ -510,7 +510,7 @@ def mha_kernel(
                 old_max = row_max
                 for quarter in cl.static_iter(range(4)):
                     scores = cl.tcgen05_load(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         cl.tcgen05_tmem_offset(
                             row_tmem, column_offset=quarter * 32
                         ),
@@ -538,7 +538,7 @@ def mha_kernel(
                 block_sum = cl.float32(0.0)
                 for quarter in cl.static_iter(range(4)):
                     scores = cl.tcgen05_load(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         cl.tcgen05_tmem_offset(
                             row_tmem, column_offset=quarter * 32
                         ),
@@ -553,7 +553,7 @@ def mha_kernel(
                     else:
                         block_sum += quarter_sum
                     cl.tcgen05_store(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         cl.tcgen05_tmem_offset(
                             row_tmem, column_offset=quarter * 16
                         ),
@@ -625,13 +625,13 @@ def mha_kernel(
                                 column_offset=qid * 256 + 128 + column,
                             )
                             values = cl.tcgen05_load(
-                                cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                                cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                                 output_row,
                                 element_count=16,
                             )
                             cl.tcgen05_wait_load()
                             cl.tcgen05_store(
-                                cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                                cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                                 output_row,
                                 scale_vector16(values, correction),
                             )
@@ -678,7 +678,7 @@ def mha_kernel(
                         column_offset=qid * 256 + 128 + column,
                     )
                     values = cl.tcgen05_load(
-                        cl.Tcgen05LoadStoreShape.SHAPE_32X32B,
+                        cl.Tcgen05LoadStoreShape.SHAPE_32x32b,
                         output_row,
                         element_count=16,
                     )
