@@ -830,7 +830,7 @@ def test_pointer_setitem():
 
 
 @pytest.mark.parametrize("cluster", (False, True))
-def test_map_shared_to_leader_block(cluster):
+def test_map_shared_to_block_pair_leader(cluster):
     """
     The ptx compiler will see the alignment and not mask the lowest bits
     since they will always be zero anyways - this is why we don't see the exact
@@ -854,7 +854,7 @@ def test_map_shared_to_leader_block(cluster):
         pointer = cl.shared_array(1, cl.int32, alignment=4).pointer()
         if cluster:
             pointer = cl.map_shared_to_cluster(pointer, 0)
-        mapped = cl.map_shared_to_leader_block(pointer)
+        mapped = cl.map_shared_to_block_pair_leader(pointer)
         cl.static_assert(cl.dtype_of(mapped) == cl.pointer_dtype(cl.int32, expected_space))
         out[0] = cl.bitcast(mapped, cl.uint32)
 
@@ -871,10 +871,10 @@ def test_map_shared_to_leader_block(cluster):
     )
 
 
-def test_map_shared_to_leader_block_rejects_global_pointer():
+def test_map_shared_to_block_pair_leader_rejects_global_pointer():
     @cl.kernel
     def kernel(out):
-        cl.map_shared_to_leader_block(out.pointer())
+        cl.map_shared_to_block_pair_leader(out.pointer())
 
     with pytest.raises(TypeCheckingError, match="Expected pointer memory space"):
         compile_simt(

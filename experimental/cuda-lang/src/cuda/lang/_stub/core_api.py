@@ -674,7 +674,7 @@ def shared_cluster_leader_bit_mask() -> int:
 
 
 @stub
-def map_shared_to_leader_block(pointer: Pointer[T]) -> Pointer[T]:
+def map_shared_to_block_pair_leader(pointer: Pointer[T]) -> Pointer[T]:
     """
     Map a shared-memory pointer to the same offset in the leader block of its
     two-block group while preserving the pointer type.

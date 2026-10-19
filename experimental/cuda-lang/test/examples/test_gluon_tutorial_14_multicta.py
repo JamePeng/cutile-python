@@ -858,7 +858,7 @@ def matmul_multicta_kernel(
                     a_dst = cl.map_shared_to_cluster(a_stage, rank)
                     b_dst = cl.map_shared_to_cluster(b_stage, rank)
                     ready = load_ready.pointer(stage)
-                    arrive_bar = cl.map_shared_to_leader_block(ready)
+                    arrive_bar = cl.map_shared_to_block_pair_leader(ready)
                     expect_bar = cl.map_shared_to_cluster(ready, 0)
                     cl.copy_async_bulk_tensor_global_to_shared(
                         a_tmap,

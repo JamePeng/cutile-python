@@ -238,7 +238,7 @@ def mha_kernel(
                     q_tmap,
                     (0, (m_base + rank * 2 + qid) * BLOCK_M, 0, head_idx, batch_idx),
                     q_dst,
-                    cl.map_shared_to_leader_block(q_bar),
+                    cl.map_shared_to_block_pair_leader(q_bar),
                     multicast_mask=cl.int16(1 << rank),
                     cta_group=cl.CTAGroup.CTA_2,
                 )
@@ -259,7 +259,7 @@ def mha_kernel(
                         batch_idx,
                     ),
                     k_dst,
-                    cl.map_shared_to_leader_block(k_bar),
+                    cl.map_shared_to_block_pair_leader(k_bar),
                     multicast_mask=cl.int16(1 << rank),
                     cta_group=cl.CTAGroup.CTA_2,
                 )
@@ -277,7 +277,7 @@ def mha_kernel(
                     v_tmap,
                     (0, key_block * BLOCK_N, rank, head_idx, batch_idx),
                     v_dst,
-                    cl.map_shared_to_leader_block(v_bar),
+                    cl.map_shared_to_block_pair_leader(v_bar),
                     multicast_mask=cl.int16(1 << rank),
                     cta_group=cl.CTAGroup.CTA_2,
                 )
