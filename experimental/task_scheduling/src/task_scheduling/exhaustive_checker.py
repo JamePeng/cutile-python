@@ -534,11 +534,13 @@ def _explode_sync_work(schedules: list[list[FlatScheduleOp]]) -> list[list[FlatS
 class DeadlockInfo:
     cursors: tuple[int, ...]
     blocked_tasks: tuple[str, ...]
+    blocked_details: tuple[str, ...] = ()
 
     def format_lines(self) -> list[str]:
         return [
             f"deadlock witness at cursors {self.cursors}: "
-            f"blocked tasks {', '.join(self.blocked_tasks)}"
+            f"blocked tasks {', '.join(self.blocked_tasks)}",
+            *self.blocked_details,
         ]
 
 
@@ -612,6 +614,13 @@ class _VerboseReporter:
             print(f"  Task {task_index} ({task.name}): [{schedule}]")
         print("-" * 72)
 
+    @staticmethod
+    def print_model(lines: list[str]) -> None:
+        print("  barrier model:")
+        for line in lines:
+            print(f"    {line}")
+        print("-" * 72)
+
     def print_timeline(
         self,
         trace: _TraceNode | None,
@@ -654,11 +663,16 @@ class _VerboseReporter:
         if not held:
             return "{}"
         entries = []
-        for task_index, resource_id, access in held:
-            entries.append(
+        for task_index, resource_id, access, slot, tag in held:
+            entry = (
                 f"{resources[resource_id].name}:{access}@"
                 f"{self.tasks[task_index].name}"
             )
+            if slot != _SLOTLESS:
+                entry += f"[stage {slot}]"
+            if tag != _UNTAGGED:
+                entry += f"#commit{tag}"
+            entries.append(entry)
         return "{" + ", ".join(entries) + "}"
 
     def print_complete(
@@ -679,6 +693,7 @@ class _VerboseReporter:
         resources: dict[int, object],
         trace: _TraceNode | None,
         blocked_tasks: tuple[str, ...],
+        blocked_details: tuple[str, ...] = (),
     ) -> None:
         print(
             f"State #{state_number}  cursors={cursors}  "
@@ -688,6 +703,8 @@ class _VerboseReporter:
             trace,
             suffix_label=f"*** DEADLOCK: blocked tasks {', '.join(blocked_tasks)}",
         )
+        for detail in blocked_details:
+            print(f"      {detail}")
         print()
 
     def print_race(
@@ -749,6 +766,459 @@ def _overlap(left: object, right: object) -> str | None:
     return None
 
 
+# ── Barrier-phase model ──────────────────────────────────────────────────
+#
+# Every resource that a schedule acquires, commits, waits on or releases owns
+# one record per ring stage: the full barrier's phase and pending arrival
+# count, then the empty barrier's phase and pending arrival count.  The
+# records of all resources are flattened into one tuple of ints so that a
+# successor state is a single tuple copy.  Full barriers start in phase 0 and
+# empty barriers in phase 1; software cursors start in phase 0, so the first
+# ``num_stages`` producer acquires pass and the first consumer wait blocks.
+#
+# A task's k-th acquire (wait) on a resource addresses stage ``k % num_stages``
+# and names phase ``(k // num_stages) % 2``; its k-th commit (release) arrives
+# on the same stage.  This is the implicit cursor of a schedule without
+# explicit pipeline state: the leading barrier op claims the stage and the
+# trailing op advances past it.  A ``ConsumerWait`` is enabled once the stage's
+# full barrier has left the phase the cursor names, a ``ProducerAcquire`` once
+# the empty barrier has.  A full barrier flips after every producer task of the
+# resource has committed the stage and an empty barrier after every consumer
+# task has released it, which is what the hardware arrival counts encode: one
+# producer feeding several consumers is a broadcast, several producers feeding
+# one consumer must all arrive, and a task that commits or releases fewer
+# times than its partners is a deadlock rather than a spare credit.
+_B_FULL_PHASE = 0
+_B_FULL_ARRIVALS = 1
+_B_EMPTY_PHASE = 2
+_B_EMPTY_ARRIVALS = 3
+_BARRIER_FIELDS = 4
+_INITIAL_RECORD = (0, 0, 1, 0)
+
+_GATE_NONE = 0
+_GATE_FULL = 1  # ConsumerWait reads the full barrier's phase
+_GATE_EMPTY = 2  # ProducerAcquire reads the empty barrier's phase
+
+_BARRIER_STAGES = frozenset(
+    {
+        ScheduleStage.ProducerTryAcquire,
+        ScheduleStage.ProducerAcquire,
+        ScheduleStage.ProducerCommit,
+        ScheduleStage.ConsumerTryWait,
+        ScheduleStage.ConsumerWait,
+        ScheduleStage.ConsumerRelease,
+    }
+)
+
+# Pipeline types whose consumer is the tensor-core MMA.  The software
+# ``ConsumerRelease`` is a ``tcgen05.commit`` that arrives on the empty barrier
+# only when the MMA has finished reading, so the operand stays live past the
+# release.  The checker drops that read hold at the next ``ProducerAcquire`` of
+# the same stage (the acquire passed the empty barrier, so every MMA reading
+# the stage completed) or at a paired completion wait, see
+# ``_COMPLETION_PRODUCER_TYPES``.
+_DMA_CONSUMER_TYPES = frozenset(
+    {
+        PipelineType.TmaUmma,
+        PipelineType.AsyncUmma,
+        PipelineType.UmmaUmma,
+    }
+)
+
+# Pipeline types whose full barrier is arrived by ``tcgen05.commit``.  A
+# ``ConsumerWait`` on such a resource proves that every MMA the producing task
+# issued before the matching commit has completed, including its reads of the
+# DMA-consumer operands it waited on earlier.
+_COMPLETION_PRODUCER_TYPES = frozenset(
+    {
+        PipelineType.UmmaAsync,
+        PipelineType.UmmaUmma,
+    }
+)
+
+_UNTAGGED = -1
+_SLOTLESS = -1
+
+# A held entry is ``(task_index, resource_id, access, stage, commit_tag)``.
+# ``write`` holds span ProducerAcquire..ProducerCommit, ``read`` holds span
+# ConsumerWait..ConsumerRelease (or longer for DMA consumers).  ``commit_tag``
+# is the generation of the paired completion commit that covers a DMA-consumer
+# read, or ``_UNTAGGED``.
+HeldEntry = tuple[int, int, str, int, int]
+
+
+def _pipeline_type(resource: object) -> PipelineType | None:
+    config = getattr(resource, "pipeline_config", None)
+    return None if config is None else config.pipeline_type
+
+
+def _is_dma_consumer(resource: object) -> bool:
+    return _pipeline_type(resource) in _DMA_CONSUMER_TYPES
+
+
+def _is_completion_producer(resource: object) -> bool:
+    return _pipeline_type(resource) in _COMPLETION_PRODUCER_TYPES
+
+
+def _num_stages(resource: object) -> int:
+    config = getattr(resource, "pipeline_config", None)
+    return 1 if config is None else config.num_stages
+
+
+@dataclass(frozen=True, slots=True)
+class _StepInfo:
+    """Static facts about one expanded schedule op."""
+
+    rid: int
+    stage: ScheduleStage
+    label: str
+    slot: int = _SLOTLESS
+    record: int = -1
+    gate: int = _GATE_NONE
+    gate_phase: int = 0
+    arrive_full: bool = False
+    arrive_empty: bool = False
+    expected_full: int = 1
+    expected_empty: int = 1
+    access: str | None = None
+    dma_consumer: bool = False
+    completion_rids: frozenset[int] = frozenset()
+    completion_gen: int = -1
+
+
+@dataclass(frozen=True, slots=True)
+class _BarrierModel:
+    """Barrier layout, participant counts and per-op metadata for one check."""
+
+    offsets: dict[int, int]
+    initial: tuple[int, ...]
+    producers: dict[int, int]
+    consumers: dict[int, int]
+    dma_rids: frozenset[int]
+    completion_pairs: dict[int, frozenset[int]]
+    resources: dict[int, object]
+    steps: list[list[_StepInfo]]
+
+    def describe(self) -> list[str]:
+        lines = []
+        for rid in self.offsets:
+            resource = self.resources[rid]
+            pipeline_type = _pipeline_type(resource)
+            kind = "unpipelined" if pipeline_type is None else pipeline_type.name
+            line = (
+                f"{resource.name}: {kind}, {_num_stages(resource)} stage(s), "
+                f"{self.producers.get(rid, 1)} producer task(s), "
+                f"{self.consumers.get(rid, 1)} consumer task(s)"
+            )
+            if rid in self.dma_rids:
+                line += "; operand read hold persists past release"
+            paired = self.completion_pairs.get(rid)
+            if paired:
+                names = ", ".join(sorted(self.resources[x].name for x in paired))
+                line += f"; a wait on it completes the reads of {names}"
+            lines.append(line)
+        return lines
+
+
+def _static_roles(
+    task: Task,
+) -> tuple[set[int], set[int], set[int], dict[int, object]]:
+    """Return the resources a task commits, releases and waits on, statically.
+
+    Hardware arrival counts are fixed when the barriers are initialized, so a
+    task counts as a participant whenever its captured schedule contains the
+    op, whether or not the current opaque assignment or tile variant reaches
+    it.
+    """
+    committed: set[int] = set()
+    released: set[int] = set()
+    waited: set[int] = set()
+    by_id: dict[int, object] = {}
+    for node in _iter_nodes(task.schedule.body):
+        if not isinstance(node, Step):
+            continue
+        rid = id(node.memory_resource)
+        by_id[rid] = node.memory_resource
+        stage = node.schedule_stage
+        if stage is ScheduleStage.ProducerCommit:
+            committed.add(rid)
+        elif stage is ScheduleStage.ConsumerRelease:
+            released.add(rid)
+        elif stage is ScheduleStage.ConsumerWait:
+            waited.add(rid)
+    return committed, released, waited, by_id
+
+
+def _build_model(
+    tasks: list[Task],
+    schedules: list[list[FlatScheduleOp]],
+    resources: dict[int, object],
+) -> _BarrierModel:
+    offsets: dict[int, int] = {}
+    initial: list[int] = []
+    for schedule in schedules:
+        for op in schedule:
+            rid = id(op.resource)
+            if op.schedule_stage in _BARRIER_STAGES and rid not in offsets:
+                offsets[rid] = len(initial) // _BARRIER_FIELDS
+                initial.extend(_INITIAL_RECORD * _num_stages(op.resource))
+
+    producers: dict[int, int] = {}
+    consumers: dict[int, int] = {}
+    roles = []
+    by_id = dict(resources)
+    for task in tasks:
+        committed, released, waited, task_resources = _static_roles(task)
+        by_id.update(task_resources)
+        for rid in committed:
+            producers[rid] = producers.get(rid, 0) + 1
+        for rid in released:
+            consumers[rid] = consumers.get(rid, 0) + 1
+        roles.append((committed, waited))
+
+    dma_rids = frozenset(
+        rid for rid, resource in by_id.items() if _is_dma_consumer(resource)
+    )
+    # A task that waits on a DMA-consumer operand and commits a completion
+    # producer pairs the two: the commit covers the reads issued before it.
+    pairs: dict[int, set[int]] = {}
+    for committed, waited in roles:
+        operands = waited & dma_rids
+        if not operands:
+            continue
+        for rid in committed:
+            if _is_completion_producer(by_id[rid]):
+                pairs.setdefault(rid, set()).update(operands)
+    completion_pairs = {rid: frozenset(operands) for rid, operands in pairs.items()}
+
+    steps = [
+        _precompute_steps(
+            schedule, offsets, producers, consumers, dma_rids, completion_pairs
+        )
+        for schedule in schedules
+    ]
+    return _BarrierModel(
+        offsets,
+        tuple(initial),
+        producers,
+        consumers,
+        dma_rids,
+        completion_pairs,
+        by_id,
+        steps,
+    )
+
+
+def _precompute_steps(
+    schedule: list[FlatScheduleOp],
+    offsets: dict[int, int],
+    producers: dict[int, int],
+    consumers: dict[int, int],
+    dma_rids: frozenset[int],
+    completion_pairs: dict[int, frozenset[int]],
+) -> list[_StepInfo]:
+    """Resolve the stage, gate, arrivals and holds of every op of one task."""
+    ordinals: dict[tuple[int, str], int] = {}
+    steps = []
+    for op in schedule:
+        resource = op.resource
+        rid = id(resource)
+        stage = op.schedule_stage
+        fields: dict[str, object] = {
+            "rid": rid,
+            "stage": stage,
+            "label": f"{stage.name}({resource.name})",
+            "dma_consumer": rid in dma_rids,
+        }
+        if stage is ScheduleStage.ProducerWork:
+            fields["access"] = "write"
+        elif stage is ScheduleStage.ConsumerWork:
+            fields["access"] = (
+                "write" if op.sync_phase == "cons_write_phase" else "read"
+            )
+        base = offsets.get(rid)
+        if base is not None and stage in _BARRIER_STAGES:
+            num_stages = _num_stages(resource)
+            fields["expected_full"] = producers.get(rid, 1)
+            fields["expected_empty"] = consumers.get(rid, 1)
+            if stage in (
+                ScheduleStage.ProducerTryAcquire,
+                ScheduleStage.ProducerAcquire,
+            ):
+                ordinal = ordinals.get((rid, "acquire"), 0)
+                fields["slot"] = ordinal % num_stages
+                if stage is ScheduleStage.ProducerAcquire:
+                    fields["gate"] = _GATE_EMPTY
+                    fields["gate_phase"] = (ordinal // num_stages) % 2
+                    ordinals[(rid, "acquire")] = ordinal + 1
+            elif stage is ScheduleStage.ProducerCommit:
+                ordinal = ordinals.get((rid, "commit"), 0)
+                ordinals[(rid, "commit")] = ordinal + 1
+                fields["slot"] = ordinal % num_stages
+                fields["arrive_full"] = True
+                paired = completion_pairs.get(rid)
+                if paired:
+                    gen = ordinals.get((rid, "completion commit"), 0)
+                    ordinals[(rid, "completion commit")] = gen + 1
+                    fields["completion_rids"] = paired
+                    fields["completion_gen"] = gen
+            elif stage in (
+                ScheduleStage.ConsumerTryWait,
+                ScheduleStage.ConsumerWait,
+            ):
+                ordinal = ordinals.get((rid, "wait"), 0)
+                fields["slot"] = ordinal % num_stages
+                if stage is ScheduleStage.ConsumerWait:
+                    fields["gate"] = _GATE_FULL
+                    fields["gate_phase"] = (ordinal // num_stages) % 2
+                    ordinals[(rid, "wait")] = ordinal + 1
+                    paired = completion_pairs.get(rid)
+                    if paired:
+                        gen = ordinals.get((rid, "completion wait"), 0)
+                        ordinals[(rid, "completion wait")] = gen + 1
+                        fields["completion_rids"] = paired
+                        fields["completion_gen"] = gen
+            else:
+                ordinal = ordinals.get((rid, "release"), 0)
+                ordinals[(rid, "release")] = ordinal + 1
+                fields["slot"] = ordinal % num_stages
+                fields["arrive_empty"] = True
+            fields["record"] = base + fields["slot"]
+        steps.append(_StepInfo(**fields))
+    return steps
+
+
+def _step_enabled(step: _StepInfo, barriers: tuple[int, ...]) -> bool:
+    if step.gate == _GATE_NONE:
+        return True
+    phase_field = _B_FULL_PHASE if step.gate == _GATE_FULL else _B_EMPTY_PHASE
+    return barriers[step.record * _BARRIER_FIELDS + phase_field] != step.gate_phase
+
+
+def _arrive(
+    values: list[int], base: int, phase_field: int, count_field: int, expected: int
+) -> None:
+    """Count one arrival on a barrier; flip its phase once all have arrived."""
+    values[base + count_field] += 1
+    if values[base + count_field] >= expected:
+        values[base + count_field] = 0
+        values[base + phase_field] ^= 1
+
+
+def _remove_first(
+    entries: list[HeldEntry], task_index: int, rid: int, access: str, slot: int
+) -> None:
+    for index, entry in enumerate(entries):
+        if entry[:4] == (task_index, rid, access, slot):
+            del entries[index]
+            return
+
+
+def _apply_step(
+    step: _StepInfo,
+    task_index: int,
+    barriers: tuple[int, ...],
+    held: tuple[HeldEntry, ...],
+) -> tuple[tuple[int, ...], tuple[HeldEntry, ...]]:
+    """Return the barrier vector and held entries after ``step`` executes."""
+    if step.arrive_full or step.arrive_empty:
+        values = list(barriers)
+        base = step.record * _BARRIER_FIELDS
+        if step.arrive_full:
+            _arrive(values, base, _B_FULL_PHASE, _B_FULL_ARRIVALS, step.expected_full)
+        if step.arrive_empty:
+            _arrive(
+                values, base, _B_EMPTY_PHASE, _B_EMPTY_ARRIVALS, step.expected_empty
+            )
+        barriers = tuple(values)
+    if step.record < 0:
+        return barriers, held
+    stage = step.stage
+    if stage is ScheduleStage.ProducerAcquire:
+        # Passing the empty barrier of a DMA-consumer stage proves that every
+        # MMA reading it has completed, whichever task issued the read.
+        entries = [
+            entry
+            for entry in held
+            if not (
+                step.dma_consumer
+                and entry[1] == step.rid
+                and entry[2] == "read"
+                and entry[3] == step.slot
+            )
+        ]
+        entries.append((task_index, step.rid, "write", step.slot, _UNTAGGED))
+    elif stage is ScheduleStage.ProducerCommit:
+        entries = list(held)
+        _remove_first(entries, task_index, step.rid, "write", step.slot)
+        if step.completion_rids:
+            # ``tcgen05.commit`` tracks the issuing thread's own MMAs, so only
+            # this task's untagged operand reads are covered by this commit.
+            entries = [
+                (entry[0], entry[1], entry[2], entry[3], step.completion_gen)
+                if entry[0] == task_index
+                and entry[2] == "read"
+                and entry[4] == _UNTAGGED
+                and entry[1] in step.completion_rids
+                else entry
+                for entry in entries
+            ]
+    elif stage is ScheduleStage.ConsumerWait:
+        entries = list(held)
+        if step.completion_rids:
+            entries = [
+                entry
+                for entry in entries
+                if not (
+                    entry[2] == "read"
+                    and entry[4] == step.completion_gen
+                    and entry[1] in step.completion_rids
+                )
+            ]
+        entries.append((task_index, step.rid, "read", step.slot, _UNTAGGED))
+    elif stage is ScheduleStage.ConsumerRelease:
+        if step.dma_consumer:
+            return barriers, held
+        entries = list(held)
+        _remove_first(entries, task_index, step.rid, "read", step.slot)
+    else:
+        return barriers, held
+    return barriers, tuple(sorted(entries))
+
+
+def _blocked_details(
+    cursors: tuple[int, ...],
+    barriers: tuple[int, ...],
+    model: _BarrierModel,
+    tasks: list[Task],
+) -> tuple[str, ...]:
+    details = []
+    for task_index, cursor in enumerate(cursors):
+        steps = model.steps[task_index]
+        if cursor >= len(steps):
+            continue
+        step = steps[cursor]
+        if step.gate == _GATE_NONE:
+            continue
+        base = step.record * _BARRIER_FIELDS
+        if step.gate == _GATE_FULL:
+            kind = "full"
+            phase = barriers[base + _B_FULL_PHASE]
+            arrivals = barriers[base + _B_FULL_ARRIVALS]
+            expected = step.expected_full
+        else:
+            kind = "empty"
+            phase = barriers[base + _B_EMPTY_PHASE]
+            arrivals = barriers[base + _B_EMPTY_ARRIVALS]
+            expected = step.expected_empty
+        details.append(
+            f"{tasks[task_index].name}: {step.label} on stage {step.slot} waits "
+            f"for the {kind} barrier to leave phase {phase} "
+            f"({arrivals} of {expected} arrivals)"
+        )
+    return tuple(details)
+
+
 def check_all_interleavings(
     tasks: list[Task],
     alias_map=None,
@@ -767,6 +1237,15 @@ def check_all_interleavings(
     cursor_only_visited: bool = True,
     representative_domain: bool = False,
 ) -> CheckResult:
+    """Explore every interleaving of the expanded schedules.
+
+    Shared state is the barrier-phase model described above plus the held
+    accesses used for alias races.  Both are functions of the cursor tuple
+    (arrival counts are sums over task prefixes and holds are decided by which
+    waits, commits and acquires each task has executed), so the default
+    cursor-only visited key is exact; ``cursor_only_visited=False`` spells the
+    shared state out, which lets a test check that claim.
+    """
     del alias_map, prod_alias_map, cons_alias_map, overlap_descs
     del assume_pdl_wait_completed
     if not tasks:
@@ -790,59 +1269,20 @@ def check_all_interleavings(
     resources = {
         id(op.resource): op.resource for schedule in schedules for op in schedule
     }
+    model = _build_model(tasks, schedules, resources)
     reporter = _VerboseReporter(tasks) if verbose else None
     if reporter is not None:
         reporter.print_header(schedules, skipped_tile=skipped_tile)
-    initial_prod = tuple(
-        (
-            id(resource),
-            resource.pipeline_config.num_stages
-            if resource.pipeline_config is not None
-            else 1,
-        )
-        for resource in resources.values()
-    )
-    initial_cons = tuple((rid, 0) for rid in resources)
-    clc_consumer_counts = {
-        rid: sum(
-            any(
-                id(op.resource) == rid
-                and op.schedule_stage is ScheduleStage.ConsumerWait
-                for op in schedule
-            )
-            for schedule in schedules
-        )
-        for rid, resource in resources.items()
-        if resource.pipeline_config is not None
-        and resource.pipeline_config.pipeline_type is PipelineType.ClcFetchAsync
-    }
-    initial_releases = tuple((rid, 0) for rid in clc_consumer_counts)
-    queue = deque(
-        [
-            (
-                (0,) * len(tasks),
-                initial_prod,
-                initial_cons,
-                initial_releases,
-                (),
-                None,
-            )
-        ]
-    )
+        reporter.print_model(model.describe())
+    queue = deque([((0,) * len(tasks), model.initial, (), None)])
     visited = set()
     deadlocks = []
     races = []
     explored = complete = 0
 
     while queue and explored < max_states:
-        cursors, frozen_prod, frozen_cons, frozen_releases, held, trace = (
-            queue.popleft()
-        )
-        key = (
-            cursors
-            if cursor_only_visited
-            else (cursors, frozen_prod, frozen_cons, frozen_releases, held)
-        )
+        cursors, barriers, held, trace = queue.popleft()
+        key = cursors if cursor_only_visited else (cursors, barriers, held)
         if key in visited:
             continue
         visited.add(key)
@@ -852,72 +1292,37 @@ def check_all_interleavings(
             if reporter is not None:
                 reporter.print_complete(explored, cursors, trace)
             continue
-        prod, cons = dict(frozen_prod), dict(frozen_cons)
-        releases = dict(frozen_releases)
         enabled = 0
         for task_index, task in enumerate(tasks):
             cursor = cursors[task_index]
             if cursor >= len(schedules[task_index]):
                 continue
-            op = schedules[task_index][cursor]
-            rid = id(op.resource)
-            stage = op.schedule_stage
-            if stage is ScheduleStage.ProducerAcquire and prod[rid] <= 0:
-                continue
-            if stage is ScheduleStage.ConsumerWait and cons[rid] <= 0:
+            step = model.steps[task_index][cursor]
+            if not _step_enabled(step, barriers):
                 continue
             enabled += 1
-            next_prod, next_cons = dict(prod), dict(cons)
-            next_releases = dict(releases)
-            next_held = list(held)
-            if stage is ScheduleStage.ProducerAcquire:
-                next_prod[rid] -= 1
-                next_held.append((task_index, rid, "write"))
-            elif stage is ScheduleStage.ProducerCommit:
-                next_cons[rid] += clc_consumer_counts.get(rid, 1)
-                next_held = [h for h in next_held if h != (task_index, rid, "write")]
-            elif stage is ScheduleStage.ConsumerWait:
-                next_cons[rid] -= 1
-                next_held.append((task_index, rid, "read"))
-            elif stage is ScheduleStage.ConsumerRelease:
-                if rid in clc_consumer_counts:
-                    next_releases[rid] += 1
-                    if next_releases[rid] == clc_consumer_counts[rid]:
-                        next_prod[rid] += 1
-                        next_releases[rid] = 0
-                else:
-                    next_prod[rid] += 1
-                next_held = [h for h in next_held if h != (task_index, rid, "read")]
-            access = None
-            if stage is ScheduleStage.ProducerWork:
-                access = "write"
-            elif stage is ScheduleStage.ConsumerWork:
-                access = (
-                    "write"
-                    if op.sync_phase == "cons_write_phase"
-                    else "read"
-                )
-            if access:
-                for owner, held_rid, held_access in held:
+            if step.access:
+                for owner, held_rid, held_access, _slot, _tag in held:
                     if (
                         owner == task_index
-                        or rid == held_rid
-                        or (access == held_access == "read")
+                        or step.rid == held_rid
+                        or (step.access == held_access == "read")
                     ):
                         continue
-                    description = _overlap(op.resource, resources[held_rid])
+                    description = _overlap(resources[step.rid], resources[held_rid])
                     if description:
+                        is_writer = step.access == "write"
                         races.append(
                             RaceInfo(
                                 cursors,
-                                task.name if access == "write" else tasks[owner].name,
-                                op.resource.name
-                                if access == "write"
+                                task.name if is_writer else tasks[owner].name,
+                                resources[step.rid].name
+                                if is_writer
                                 else resources[held_rid].name,
-                                tasks[owner].name if access == "write" else task.name,
+                                tasks[owner].name if is_writer else task.name,
                                 resources[held_rid].name
-                                if access == "write"
-                                else op.resource.name,
+                                if is_writer
+                                else resources[step.rid].name,
                                 held_access,
                                 description,
                             )
@@ -937,34 +1342,21 @@ def check_all_interleavings(
                                 )
                                 reporter.print_summary(result, max_states)
                             return result
+            next_barriers, next_held = _apply_step(step, task_index, barriers, held)
             next_cursors = list(cursors)
             next_cursors[task_index] += 1
             next_trace = (
-                _TraceNode(
-                    trace,
-                    task_index,
-                    f"{stage.name}({op.resource.name})",
-                )
-                if verbose
-                else None
+                _TraceNode(trace, task_index, step.label) if verbose else None
             )
-            queue.append(
-                (
-                    tuple(next_cursors),
-                    tuple(sorted(next_prod.items())),
-                    tuple(sorted(next_cons.items())),
-                    tuple(sorted(next_releases.items())),
-                    tuple(sorted(next_held)),
-                    next_trace,
-                )
-            )
+            queue.append((tuple(next_cursors), next_barriers, next_held, next_trace))
         if enabled == 0:
             blocked = tuple(
                 tasks[i].name
                 for i, cursor in enumerate(cursors)
                 if cursor < len(schedules[i])
             )
-            deadlocks.append(DeadlockInfo(cursors, blocked))
+            details = _blocked_details(cursors, barriers, model, tasks)
+            deadlocks.append(DeadlockInfo(cursors, blocked, details))
             if reporter is not None:
                 reporter.print_deadlock(
                     explored,
@@ -973,6 +1365,7 @@ def check_all_interleavings(
                     resources,
                     trace,
                     blocked,
+                    details,
                 )
             if early_exit:
                 break

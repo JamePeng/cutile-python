@@ -411,7 +411,7 @@ class TaskManager:
             )
             if not result.is_safe:
                 if result.deadlock_states:
-                    witness = result.deadlock_states[0].format_lines()[0]
+                    witness = "; ".join(result.deadlock_states[0].format_lines())
                 elif result.race_states:
                     witness = (
                         f"aliasing race: {result.race_states[0].overlap_desc}"
